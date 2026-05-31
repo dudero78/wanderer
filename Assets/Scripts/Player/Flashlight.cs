@@ -14,6 +14,8 @@ public class Flashlight : MonoBehaviour
 
     bool on;
 
+    public bool IsOn => on;   // per l'HUD: stato acceso/spento
+
     void Update()
     {
         if (lamp == null) return;

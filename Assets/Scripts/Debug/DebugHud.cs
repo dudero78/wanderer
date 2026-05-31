@@ -13,14 +13,15 @@ public class DebugHud : MonoBehaviour
     CelestialBody star;
     SolarSystem solar;
     PlanetWalker walker;
+    Flashlight flash;
     Transform suit;
     Transform cam;
     GUIStyle style;
     GUIStyle banner;
 
-    public void Init(Transform p, CelestialBody pl, CelestialBody st, SolarSystem s, PlanetWalker w, Transform suit, Transform cam)
+    public void Init(Transform p, CelestialBody pl, CelestialBody st, SolarSystem s, PlanetWalker w, Flashlight fl, Transform suit, Transform cam)
     {
-        player = p; planet = pl; star = st; solar = s; walker = w; this.suit = suit; this.cam = cam;
+        player = p; planet = pl; star = st; solar = s; walker = w; flash = fl; this.suit = suit; this.cam = cam;
     }
 
     void OnGUI()
@@ -39,14 +40,19 @@ public class DebugHud : MonoBehaviour
 
         bool jetpack = walker != null && walker.HasJetpack;
         string controls = jetpack
-            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende · N cambia volo.  F torcia · Mouse guarda · Esc cursore"
+            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende · N cambia volo · X freno (newtoniano).  F torcia · Mouse guarda · Esc cursore"
             : "WASD muovi  ·  Space salta  ·  Mouse guarda  ·  Esc libera il cursore";
 
         float rad = walker != null ? walker.RadialSpeed : 0f;
+        float spd = walker != null ? walker.Speed : 0f;
+        float tan = Mathf.Sqrt(Mathf.Max(0f, spd * spd - rad * rad));   // velocità di traverso = orbitale
         string radWord = rad > 0.5f ? "ti allontani" : rad < -0.5f ? "ti AVVICINI" : "stazionario";
         string model = walker != null && walker.IsNewtonian ? "NEWTONIANO" : $"Crociera ({(walker != null ? walker.Boost01 * 100f : 0f):F0}%)";
+        string brake = walker != null && walker.Braking ? "   ·   FRENO" : "";
+        string torch = flash != null && flash.IsOn ? "ACCESA" : "spenta";
         string flightLine = jetpack
-            ? $"Velocità           : {walker.Speed:F0} m/s   ·   radiale {rad:+0;-0} m/s ({radWord})   ·   Volo: {model}\n"
+            ? $"Velocità           : {spd:F0} m/s   ·   radiale {rad:+0;-0} ({radWord})   ·   tangenz. {tan:F0} (orbita)   ·   Volo: {model}{brake}\n" +
+              $"Torcia             : {torch}\n"
             : "";
 
         string suitLine;

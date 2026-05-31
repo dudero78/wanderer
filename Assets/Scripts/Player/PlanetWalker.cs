@@ -36,6 +36,8 @@ public class PlanetWalker : MonoBehaviour
 
     [Header("Newtoniano")]
     public float newtonThrust = 30f;      // accelerazione costante, nessun limite di velocità
+    public float brakeAccel = 25f;        // freno di assetto: decelerazione verso velocità-pianeta zero
+    public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
 
     [System.NonSerialized] public bool HasJetpack;
     [System.NonSerialized] public float EquipTime = -999f;
@@ -46,6 +48,7 @@ public class PlanetWalker : MonoBehaviour
     public float Speed => rb != null ? rb.linearVelocity.magnitude : 0f;
     public float Boost01 => boost01;   // 0 = manovra, 1 = crociera piena (per l'HUD)
     public float RadialSpeed { get; private set; }   // >0 ti allontani dal pianeta, <0 ti avvicini
+    public bool Braking { get; private set; }         // freno di assetto attivo (per l'HUD)
 
     Rigidbody rb;
     float pitch;
@@ -136,6 +139,7 @@ public class PlanetWalker : MonoBehaviour
 
         bool grounded = r <= restHeight + 0.05f;
         bool flying = HasJetpack && (!grounded || thrustUp);
+        Braking = false;
 
         if (flying)
         {
@@ -161,6 +165,22 @@ public class PlanetWalker : MonoBehaviour
                 if (nThrust.sqrMagnitude > 1f) nThrust = nThrust.normalized;
                 rb.AddForce(nThrust * newtonThrust, ForceMode.Acceleration);
                 boost01 = 0f;   // azzerato: tornando a Crociera si riparte da manovra
+
+                // Freno di assetto (match velocity): controspinta automatica che porta a zero
+                // la velocità rispetto al pianeta — siamo nel frame ancorato al pianeta, quindi
+                // rb.linearVelocity È già quella relativa. Tienilo premuto vicino al pianeta per
+                // uscire dall'orbita: annulli la velocità tangenziale e la gravità ti fa scendere.
+                Braking = Input.GetKey(brakeKey);
+                if (Braking)
+                {
+                    Vector3 vel = rb.linearVelocity;
+                    float sp = vel.magnitude;
+                    if (sp > 0.001f)
+                    {
+                        float newSp = Mathf.Max(0f, sp - brakeAccel * Time.fixedDeltaTime);
+                        rb.linearVelocity = vel * (newSp / sp);
+                    }
+                }
             }
             else
             {
@@ -175,7 +195,18 @@ public class PlanetWalker : MonoBehaviour
                 float effThrust = Mathf.Lerp(jetThrust, cruiseThrust, boost01);
                 float effDamping = Mathf.Lerp(jetDamping, cruiseDamping, boost01);
                 rb.AddForce(thrust * effThrust, ForceMode.Acceleration);
-                rb.linearVelocity *= Mathf.Clamp01(1f - effDamping * Time.fixedDeltaTime);
+
+                // Smorzamento ANISOTROPO: frena il moto controllato (orizzontale + salita)
+                // così ti fermi quando rilasci, ma NON frena la caduta — altrimenti la
+                // gravità non si sente e galleggeresti giù a velocità costante invece di
+                // precipitare accelerando. Conseguenza voluta: il jetpack non ti tiene su
+                // da solo, per mantenere quota dai un filo di Space (come un jetpack vero).
+                float damp = Mathf.Clamp01(1f - effDamping * Time.fixedDeltaTime);
+                Vector3 vel = rb.linearVelocity;
+                float vRad = Vector3.Dot(vel, up);
+                Vector3 vTan = (vel - up * vRad) * damp;   // orizzontale: sempre smorzata
+                if (vRad > 0f) vRad *= damp;               // salita smorzata; caduta libera di accelerare
+                rb.linearVelocity = vTan + up * vRad;
             }
 
             // se tocchi il suolo, non sprofondare (rete di sicurezza valida per entrambi i modelli)

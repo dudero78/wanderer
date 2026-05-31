@@ -24,11 +24,19 @@ pianeta con LOD per distanza.
 - *Crociera* (default tuta): la potenza dei motori cresce con la quota e con quanto
   tieni la spinta (rampa `boost01`), così resti maneggevole vicino al suolo
   (atterraggio intatto) e veloce in alto. Comandi sugli assi tangenti del pianeta.
+  Smorzamento **anisotropo**: frena moto orizzontale e salita ma NON la caduta, così
+  la gravità si sente (precipiti accelerando). Conseguenza: il jetpack non galleggia
+  da solo, per tenere quota dai un filo di Space.
 - *Newtoniano*: nessun attrito, la spinta si somma (delta-v reale, alla Outer
   Wilds). Comandi **relativi allo sguardo** (puntare e andare), non agli assi
   tangenti — altrimenti da lontano non si torna indietro. Sarà il default
-  dell'astronave. L'HUD mostra velocità e **velocità radiale con segno** (segno −
-  = ti avvicini al pianeta).
+  dell'astronave. **Freno di assetto** (`X`, match velocity): controspinta
+  automatica che azzera la velocità relativa al pianeta — serve per uscire
+  dall'orbita e atterrare (a 500 m di quota bastano ~50 m/s di traverso per orbitare
+  stabile: senza freno giri in tondo all'infinito).
+
+HUD volo: velocità, **radiale con segno** (− = ti avvicini), **tangenziale**
+(quanta orbita hai), modello attivo, stato `FRENO` e stato **torcia**.
 
 Prossimo passo visivo concordato: **crateri**.
 

@@ -171,7 +171,7 @@ public class GameBootstrap : MonoBehaviour
         RenderSettings.ambientLight = new Color(0.05f, 0.054f, 0.065f);
 
         var hud = gameObject.AddComponent<DebugHud>();
-        hud.Init(playerGo.transform, planet, star, solar, walker, suitGo.transform, camGo.transform);
+        hud.Init(playerGo.transform, planet, star, solar, walker, flashlight, suitGo.transform, camGo.transform);
     }
 
     static void SetColor(GameObject go, Color c, bool emissive = false)
