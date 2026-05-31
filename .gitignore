@@ -1,0 +1,30 @@
+# Cartelle generate da Unity
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# Asset import e cache
+/[Aa]ssets/AssetStoreTools*
+/[Aa]ssets/StreamingAssets/aa.meta
+/[Aa]ssets/StreamingAssets/aa/*
+
+# File generati da IDE / OS
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.user
+*.unityproj
+*.booproj
+.DS_Store
+
+# Crash report
+sysinfo.txt
+*.stackdump
