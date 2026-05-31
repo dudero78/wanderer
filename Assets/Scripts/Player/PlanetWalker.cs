@@ -35,7 +35,8 @@ public class PlanetWalker : MonoBehaviour
     public float cruiseAltHigh = 120f;    // sopra questa quota la crociera è pienamente sbloccata
 
     [Header("Newtoniano")]
-    public float newtonThrust = 30f;      // accelerazione costante, nessun limite di velocità
+    public float newtonThrust = 30f;      // accelerazione a pieno regime, nessun limite di velocità
+    public float thrustRampTime = 1.2f;   // secondi perché i motori salgano a piena spinta (inerzia)
     public float brakeAccel = 25f;        // freno di assetto: decelerazione verso velocità-pianeta zero
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
 
@@ -47,6 +48,7 @@ public class PlanetWalker : MonoBehaviour
     public bool IsNewtonian => Model == FlightModel.Newtonian;
     public float Speed => rb != null ? rb.linearVelocity.magnitude : 0f;
     public float Boost01 => boost01;   // 0 = manovra, 1 = crociera piena (per l'HUD)
+    public float ThrustSpool01 => thrustSpool01;   // regime motori newtoniani 0..1 (per l'HUD)
     public float RadialSpeed { get; private set; }   // >0 ti allontani dal pianeta, <0 ti avvicini
     public bool Braking { get; private set; }         // freno di assetto attivo (per l'HUD)
 
@@ -54,6 +56,7 @@ public class PlanetWalker : MonoBehaviour
     float pitch;
     float yawDelta;   // yaw del mouse accumulato in Update, applicato in FixedUpdate
     float boost01;    // rampa di potenza della crociera, 0..1
+    float thrustSpool01;   // regime dei motori newtoniani, 0..1: prendono gradualmente
 
     public void EquipJetpack()
     {
@@ -163,7 +166,16 @@ public class PlanetWalker : MonoBehaviour
                                 + (camRot * Vector3.right) * h
                                 + (camRot * Vector3.up) * ((thrustUp ? 1f : 0f) - (thrustDown ? 1f : 0f));
                 if (nThrust.sqrMagnitude > 1f) nThrust = nThrust.normalized;
-                rb.AddForce(nThrust * newtonThrust, ForceMode.Acceleration);
+
+                // Spool dei motori: la spinta non scatta a pieno regime al primo tasto.
+                // Sale verso 1 in thrustRampTime mentre tieni i comandi e ricade più in
+                // fretta quando li rilasci → i motori "prendono" gradualmente, dando inerzia
+                // alla manovra (e un filo di coda quando smetti di spingere).
+                float spoolRate = thrusting ? thrustRampTime : thrustRampTime * 0.4f;
+                thrustSpool01 = Mathf.MoveTowards(thrustSpool01, thrusting ? 1f : 0f,
+                                                  Time.fixedDeltaTime / Mathf.Max(spoolRate, 0.01f));
+
+                rb.AddForce(nThrust * newtonThrust * thrustSpool01, ForceMode.Acceleration);
                 boost01 = 0f;   // azzerato: tornando a Crociera si riparte da manovra
 
                 // Freno di assetto (match velocity): controspinta automatica che porta a zero
@@ -191,6 +203,7 @@ public class PlanetWalker : MonoBehaviour
                 float target = thrusting ? altUnlock : 0f;
                 float rate = (target > boost01 ? boostRampTime : boostFalloffTime);
                 boost01 = Mathf.MoveTowards(boost01, target, Time.fixedDeltaTime / Mathf.Max(rate, 0.01f));
+                thrustSpool01 = 0f;   // azzerato: tornando a Newtoniano i motori ripartono da fermi
 
                 float effThrust = Mathf.Lerp(jetThrust, cruiseThrust, boost01);
                 float effDamping = Mathf.Lerp(jetDamping, cruiseDamping, boost01);

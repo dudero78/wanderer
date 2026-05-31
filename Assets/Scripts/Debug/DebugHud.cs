@@ -47,7 +47,7 @@ public class DebugHud : MonoBehaviour
         float spd = walker != null ? walker.Speed : 0f;
         float tan = Mathf.Sqrt(Mathf.Max(0f, spd * spd - rad * rad));   // velocità di traverso = orbitale
         string radWord = rad > 0.5f ? "ti allontani" : rad < -0.5f ? "ti AVVICINI" : "stazionario";
-        string model = walker != null && walker.IsNewtonian ? "NEWTONIANO" : $"Crociera ({(walker != null ? walker.Boost01 * 100f : 0f):F0}%)";
+        string model = walker != null && walker.IsNewtonian ? $"NEWTONIANO (spinta {walker.ThrustSpool01 * 100f:F0}%)" : $"Crociera ({(walker != null ? walker.Boost01 * 100f : 0f):F0}%)";
         string brake = walker != null && walker.Braking ? "   ·   FRENO" : "";
         string torch = flash != null && flash.IsOn ? "ACCESA" : "spenta";
         string flightLine = jetpack
