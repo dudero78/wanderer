@@ -53,14 +53,16 @@ public class GameBootstrap : MonoBehaviour
         // il PlanetWalker ci cammina sopra. Una sola fonte di verità.
         var terrain = planetGo.AddComponent<PlanetTerrain>();
         terrain.BaseRadius = (float)planet.Radius;
-        terrain.Amplitude = 60f;
+        terrain.Amplitude = 55f;    // colline più marcate: silhouette meno "palla liscia"
         terrain.Frequency = 2.5f;
-        terrain.Octaves = 8;        // più ottave = rilievi di scala media/fine (riferimenti per la torcia)
+        // la MESH fa la forma larga, lo shader Perlin aggiunge il dettaglio fine. 5 ottave:
+        // l'ottava più fine (~12 m) è ben risolta dalla normale analitica, niente aliasing.
+        terrain.Octaves = 5;
         terrain.Seed = 1337;
 
-        var planetMat = new Material(Shader.Find("Standard")) { color = new Color(0.32f, 0.5f, 0.36f) };
-        planetMat.SetFloat("_Metallic", 0f);
-        planetMat.SetFloat("_Glossiness", 0.05f);   // opaco, look lunare: niente riflesso speculare
+        var planetMat = new Material(Shader.Find("Wanderer/Planet"));
+        planetMat.SetFloat("_BaseRadius", terrain.BaseRadius);
+        planetMat.SetFloat("_Amplitude", terrain.Amplitude);
         PlanetMeshBuilder.Build(planetGo.transform, terrain, 160, planetMat);
 
         solar.Register(planet);
@@ -103,8 +105,8 @@ public class GameBootstrap : MonoBehaviour
         var glow = glowGo.AddComponent<Light>();
         glow.type = LightType.Point;
         glow.color = new Color(0.3f, 0.95f, 1f);
-        glow.range = 30f;
-        glow.intensity = 4f;
+        glow.range = 5f;         // alone stretto sulla tuta, non un'inondazione di ciano sul terreno
+        glow.intensity = 1.2f;
 
         var pickup = suitGo.AddComponent<SuitPickup>();
         pickup.surfaceClearance = 1.2f;   // metà altezza della capsula: la base tocca il suolo
@@ -131,24 +133,29 @@ public class GameBootstrap : MonoBehaviour
         flashGo.transform.localPosition = new Vector3(0f, -0.15f, 0f);
         var lamp = flashGo.AddComponent<Light>();
         lamp.type = LightType.Spot;
-        lamp.range = 55f;
-        lamp.spotAngle = 46f;
-        lamp.intensity = 2.6f;          // vivida ma senza bruciare a bianco
+        lamp.range = 110f;
+        lamp.spotAngle = 68f;
         lamp.color = new Color(1f, 0.95f, 0.85f);
         // niente ombre proiettate dalla torcia: a luce radente su questa mesh danno
         // "crepe" (shadow acne). Il rilievo emerge comunque dall'illuminazione diffusa
         // angolata (la torcia è spostata di lato), in modo pulito.
         lamp.shadows = LightShadows.None;
-        lamp.enabled = false;
+        // niente cookie: lo spot di default è già un cono morbido e rotondo, ed è più luminoso.
+        // (Il rettangolo ciano era la TUTA, non la torcia: risolto nascondendola alla raccolta.)
+        // sempre enabled: la torcia si commuta via intensità.
+        lamp.enabled = true;
+        lamp.intensity = 0f;
         var flashlight = flashGo.AddComponent<Flashlight>();
         flashlight.walker = walker;
         flashlight.lamp = lamp;
+        flashlight.onIntensity = 2.2f;   // base contenuta: niente bruciato da vicino
+        flashlight.baseRange = 110f;
 
         // --- Luce stellare ---
         var lightGo = new GameObject("SunLight");
         var dl = lightGo.AddComponent<Light>();
         dl.type = LightType.Directional;
-        dl.intensity = 1.6f;
+        dl.intensity = 2.0f;
         dl.color = new Color(1f, 0.96f, 0.9f);
         // niente ombre proiettate dal sole: causavano lo "schiarimento" brusco del terreno
         // mentre ti allontani (le auto-ombre svaniscono oltre la shadow distance). Il rilievo
@@ -161,7 +168,7 @@ public class GameBootstrap : MonoBehaviour
         // notte quasi nera: il terminatore (linea giorno/notte) diventa netto, look lunare.
         // Con l'atmosfera, più avanti, sarà lo scattering a rialzare la luce sul lato in ombra.
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.02f, 0.022f, 0.03f);
+        RenderSettings.ambientLight = new Color(0.05f, 0.054f, 0.065f);
 
         var hud = gameObject.AddComponent<DebugHud>();
         hud.Init(playerGo.transform, planet, star, solar, walker, suitGo.transform, camGo.transform);

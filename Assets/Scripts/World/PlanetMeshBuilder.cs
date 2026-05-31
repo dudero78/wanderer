@@ -32,6 +32,7 @@ public static class PlanetMeshBuilder
 
         var verts = new Vector3[res * res];
         var normals = new Vector3[res * res];
+        var tangents = new Vector4[res * res];
         var tris = new int[(res - 1) * (res - 1) * 6];
         int ti = 0;
         float eps = 2f / (res - 1);   // passo per la differenza centrale (~ una cella di griglia)
@@ -46,7 +47,13 @@ public static class PlanetMeshBuilder
                 Vector3 pointOnCube = localUp + (tx - 0.5f) * 2f * axisA + (ty - 0.5f) * 2f * axisB;
                 Vector3 dir = pointOnCube.normalized;
                 verts[i] = dir * terrain.SampleHeight(dir);
-                normals[i] = terrain.SurfaceNormal(dir, eps);
+                Vector3 nrm = terrain.SurfaceNormal(dir, eps);
+                normals[i] = nrm;
+                // tangente arbitraria perpendicolare alla normale: serve allo shader per
+                // applicare le normali di dettaglio (la sua orientazione non conta, è procedurale)
+                Vector3 refV = Mathf.Abs(nrm.y) < 0.99f ? Vector3.up : Vector3.right;
+                Vector3 tan = Vector3.Normalize(Vector3.Cross(refV, nrm));
+                tangents[i] = new Vector4(tan.x, tan.y, tan.z, 1f);
 
                 if (x < res - 1 && y < res - 1)
                 {
@@ -70,6 +77,7 @@ public static class PlanetMeshBuilder
         if (verts.Length > 65535) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         mesh.vertices = verts;
         mesh.normals = normals;   // normali analitiche, continue tra le facce: niente cuciture
+        mesh.tangents = tangents; // per le normali di dettaglio dello shader
         mesh.triangles = tris;
         mesh.RecalculateBounds();
         return mesh;

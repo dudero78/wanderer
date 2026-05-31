@@ -41,6 +41,11 @@ public class SuitPickup : MonoBehaviour
         if ((player.position - groundPoint).sqrMagnitude <= pickupRadius * pickupRadius)
         {
             walker.EquipJetpack();
+            // Nascondi SUBITO: Destroy è differito a fine frame, senza questo la capsula ciano
+            // emissiva (e la sua luce) renderizzerebbero un frame a distanza ravvicinata,
+            // inondando lo schermo di ciano (il "rettangolo" alla raccolta).
+            foreach (var r in GetComponentsInChildren<Renderer>()) r.enabled = false;
+            foreach (var l in GetComponentsInChildren<Light>()) l.enabled = false;
             Destroy(gameObject);
         }
     }

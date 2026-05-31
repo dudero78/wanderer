@@ -22,6 +22,7 @@ public class PlanetWalker : MonoBehaviour
 
     [System.NonSerialized] public bool HasJetpack;
     [System.NonSerialized] public float EquipTime = -999f;
+    [System.NonSerialized] public float Altitude;   // metri sopra la superficie (per la torcia)
 
     Rigidbody rb;
     float pitch;
@@ -80,6 +81,7 @@ public class PlanetWalker : MonoBehaviour
             if (!float.IsNaN(s) && !float.IsInfinity(s)) surface = s;
         }
         float restHeight = surface + 1f;   // distanza centro-capsula a riposo
+        Altitude = r - surface;             // quota sopra il suolo (per la torcia che scala in volo)
 
         // gravità verso il centro, limitata al valore di superficie: r non scende
         // mai sotto il raggio nel calcolo, quindi niente picco 1/r^2 vicino al centro.
