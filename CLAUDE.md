@@ -20,6 +20,16 @@ walkable** con terreno procedurale, **gravità radiale**, **volo col jetpack**
 (tuta da raccogliere), **torcia** (F), ciclo giorno/notte, shader procedurale del
 pianeta con LOD per distanza.
 
+**Volo a due modelli, toggle con `N`** (`PlanetWalker`):
+- *Crociera* (default tuta): la potenza dei motori cresce con la quota e con quanto
+  tieni la spinta (rampa `boost01`), così resti maneggevole vicino al suolo
+  (atterraggio intatto) e veloce in alto. Comandi sugli assi tangenti del pianeta.
+- *Newtoniano*: nessun attrito, la spinta si somma (delta-v reale, alla Outer
+  Wilds). Comandi **relativi allo sguardo** (puntare e andare), non agli assi
+  tangenti — altrimenti da lontano non si torna indietro. Sarà il default
+  dell'astronave. L'HUD mostra velocità e **velocità radiale con segno** (segno −
+  = ti avvicini al pianeta).
+
 Prossimo passo visivo concordato: **crateri**.
 
 ## Come si avvia

@@ -15,18 +15,42 @@ public class PlanetWalker : MonoBehaviour
     public Transform cameraPivot;
 
     [Header("Jetpack")]
-    public float jetThrust = 30f;       // spinta dei motori (uguale su tutti gli assi)
-    public float jetDamping = 1.2f;     // smorzamento in volo: lo rende controllabile
+    public float jetThrust = 30f;       // spinta dei motori a velocità di manovra (uguale su tutti gli assi)
+    public float jetDamping = 1.2f;     // smorzamento di manovra: con jetThrust dà la terminale ~25 m/s
     public float maxFlySpeed = 30f;     // limite verticale a piedi (archi di salto)
     public float maxFallSpeed = 55f;    // velocità terminale di caduta a piedi
+
+    // Due modelli di volo, commutabili con N. Crociera: la potenza dei motori cresce con la
+    // quota e con quanto tieni la spinta, così resti maneggevole vicino al suolo (atterraggio)
+    // e veloce in alto. Newtoniano: niente attrito, la velocità si accumula (delta-v reale,
+    // alla Outer Wilds) — sarà il default dell'astronave.
+    public enum FlightModel { Cruise, Newtonian }
+
+    [Header("Crociera (potenza a quota + rampa)")]
+    public float cruiseThrust = 110f;     // spinta a boost pieno (terminale ~ cruiseThrust/cruiseDamping)
+    public float cruiseDamping = 0.5f;    // smorzamento a boost pieno: 110/0.5 ≈ 220 m/s di crociera
+    public float boostRampTime = 3.5f;    // secondi per salire a piena crociera tenendo la spinta
+    public float boostFalloffTime = 1.2f; // secondi per tornare a manovra (più rapido: serve per atterrare)
+    public float cruiseAltLow = 12f;      // sotto questa quota i motori restano alla potenza di ora
+    public float cruiseAltHigh = 120f;    // sopra questa quota la crociera è pienamente sbloccata
+
+    [Header("Newtoniano")]
+    public float newtonThrust = 30f;      // accelerazione costante, nessun limite di velocità
 
     [System.NonSerialized] public bool HasJetpack;
     [System.NonSerialized] public float EquipTime = -999f;
     [System.NonSerialized] public float Altitude;   // metri sopra la superficie (per la torcia)
 
+    public FlightModel Model { get; private set; } = FlightModel.Cruise;
+    public bool IsNewtonian => Model == FlightModel.Newtonian;
+    public float Speed => rb != null ? rb.linearVelocity.magnitude : 0f;
+    public float Boost01 => boost01;   // 0 = manovra, 1 = crociera piena (per l'HUD)
+    public float RadialSpeed { get; private set; }   // >0 ti allontani dal pianeta, <0 ti avvicini
+
     Rigidbody rb;
     float pitch;
     float yawDelta;   // yaw del mouse accumulato in Update, applicato in FixedUpdate
+    float boost01;    // rampa di potenza della crociera, 0..1
 
     public void EquipJetpack()
     {
@@ -59,6 +83,10 @@ public class PlanetWalker : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.Escape)) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         if (Input.GetMouseButtonDown(0)) { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
+
+        // N commuta il modello di volo (solo con la tuta: senza non si vola)
+        if (HasJetpack && Input.GetKeyDown(KeyCode.N))
+            Model = Model == FlightModel.Cruise ? FlightModel.Newtonian : FlightModel.Cruise;
     }
 
     void FixedUpdate()
@@ -82,6 +110,7 @@ public class PlanetWalker : MonoBehaviour
         }
         float restHeight = surface + 1f;   // distanza centro-capsula a riposo
         Altitude = r - surface;             // quota sopra il suolo (per la torcia che scala in volo)
+        RadialSpeed = Vector3.Dot(rb.linearVelocity, up);   // segno dell'avvicinamento, per l'HUD
 
         // gravità verso il centro, limitata al valore di superficie: r non scende
         // mai sotto il raggio nel calcolo, quindi niente picco 1/r^2 vicino al centro.
@@ -110,15 +139,46 @@ public class PlanetWalker : MonoBehaviour
 
         if (flying)
         {
-            // ===== VOLO COL JETPACK: motori nei 3 assi (newtoniano + smorzamento) =====
+            // ===== VOLO COL JETPACK: motori nei 3 assi =====
             Vector3 thrust = fwd * v + right * h + up * ((thrustUp ? 1f : 0f) - (thrustDown ? 1f : 0f));
             if (thrust.sqrMagnitude > 1f) thrust = thrust.normalized;   // niente diagonale più veloce
-            rb.AddForce(thrust * jetThrust, ForceMode.Acceleration);
+            bool thrusting = thrust.sqrMagnitude > 0.0001f;
 
-            // smorzamento: rende il volo controllabile e fa fermare dolcemente al rilascio
-            rb.linearVelocity *= Mathf.Clamp01(1f - jetDamping * Time.fixedDeltaTime);
+            if (Model == FlightModel.Newtonian)
+            {
+                // Newtoniano puro: nessun attrito, la spinta si somma → la velocità cresce
+                // davvero (delta-v reale). Per fermarti ti giri e controspingi. La gravità
+                // radiale qui sopra agisce comunque: senza spinta cadi, come nello spazio.
+                //
+                // Comandi RELATIVI ALLO SGUARDO (non agli assi tangenti del pianeta): nello
+                // spazio aperto vuoi "puntare e andare" — guardi il pianeta e W ti ci porta.
+                // Gli assi tangenti scivolerebbero con la posizione radiale, rendendo
+                // impossibile tornare indietro da lontano.
+                Quaternion camRot = look * Quaternion.Euler(pitch, 0f, 0f);
+                Vector3 nThrust = (camRot * Vector3.forward) * v
+                                + (camRot * Vector3.right) * h
+                                + (camRot * Vector3.up) * ((thrustUp ? 1f : 0f) - (thrustDown ? 1f : 0f));
+                if (nThrust.sqrMagnitude > 1f) nThrust = nThrust.normalized;
+                rb.AddForce(nThrust * newtonThrust, ForceMode.Acceleration);
+                boost01 = 0f;   // azzerato: tornando a Crociera si riparte da manovra
+            }
+            else
+            {
+                // Crociera: la potenza dei motori sale verso la piena crociera mentre tieni
+                // la spinta IN QUOTA, e ricade quando rilasci o scendi → maneggevole vicino al
+                // suolo (atterraggio come ora), veloce in alto.
+                float altUnlock = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(cruiseAltLow, cruiseAltHigh, Altitude));
+                float target = thrusting ? altUnlock : 0f;
+                float rate = (target > boost01 ? boostRampTime : boostFalloffTime);
+                boost01 = Mathf.MoveTowards(boost01, target, Time.fixedDeltaTime / Mathf.Max(rate, 0.01f));
 
-            // se tocchi il suolo, non sprofondare
+                float effThrust = Mathf.Lerp(jetThrust, cruiseThrust, boost01);
+                float effDamping = Mathf.Lerp(jetDamping, cruiseDamping, boost01);
+                rb.AddForce(thrust * effThrust, ForceMode.Acceleration);
+                rb.linearVelocity *= Mathf.Clamp01(1f - effDamping * Time.fixedDeltaTime);
+            }
+
+            // se tocchi il suolo, non sprofondare (rete di sicurezza valida per entrambi i modelli)
             if (r < restHeight)
             {
                 rb.position = center + up * restHeight;

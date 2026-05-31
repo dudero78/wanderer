@@ -39,8 +39,15 @@ public class DebugHud : MonoBehaviour
 
         bool jetpack = walker != null && walker.HasJetpack;
         string controls = jetpack
-            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende.  F torcia · Mouse guarda · Esc cursore"
+            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende · N cambia volo.  F torcia · Mouse guarda · Esc cursore"
             : "WASD muovi  ·  Space salta  ·  Mouse guarda  ·  Esc libera il cursore";
+
+        float rad = walker != null ? walker.RadialSpeed : 0f;
+        string radWord = rad > 0.5f ? "ti allontani" : rad < -0.5f ? "ti AVVICINI" : "stazionario";
+        string model = walker != null && walker.IsNewtonian ? "NEWTONIANO" : $"Crociera ({(walker != null ? walker.Boost01 * 100f : 0f):F0}%)";
+        string flightLine = jetpack
+            ? $"Velocità           : {walker.Speed:F0} m/s   ·   radiale {rad:+0;-0} m/s ({radWord})   ·   Volo: {model}\n"
+            : "";
 
         string suitLine;
         if (suit != null && cam != null)
@@ -56,6 +63,7 @@ public class DebugHud : MonoBehaviour
         string t =
             $"Tempo simulazione  : {solar.SimTime:F0} s   (TimeScale {solar.TimeScale})\n" +
             $"Altitudine         : {r - surface:F1} m\n" +
+            flightLine +
             $"Player |pos scena| : {player.position.magnitude:F1}   <- resta piccolo: precisione ok\n" +
             $"SceneOrigin |pos|  : {sceneOrigin:F0}   <- distanza reale nell'universo: cresce\n" +
             $"Stella |pos scena| : {starDist:F0}\n" +
