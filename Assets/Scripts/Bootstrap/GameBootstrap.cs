@@ -80,7 +80,7 @@ public class GameBootstrap : MonoBehaviour
         var walker = playerGo.AddComponent<PlanetWalker>();
         playerGo.transform.position = playerSpawnPos;
         prb.position = playerSpawnPos;   // allinea subito lo stato fisico: niente teletrasporto a (0,0,0) al frame 0
-        // il giocatore sta a terra col vincolo analitico: ignora i collider del terreno
+        // il giocatore sta a terra col vincolo analitico: il collider fisico non serve
         var playerCol = playerGo.GetComponent<Collider>();
         if (playerCol) playerCol.enabled = false;
         SetColor(playerGo, new Color(0.85f, 0.35f, 0.3f));

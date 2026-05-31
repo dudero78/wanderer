@@ -22,8 +22,6 @@ public static class PlanetMeshBuilder
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterial = mat;
-            // collider sulla superficie reale: permette di appoggiarci oggetti con un raycast
-            go.AddComponent<MeshCollider>().sharedMesh = mesh;
         }
     }
 
