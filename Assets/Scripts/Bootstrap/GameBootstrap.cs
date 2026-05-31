@@ -47,12 +47,13 @@ public class GameBootstrap : MonoBehaviour
         terrain.BaseRadius = (float)planet.Radius;
         terrain.Amplitude = 60f;
         terrain.Frequency = 2.5f;
+        terrain.Octaves = 8;        // più ottave = rilievi di scala media/fine (riferimenti per la torcia)
         terrain.Seed = 1337;
 
         var planetMat = new Material(Shader.Find("Standard")) { color = new Color(0.32f, 0.5f, 0.36f) };
         planetMat.SetFloat("_Metallic", 0f);
         planetMat.SetFloat("_Glossiness", 0.05f);   // opaco, look lunare: niente riflesso speculare
-        PlanetMeshBuilder.Build(planetGo.transform, terrain, 128, planetMat);
+        PlanetMeshBuilder.Build(planetGo.transform, terrain, 160, planetMat);
 
         solar.Register(planet);
 
@@ -114,13 +115,37 @@ public class GameBootstrap : MonoBehaviour
         camGo.transform.localPosition = new Vector3(0f, 0.6f, 0f);
         walker.cameraPivot = camGo.transform;
 
+        // --- Torcia (inclusa nella tuta): spotlight che segue lo sguardo, toggle con F ---
+        var flashGo = new GameObject("Flashlight");
+        flashGo.transform.SetParent(camGo.transform, false);   // figlia della camera: punta dove guardi
+        // appena sotto l'occhio (lampada al mento): illumina bene il terreno davanti dando
+        // un filo di angolo dal basso, senza sbilanciare il fascio di lato (niente ovale storto).
+        flashGo.transform.localPosition = new Vector3(0f, -0.15f, 0f);
+        var lamp = flashGo.AddComponent<Light>();
+        lamp.type = LightType.Spot;
+        lamp.range = 55f;
+        lamp.spotAngle = 46f;
+        lamp.intensity = 2.6f;          // vivida ma senza bruciare a bianco
+        lamp.color = new Color(1f, 0.95f, 0.85f);
+        // niente ombre proiettate dalla torcia: a luce radente su questa mesh danno
+        // "crepe" (shadow acne). Il rilievo emerge comunque dall'illuminazione diffusa
+        // angolata (la torcia è spostata di lato), in modo pulito.
+        lamp.shadows = LightShadows.None;
+        lamp.enabled = false;
+        var flashlight = flashGo.AddComponent<Flashlight>();
+        flashlight.walker = walker;
+        flashlight.lamp = lamp;
+
         // --- Luce stellare ---
         var lightGo = new GameObject("SunLight");
         var dl = lightGo.AddComponent<Light>();
         dl.type = LightType.Directional;
         dl.intensity = 1.6f;
         dl.color = new Color(1f, 0.96f, 0.9f);
-        dl.shadows = LightShadows.Soft;   // montagne che gettano ombre vicino al terminatore
+        // niente ombre proiettate dal sole: causavano lo "schiarimento" brusco del terreno
+        // mentre ti allontani (le auto-ombre svaniscono oltre la shadow distance). Il rilievo
+        // resta ben visibile grazie alle normali analitiche. Bonus: meno calore.
+        dl.shadows = LightShadows.None;
         var sun = lightGo.AddComponent<SunLight>();
         sun.star = starGo.transform;
         sun.planet = planetGo.transform;

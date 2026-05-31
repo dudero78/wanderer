@@ -25,6 +25,7 @@ public class PlanetWalker : MonoBehaviour
 
     Rigidbody rb;
     float pitch;
+    float yawDelta;   // yaw del mouse accumulato in Update, applicato in FixedUpdate
 
     public void EquipJetpack()
     {
@@ -51,7 +52,7 @@ public class PlanetWalker : MonoBehaviour
         // sguardo: yaw sul corpo, pitch sulla camera
         float mx = Input.GetAxis("Mouse X") * mouseSensitivity;
         float my = Input.GetAxis("Mouse Y") * mouseSensitivity;
-        transform.Rotate(Vector3.up, mx, Space.Self);
+        yawDelta += mx;   // accumulato: applicato in FixedUpdate (interpolato) -> niente stutter
         pitch = Mathf.Clamp(pitch - my, -85f, 85f);
         if (cameraPivot) cameraPivot.localRotation = Quaternion.Euler(pitch, 0f, 0f);
 
@@ -86,12 +87,16 @@ public class PlanetWalker : MonoBehaviour
         float g = (float)(planet.Mu / ((double)rEff * rEff));
         rb.AddForce(-up * g, ForceMode.Acceleration);
 
-        // orienta i piedi verso il centro mantenendo la direzione di sguardo
-        rb.MoveRotation(Quaternion.FromToRotation(transform.up, up) * transform.rotation);
+        // allineamento dei piedi (up radiale) + yaw del mouse, tutto in un'unica MoveRotation:
+        // così la rotazione è interpolata dalla fisica e non c'è stutter orizzontale.
+        Quaternion aligned = Quaternion.FromToRotation(transform.up, up) * transform.rotation;
+        Quaternion look = Quaternion.AngleAxis(yawDelta, up) * aligned;
+        yawDelta = 0f;
+        rb.MoveRotation(look);
 
-        // assi locali sul piano del terreno (avanti / laterale, indipendenti dalla quota)
-        Vector3 fwd = Vector3.ProjectOnPlane(transform.forward, up).normalized;
-        Vector3 right = Vector3.ProjectOnPlane(transform.right, up).normalized;
+        // assi locali sul piano del terreno, dalla rotazione appena calcolata
+        Vector3 fwd = Vector3.ProjectOnPlane(look * Vector3.forward, up).normalized;
+        Vector3 right = Vector3.ProjectOnPlane(look * Vector3.right, up).normalized;
 
         float h = Input.GetAxisRaw("Horizontal");
         float v = Input.GetAxisRaw("Vertical");

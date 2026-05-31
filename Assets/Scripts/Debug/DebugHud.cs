@@ -39,7 +39,7 @@ public class DebugHud : MonoBehaviour
 
         bool jetpack = walker != null && walker.HasJetpack;
         string controls = jetpack
-            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende.  Mouse guarda · Esc cursore"
+            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende.  F torcia · Mouse guarda · Esc cursore"
             : "WASD muovi  ·  Space salta  ·  Mouse guarda  ·  Esc libera il cursore";
 
         string suitLine;
