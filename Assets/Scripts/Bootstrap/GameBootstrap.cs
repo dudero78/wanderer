@@ -11,6 +11,14 @@ public class GameBootstrap : MonoBehaviour
 {
     void Start()
     {
+        // Cap del frame rate a 60 per contenere il surriscaldamento: senza, la GPU gira a
+        // centinaia/migliaia di fps su una scena semplice. Per più fluidità si può alzare a
+        // 120 (con Time.fixedDeltaTime a 1/120), al costo di più calore.
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = 60;
+        // fisica alla stessa frequenza del rendering: lo yaw resta reattivo quanto il pitch.
+        Time.fixedDeltaTime = 1f / 60f;
+
         var solar = gameObject.AddComponent<SolarSystem>();
         solar.TimeScale = 3.0;
 
