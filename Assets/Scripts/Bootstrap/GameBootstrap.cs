@@ -143,12 +143,12 @@ public class GameBootstrap : MonoBehaviour
         cam.farClipPlane = 300000f;
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = new Color(0.01f, 0.01f, 0.03f);
-        // RenderScaler: lo shader del pianeta gira PER PIXEL a schermo intero → su Retina è il
-        // grosso del calore GPU. Rendendo a 0.7 della risoluzione e riscalando, si taglia ~2× il
-        // lavoro per-pixel (immagine un filo più morbida sui bordi; il dettaglio del terreno viene
-        // dalla geometria/ottave, non dalla risoluzione di render). Bonus: ammorbidisce lo speckle
-        // del bump a bassa quota. Alza/abbassa 'scale' per bilanciare nitidezza e calore.
-        camGo.AddComponent<RenderScaler>().scale = 0.85f;
+        // RenderScaler: rende a una frazione della risoluzione e riscala. Il profilo dice che la
+        // GPU finisce il frame in ~1 ms (scarica): NON è lei a scaldare, è la CPU/main-thread, che
+        // governiamo col cap fps. Quindi qui teniamo 1.0 = piena risoluzione, immagine nitida: la
+        // GPU se lo può permettere. Se un domani caricheremo la GPU di effetti, è la prima leva da
+        // riabbassare (0.85–0.9) per recuperare margine senza toccare la resa del terreno.
+        camGo.AddComponent<RenderScaler>().scale = 1.0f;
         camGo.transform.SetParent(playerGo.transform, false);
         camGo.transform.localPosition = new Vector3(0f, 0.6f, 0f);
         walker.cameraPivot = camGo.transform;
