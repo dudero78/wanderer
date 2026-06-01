@@ -8,16 +8,36 @@ using UnityEngine;
 /// </summary>
 public static class PlanetMeshBuilder
 {
-    static readonly Vector3[] FaceNormals =
+    // Le sei facce del cubo-sfera, in ordine fisso. Pubblico: il quadtree indicizza le radici
+    // con lo stesso ordine, così la faccia f del quadtree è la faccia f del bake → UV coerenti.
+    public static readonly Vector3[] FaceNormals =
     {
         Vector3.up, Vector3.down, Vector3.left, Vector3.right, Vector3.forward, Vector3.back
     };
+
+    /// <summary>
+    /// Assi tangenti di una faccia del cubo. Stessa formula usata ovunque (mesh uniforme, bake,
+    /// quadtree): è ciò che garantisce che parametri (tx,ty) → direzione → UV combacino tra i
+    /// sistemi. Cambiarla in un solo posto romperebbe l'allineamento col rilievo bakeato.
+    /// </summary>
+    public static void FaceAxes(Vector3 localUp, out Vector3 axisA, out Vector3 axisB)
+    {
+        axisA = new Vector3(localUp.y, localUp.z, localUp.x);
+        axisB = Vector3.Cross(localUp, axisA);
+    }
+
+    /// <summary>Parametri (tx,ty)∈[0,1]² di una faccia → direzione unitaria sulla sfera.</summary>
+    public static Vector3 ParamToDir(Vector3 localUp, Vector3 axisA, Vector3 axisB, float tx, float ty)
+    {
+        Vector3 pointOnCube = localUp + (tx - 0.5f) * 2f * axisA + (ty - 0.5f) * 2f * axisB;
+        return pointOnCube.normalized;
+    }
 
     public static void Build(Transform parent, PlanetTerrain terrain, int resolution, Material mat)
     {
         foreach (var normal in FaceNormals)
         {
-            var mesh = BuildFace(normal, terrain, resolution);
+            var mesh = BuildFaceMesh(normal, terrain, resolution);
             var go = new GameObject("Face");
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
@@ -25,10 +45,10 @@ public static class PlanetMeshBuilder
         }
     }
 
-    static Mesh BuildFace(Vector3 localUp, PlanetTerrain terrain, int res)
+    public static Mesh BuildFaceMesh(Vector3 localUp, PlanetTerrain terrain, int res)
     {
-        Vector3 axisA = new Vector3(localUp.y, localUp.z, localUp.x);
-        Vector3 axisB = Vector3.Cross(localUp, axisA);
+        Vector3 axisA, axisB;
+        FaceAxes(localUp, out axisA, out axisB);
 
         var verts = new Vector3[res * res];
         var normals = new Vector3[res * res];

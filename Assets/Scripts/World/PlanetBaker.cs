@@ -106,6 +106,79 @@ public static class PlanetBaker
     }
 
     /// <summary>
+    /// Come Bake, ma NON tocca la scena: costruisce 6 mesh-faccia temporanee solo per bakeare il
+    /// rilievo in texture, e RITORNA i 6 materiali (uno per faccia, nello stesso ordine di
+    /// PlanetMeshBuilder.FaceNormals). Le mesh temporanee vengono distrutte: la texture vive nella
+    /// RenderTexture, indipendente dalla mesh. È la via per il quadtree, che renderizza con questi
+    /// materiali invece di una mesh uniforme. Ritorna null su qualsiasi problema (→ fallback).
+    /// </summary>
+    public static Material[] BakeFaceMaterials(PlanetTerrain terrain, float baseFreq, int resolution, int bakeMeshRes)
+    {
+        var bakeShader = Shader.Find("Wanderer/PlanetBake");
+        var sampleShader = Shader.Find("Wanderer/PlanetBaked");
+        if (bakeShader == null || sampleShader == null)
+        {
+            Debug.LogWarning("PlanetBaker: shader di bake non trovati, niente quadtree bakeato.");
+            return null;
+        }
+        if (!SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBHalf))
+        {
+            Debug.LogWarning("PlanetBaker: RGBAHalf non supportato, niente quadtree bakeato.");
+            return null;
+        }
+
+        var bakeMat = new Material(bakeShader);
+        bakeMat.SetFloat("_BaseFreq", baseFreq);
+        bakeMat.SetFloat("_BakeOct", 6.0f);
+
+        RenderTexture detailRT = BakeDetailNormal(1024);
+        var soilSand = Resources.Load<Texture2D>("Textures/soil_grain");
+        var soilMud  = Resources.Load<Texture2D>("Textures/soil_mud");
+        var soilDirt = Resources.Load<Texture2D>("Textures/soil_dirt");
+
+        var mats = new Material[6];
+        var prev = RenderTexture.active;
+        for (int f = 0; f < 6; f++)
+        {
+            // mesh-faccia temporanea, solo per disegnare il rilievo in spazio texture
+            var bakeMesh = PlanetMeshBuilder.BuildFaceMesh(PlanetMeshBuilder.FaceNormals[f], terrain, bakeMeshRes);
+
+            var rt = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBHalf)
+            {
+                name = "ReliefBake_" + f,
+                useMipMap = true,
+                autoGenerateMips = false,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Trilinear,
+                anisoLevel = 8
+            };
+            rt.Create();
+
+            var cb = new CommandBuffer { name = "PlanetBake_" + f };
+            cb.SetRenderTarget(rt);
+            cb.ClearRenderTarget(true, true, Color.clear);
+            cb.DrawMesh(bakeMesh, Matrix4x4.identity, bakeMat, 0, 0);
+            Graphics.ExecuteCommandBuffer(cb);
+            cb.Release();
+            rt.GenerateMips();
+            Object.Destroy(bakeMesh);   // la texture è fatta: la mesh non serve più
+
+            var mat = new Material(sampleShader);
+            mat.SetFloat("_BaseRadius", terrain.BaseRadius);
+            mat.SetFloat("_Amplitude", terrain.Amplitude);
+            mat.SetFloat("_BaseFreq", baseFreq);
+            mat.SetTexture("_ReliefMap", rt);
+            if (detailRT != null) mat.SetTexture("_DetailNormal", detailRT);
+            if (soilSand != null) mat.SetTexture("_SoilSand", soilSand);
+            if (soilMud  != null) mat.SetTexture("_SoilMud",  soilMud);
+            if (soilDirt != null) mat.SetTexture("_SoilDirt", soilDirt);
+            mats[f] = mat;
+        }
+        RenderTexture.active = prev;
+        return mats;
+    }
+
+    /// <summary>
     /// Genera la detail normal map tileable della grana del suolo in una RenderTexture con
     /// mipmap + wrap Repeat. Ritorna null se lo shader manca (le facce restano senza grana).
     /// </summary>

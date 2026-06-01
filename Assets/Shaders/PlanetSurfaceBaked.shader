@@ -59,8 +59,8 @@ Shader "Wanderer/PlanetBaked"
         _ReliefBias ("Rilievo: bias mip (neg = nitido)", Range(-2,0)) = -0.2
 
         _GrainTiling ("Ripetizioni grana fine", Float) = 2400
-        _GrainStr    ("Forza grana fine",     Range(0,1)) = 0.18
-        _GrainDist   ("Distanza grana fine (m)", Float) = 25
+        _GrainStr    ("Forza grana fine",     Range(0,1)) = 0.10
+        _GrainDist   ("Distanza grana fine (m)", Float) = 14
 
         [NoScaleOffset] _ReliefMap ("Rilievo bakeato (ottave grosse)", 2D) = "black" {}
         [NoScaleOffset] _DetailNormal ("Grana suolo (normal tileable)", 2D) = "bump" {}
@@ -145,7 +145,11 @@ Shader "Wanderer/PlanetBaked"
             float3 viewDir = normalize(_WorldSpaceCameraPos - IN.worldPos);
             float ndotv = dot(worldN, viewDir);
             float grazeW = smoothstep(0.18, 0.5, ndotv);
-            float farW   = 1.0 - smoothstep(480.0, 780.0, dist);
+            // col quadtree la mesh si fa grossa a distanza: il bump bakeato (texture, senza LOD)
+            // deve restare acceso a lungo per portare LUI il dettaglio sulla geometria coarse →
+            // il pianeta resta ruvido in orbita e il salto di LOD si nota meno. Svanisce solo nello
+            // spazio profondo (>~3.5 km), dove comunque mippa via da solo.
+            float farW   = 1.0 - smoothstep(1500.0, 3500.0, dist);
             float nearW  = 1.0 - smoothstep(60.0, 140.0, dist);
             float gate = saturate(max(nearW, grazeW * farW));
             float nearF = saturate(1.0 - dist / 120.0);   // mottle avvallamenti: solo da vicino

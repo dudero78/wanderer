@@ -57,7 +57,7 @@ public class GameBootstrap : MonoBehaviour
         var terrain = planetGo.AddComponent<PlanetTerrain>();
         terrain.BaseRadius = (float)planet.Radius;
         terrain.Amplitude = 55f;    // colline più marcate: silhouette meno "palla liscia"
-        terrain.Frequency = 5.5f;
+        terrain.Frequency = 2.5f;
         // 7 ottave: l'ottava 7 dà rilievo REALE a ~9 m. È geometria vera, non bump: a luce radente
         // fa ombra e silhouette → la fascia media (200–800 m) ha bordi netti che il bump su mesh
         // liscia non può dare. Non oltre 7: l'ottava 8 (~4.5 m) a mesh 300 (~2.6 m tra vertici)
@@ -71,23 +71,27 @@ public class GameBootstrap : MonoBehaviour
         terrain.Gain = 0.56f;
         terrain.Seed = 1337;
 
-        // materiale procedurale: resta come FALLBACK (e fonte dei parametri _BaseFreq ecc.).
-        // Se il bake riesce, le facce passano alla versione "fredda" che legge la texture.
-        var planetMat = new Material(Shader.Find("Wanderer/Planet"));
-        planetMat.SetFloat("_BaseRadius", terrain.BaseRadius);
-        planetMat.SetFloat("_Amplitude", terrain.Amplitude);
-        // Mesh densa (300 per faccia ≈ 2.6 m tra i vertici): serve perché le ottave fini del
-        // terreno (fino alla 7ª, ~9 m) diventino geometria risolta, non vertici troppo radi che
-        // le lisciano via. Nyquist a ~5.2 m: l'ottava 7 ci sta comoda, l'8ª no (aliaserebbe).
-        PlanetMeshBuilder.Build(planetGo.transform, terrain, 300, planetMat);
-
-        // Bake del rilievo in texture, UNA volta: da "6 ottave di Perlin per pixel per frame"
-        // a "una lettura di texture per pixel". Toglie il calore e, grazie a mipmap+aniso, la
-        // sfuocatura a distanza. Il rilievo viene ORA solo da qui (niente ottave procedurali),
-        // quindi 2048² per faccia: ~0.4 m/texel sul pianeta da 500 m, il dettaglio medio resta;
-        // il sub-texel a contatto lo dà la grana. Fallback ai materiali procedurali se il bake fallisce.
-        bool baked = PlanetBaker.Bake(planetGo.transform, terrain.BaseRadius, terrain.Amplitude, 0.25f, 2048);
-        Debug.Log(baked ? "Pianeta: rilievo bakeato (percorso freddo)." : "Pianeta: bake non riuscito, resto sul procedurale.");
+        // Geometria a QUADTREE LOD: niente più mesh uniforme. Le 6 facce sono le radici di
+        // altrettanti quadtree che si infittiscono sotto la camera. È la fondazione per pianeti
+        // veri (km): una mesh uniforme non può risolvere insieme l'intero pianeta e il suolo a
+        // portata di mano. Il rilievo resta bakeato per faccia (2048²) e i nodi lo indirizzano
+        // con le proprie UV — stessa resa di prima, ma ora la densità segue la distanza.
+        var faceMats = PlanetBaker.BakeFaceMaterials(terrain, 0.25f, 2048, 256);
+        if (faceMats != null)
+        {
+            var qt = planetGo.AddComponent<PlanetQuadtree>();
+            qt.Init(terrain, faceMats, null);   // la camera la prende da Camera.main quando esiste
+            Debug.Log("Pianeta: quadtree LOD attivo (rilievo bakeato per faccia).");
+        }
+        else
+        {
+            // fallback robusto: se il bake non riesce, mesh uniforme + materiale procedurale.
+            var planetMat = new Material(Shader.Find("Wanderer/Planet"));
+            planetMat.SetFloat("_BaseRadius", terrain.BaseRadius);
+            planetMat.SetFloat("_Amplitude", terrain.Amplitude);
+            PlanetMeshBuilder.Build(planetGo.transform, terrain, 300, planetMat);
+            Debug.Log("Pianeta: bake non riuscito, mesh uniforme procedurale (fallback).");
+        }
 
         solar.Register(planet);
 
@@ -145,10 +149,12 @@ public class GameBootstrap : MonoBehaviour
         cam.farClipPlane = 300000f;
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = new Color(0.01f, 0.01f, 0.03f);
-        // NIENTE RenderScaler: il bake ha reso lo shader economico, quindi la camera renderizza
-        // a risoluzione nativa (Retina piena) → massima nitidezza. Il RenderScaler resta come
-        // componente disponibile (Core/RenderScaler.cs): se il calore tornasse aggiungendo
-        // contenuto, basta agganciarlo qui con scale < 1.
+        // RenderScaler: lo shader del pianeta gira PER PIXEL a schermo intero → su Retina è il
+        // grosso del calore GPU. Rendendo a 0.7 della risoluzione e riscalando, si taglia ~2× il
+        // lavoro per-pixel (immagine un filo più morbida sui bordi; il dettaglio del terreno viene
+        // dalla geometria/ottave, non dalla risoluzione di render). Bonus: ammorbidisce lo speckle
+        // del bump a bassa quota. Alza/abbassa 'scale' per bilanciare nitidezza e calore.
+        camGo.AddComponent<RenderScaler>().scale = 0.85f;
         camGo.transform.SetParent(playerGo.transform, false);
         camGo.transform.localPosition = new Vector3(0f, 0.6f, 0f);
         walker.cameraPivot = camGo.transform;
