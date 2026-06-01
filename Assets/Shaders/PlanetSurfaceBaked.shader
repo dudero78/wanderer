@@ -52,10 +52,10 @@ Shader "Wanderer/PlanetBaked"
         _RoughBoost ("Rilievo extra zone rugose", Range(1,4)) = 1.8
 
         _BaseFreq   ("Scala rilievo (ottava base)", Float) = 0.25
-        _DetailStr  ("Forza rilievo",         Range(0,1)) = 0.3
-        // la rugosità (bump) a sguardo radente si stira in striature: la dissolviamo entro questa
-        // distanza, così oltre ~200m (dove dominano gli angoli radenti verso il bordo) è spenta.
-        _ReliefBumpDist ("Distanza dissolvenza rugosità (m)", Float) = 220
+        _DetailStr  ("Forza rilievo",         Range(0,1)) = 0.42
+        // bias di mip sul rilievo: negativo = mip piu' nitida (de-sfuoca la fascia 450-600 m dove
+        // la texture sta per esaurirsi). Troppo negativo → sfarfallio in movimento. -0.5 e' prudente.
+        _ReliefBias ("Rilievo: bias mip (neg = nitido)", Range(-2,0)) = -0.6
 
         _GrainTiling ("Ripetizioni grana fine", Float) = 2400
         _GrainStr    ("Forza grana fine",     Range(0,1)) = 0.18
@@ -82,7 +82,7 @@ Shader "Wanderer/PlanetBaked"
         float _MineralFreq, _MineralStr;
         float _BaseRadius, _Amplitude, _MottleStr;
         float _RoughFreq, _RoughThresh, _RoughBoost;
-        float _BaseFreq, _DetailStr, _ReliefBumpDist;
+        float _BaseFreq, _DetailStr, _ReliefBias;
         float _GrainTiling, _GrainStr, _GrainDist;
         float _TileNear, _TileMid, _TileFar, _DistNear, _DistMid, _DistFar;
         float _FlatDist, _FlatStr, _PeakStr;
@@ -134,8 +134,9 @@ Shader "Wanderer/PlanetBaked"
 
             float dist = distance(IN.worldPos, _WorldSpaceCameraPos);
 
-            // rilievo: letto interamente dalla texture bakeata (pulita, con mipmap).
-            float4 baked = tex2D(_ReliefMap, IN.texUV);
+            // rilievo: letto interamente dalla texture bakeata (pulita, con mipmap). Bias di mip
+            // negativo → tira dentro una mip piu' nitida nella fascia media (de-sfuoca i 450-600 m).
+            float4 baked = tex2Dbias(_ReliefMap, float4(IN.texUV, 0.0, _ReliefBias));
             float reliefVal = baked.x;
             float3 G = baked.yzw * _BaseFreq;   // gradiente del rilievo grosso, spazio oggetto
 
@@ -189,26 +190,32 @@ Shader "Wanderer/PlanetBaked"
             float nearF = saturate(1.0 - dist / 120.0);
             alb *= 1.0 + _MottleStr * reliefVal * nearF;   // avvallamenti piu' scuri, solo da vicino
 
-            // --- normale: rugosità bakeata + grana fine, SOLO ravvicinate ---
-            // gradiente del rilievo bakeato proiettato sui tangenti della mesh (T,B,N).
-            // ATTENZIONE: questo NON è la forma del pianeta — la forma è nella MESH (Noise3D,
-            // freq 5.5, normali analitiche). Questo è rugosità fine in spazio oggetto
-            // (_BaseFreq 0.25, ~4 m→12 cm), dettaglio di superficie aggiunto sopra la mesh.
-            // Utile da vicino; a distanza/quota le sue ottave larghe (1–4 m) sopravvivono al
-            // mip su tutta la sfera e diventano "cavolfiore". Quindi sfuma con la distanza, ma
-            // con una coda LUNGA e LINEARE (non un taglio netto): pieno a contatto, e via via
-            // più debole fino a spegnersi a _ReliefBumpDist. Così nella fascia media resta un
-            // filo di rugosità a forza ridotta (dettaglio senza popcorn), e al lontano sparisce
-            // del tutto → resta la forma vera della mesh + la variazione d'albedo.
-            // bump della rugosità bakeata: SOLO entro _ReliefBumpDist → a quota (reliefFade=0)
-            // si salta del tutto (niente dot/normalize per pixel lontani).
+            // --- normale: rugosità bakeata + grana fine ---
+            // gradiente del rilievo bakeato proiettato sui tangenti della mesh (T,B), aggiunto
+            // sopra la forma vera (Noise3D nella mesh). È il dettaglio fine di superficie.
+            //
+            // GATE A DUE ASSI — angolo e distanza, ma per ragioni diverse:
+            //   - ANGOLO (grazeW): il bump si stira in "striature" a sguardo RADENTE (limbo). Lo
+            //     teniamo pieno dove la superficie guarda la camera, lo spegniamo al radente.
+            //   - DISTANZA LONTANA (farW): il rilievo bakeato è ~0.4 m/texel; oltre ~300 m un texel
+            //     va sub-pixel e la texture entra in mip pieno → il gradiente si impasta in blob
+            //     morbidi ("cavolfiore" di bump). Lì la definizione VERA ce l'ha già la mesh
+            //     (ottava 6, ~9 m, geometria che non sfuoca). Quindi svaniamo il bump-texture tra
+            //     480 e 780 m e lasciamo l'ombreggiatura pulita della mesh (il look lunare >800 m).
+            // nearW tiene il pieno da vicino a prescindere (gradevole a terra, sguardo ripido).
+            float3 worldN  = normalize(mul((float3x3)unity_ObjectToWorld, N));
+            float3 viewDir = normalize(_WorldSpaceCameraPos - IN.worldPos);
+            float ndotv = dot(worldN, viewDir);
+            float grazeW = smoothstep(0.18, 0.5, ndotv);            // 0 al limbo, 1 di fronte
+            float farW   = 1.0 - smoothstep(480.0, 780.0, dist);    // svanisce dove i texel vanno sub-pixel
+            float nearW  = 1.0 - smoothstep(60.0, 140.0, dist);     // sempre pieno da vicino
+            float gate = saturate(max(nearW, grazeW * farW));
             float2 nxy = float2(0.0, 0.0);
-            float reliefFade = saturate(1.0 - dist / _ReliefBumpDist);
-            if (reliefFade > 0.0)
+            if (gate > 0.0)
             {
                 float3 T = normalize(IN.objT);
                 float3 B = normalize(IN.objB);
-                nxy = float2(-dot(G, T) * str, -dot(G, B) * str) * reliefFade;
+                nxy = float2(-dot(G, T) * str, -dot(G, B) * str) * gate;
             }
 
             // Grana del suolo come NORMALE, una sola banda, ravvicinata. Il bump si usa solo

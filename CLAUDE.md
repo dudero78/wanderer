@@ -109,6 +109,37 @@ vicino all'origine di Unity → la precisione non degrada mai.
 - **Niente ombre proiettate** (direzionale e torcia): su questa mesh a luce radente
   danno "crepe" (shadow acne) e lo "schiarimento" oltre la shadow distance. Il
   rilievo emerge bene dalle sole normali.
+- **Tassellatura: Metal la regge** (Unity 6, pipeline built-in; `#pragma target 4.6`,
+  `tessellate:` + `vertex:disp` a UN parametro — la forma a due parametri con
+  `out Input o` NON compila con la tassellatura). Provata e poi **rimossa** dal
+  pianeta: il guadagno è marginale finché le ombre proiettate sono spente (il vero
+  regalo della geometria reala sono le ombre), e la fascia che soffre (60–800 m) è
+  troppo lontana per tassellarla senza scaldare. Inoltre va displacata solo con le
+  ottave grosse (~1–4 m): le ottave fini aliasano in schegge a punta col fattore di
+  tassellatura. Resta la via giusta SE un giorno si risolvono le ombre o si fa il
+  quadtree LOD. Nota di coerenza: il walker segue `SampleHeight` (Noise3D, CPU)
+  mentre il displacement userebbe `fbmRelief` (HLSL) → il giocatore "fluttua" sui
+  bump nuovi finché le due altezze non si uniscono.
+
+## Fasce di distanza del terreno (stato attuale, texture-based)
+
+- **vicino (≤45 m):** terra coi sassolini + grana + bump → buono.
+- **media (45–800 m):** è il punto debole strutturale. Solo texture su mesh liscia;
+  qualunque dettaglio aggiunto (bump/albedo) oscilla tra "fuso", "cavolfiore" (chiazze
+  d'albedo) e "striature" (bump a sguardo radente). La config stabile committata
+  evita gli artefatti accettando un dettaglio "pulito ma non scolpito". Il salto vero
+  lì lo danno solo CRATERI (geometria con struttura) o LOD della mesh, non altri knob.
+- **lontano (>800 m):** lunare pulita.
+- Manopole/scelte anti-artefatto nel materiale `Wanderer/PlanetBaked`: `_FlatDist`/`_FlatStr`
+  (appiattisce l'albedo a distanza → niente cavolfiore, che era l'albedo a chiazze, non il
+  bump); il **bump del rilievo è gated su due assi**: per ANGOLO (pieno dove la superficie
+  guarda la camera, spento al limbo/sguardo radente → niente striature) e per DISTANZA LONTANA
+  (svanisce tra 480 e 780 m: lì il rilievo bakeato a 0.4 m/texel va sub-pixel e mippa in blob,
+  quindi si lascia la sola ombreggiatura pulita della mesh, ottava 6). Resta sempre pieno da
+  vicino. De-repeat dei suoli a doppio campione ruotato. `_ReliefBias` (mip bias negativo, -0.6)
+  de-sfuoca la fascia 450-600 m dove la texture sta per esaurirsi (troppo negativo → sfarfallio).
+  Limite strutturale: oltre ~600 m la texture del rilievo è esaurita (texel sub-pixel), la
+  definizione lì può venire SOLO dalla mesh/crateri, non da altri knob.
 
 ## Shader PlanetSurface (Wanderer/Planet)
 
