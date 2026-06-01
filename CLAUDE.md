@@ -16,9 +16,17 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 ## Stato attuale (vedi git log per il dettaglio)
 
 Funziona: floating origin + doppia precisione, orbita Kepleriana, **pianeta
-walkable** con terreno procedurale, **gravità radiale**, **volo col jetpack**
-(tuta da raccogliere), **torcia** (F), ciclo giorno/notte, shader procedurale del
-pianeta con LOD per distanza.
+walkable** con **quadtree LOD** (cube-sphere chunked, build asincrona, node-cache
+LRU, geomorph CDLOD → niente pop, ritorno/orbita istantanei), **gravità radiale**,
+**volo col jetpack** (tuta da raccogliere), **torcia** (F), ciclo giorno/notte.
+
+**Superficie — base lunare liscia, committata e stabile.** Colore quasi uniforme
+grigio (`_SoilMean`) + variazione macro a bassa frequenza; il bello lo fanno la
+FORMA del terreno (colline morbide, 5 ottave) e la LUCE, non il dettaglio di
+superficie. Tutto il dettaglio è **WORLD-FIXED** (UV ancorata alla faccia) + mipmap
+hardware → niente moiré, niente scivolamento, nitido a ogni distanza. L'identità di
+un pianeta = 2 colori (`_SoilMean`/`_SoilTint`) + manopole di terreno (`Amplitude`,
+`Octaves`). Il PERCHÉ di queste scelte (due giorni di vicoli ciechi) è in "Lezioni dure".
 
 **Volo a due modelli, toggle con `N`** (`PlanetWalker`):
 - *Crociera* (default tuta): la potenza dei motori cresce con la quota e con quanto
@@ -50,17 +58,26 @@ I parametri (raggi, gravità, terreno, torcia) sono lì, commentati.
 
 ```
 Core/      Vector3d, FloatingOrigin   — doppia precisione, origine ancorata al pianeta
+           PerformanceGovernor        — cap fps (30 attivi / 15 idle): leva sul calore CPU
+           RenderScaler               — render a frazione di risoluzione (ora 1.0: GPU libera)
 Physics/   KeplerOrbit, CelestialBody, SolarSystem
-World/     PlanetTerrain  — SampleHeight/SurfaceNormal (unica fonte di verità mesh+walker)
-           Noise3D        — gradient noise (Perlin) CPU per la forma della mesh
+World/     PlanetTerrain     — SampleHeight/SurfaceNormal (unica fonte di verità mesh+walker)
+           Noise3D           — gradient noise (Perlin) CPU per la forma della mesh
            PlanetMeshBuilder — cube-sphere, normali analitiche, tangenti
+           PlanetQuadtree    — quadtree LOD chunked: split/merge, node-cache LRU, geomorph,
+                               build asincrona, horizon culling, predictive LOD
+           PlanetBaker       — bakea la maschera minerale per faccia + detail-normal condivisa
            SunLight
 Player/    PlanetWalker   — camminata su sfera + volo jetpack
            Flashlight     — torcia che scala con la quota
 Items/     SuitPickup
-Bootstrap/ GameBootstrap  — costruisce la scena
+Bootstrap/ GameBootstrap  — costruisce la scena (tutti i parametri sono qui)
 Debug/     DebugHud
-Shaders/   PlanetSurface.shader — Wanderer/Planet
+Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie, USATO dal quadtree
+           PlanetBake (Wanderer/PlanetBake)          — bake maschera minerale
+           DetailNormalBake                          — bake grana → normal map tileable
+           PlanetSurface (Wanderer/Planet)           — vecchio shader procedurale, solo fallback
+           PlanetNoise.cginc                         — libreria noise condivisa (vnoise, fbm...)
 ```
 
 Regola di fondo: ciò che è "vero" vive in coordinate-universo (`double`); la
@@ -92,9 +109,20 @@ vicino all'origine di Unity → la precisione non degrada mai.
   maschere di colore (dove serve il valore, non il gradiente — ed è più economico).
 - **Hash: mai combinare le coordinate con XOR semplice** (lineare → pattern
   strutturati). Mixing sequenziale (multiply+shift) o PCG.
-- **LOD del dettaglio = numero di ottave in funzione della dimensione in PIXEL**
-  delle feature (`oct ~ K - log2(dist)`). Così non è mai sfocato (vicino) né
-  aliasato (lontano), senza fade artificiali.
+- **Dettaglio di superficie WORLD-FIXED, mai a frequenza che galleggia con la camera.**
+  Provato il "trucco microscopio" (frequenza di campionamento ∝ 1/dist per texel costante
+  a schermo): sembra magico ma è non-fisico → i dettagli (sassi) SCIVOLANO e cambiano scala
+  mentre ti muovi, e le ottave galleggianti generano MOIRÉ permanente. La via giusta: UV
+  ancorata al mondo, scala FISSA, e l'antialiasing/lontananza li fa il MIPMAP HARDWARE. Una
+  sola ottava di colore (due copie della stessa foto a scale diverse = effetto "sdoppiato").
+- **Sabbia/suolo liscio: la bellezza è FORMA + LUCE, non alta frequenza.** Il dettaglio fine
+  di sabbia È grana uniforme = letteralmente rumore ("neve TV") quando ci zoomi. "Nitidezza
+  microscopio" e "liscio pulito" sono in conflitto PER LA SABBIA. La magia del dettaglio
+  appartiene alle superfici STRUTTURATE (roccia, regolite, crateri), non alla sabbia. Errore
+  di categoria costato un giorno: inseguire dettaglio dove serviva smoothness.
+- **Texture: serve STRUTTURA multi-scala, non grana uniforme.** Una foto d'asfalto (grana
+  fitta uniforme) tiled legge come rumore; una con chiazze medie + sassi + grana (es. soil_dirt)
+  legge come terreno vero. La differenza non è la risoluzione, è la struttura.
 - **Spotlight su Metal: non abilitarlo/disabilitarlo** per accendere/spegnere (il
   primo render carica la cookie interna pigramente → lampo di memoria non
   inizializzata). Tienilo `enabled`, commuta l'**intensità**. La torcia ora non usa
@@ -102,15 +130,17 @@ vicino all'origine di Unity → la precisione non degrada mai.
 - **Destroy è differito a fine frame**: se un oggetto emissivo va distrutto a
   contatto ravvicinato (la tuta alla raccolta), disabilita renderer/luci
   nell'istante, prima del frame, o lampeggia in faccia.
-- **Calore (anche su M3 Max):** uno shader procedurale full-screen a risoluzione
-  Retina tiene la GPU al 100%. Tenere le ottave basse dove si può, value noise
-  economico per le maschere, break anticipato nei cicli per distanza. Cap fps a 60
-  (`GameBootstrap`). Se scotta ancora: 30 fps, o meno ottave vicine.
-  Leva chiave a costo zero visivo: **saltare via branch le letture texture dove non
-  contribuiscono** — nel `PlanetBaked` il rilievo non si legge sui pixel lontani/al limbo
-  (bump spento) e i suoli non si leggono oltre 300 m (albedo già appiattito). È gran parte
-  del calore "sprecato" col pianeta intero a video. Leve successive se serve: aniso 8→4
-  sulle texture, poi `RenderScaler` con scale 0.85–0.9 (perde un filo di nitidezza).
+- **Calore: MISURA prima di ottimizzare. La GPU NON era il collo di bottiglia.** Per due
+  giorni ottimizzato lo shader contro il calore; il profilo (Stats → GPU Frametime) ha detto
+  **GPU ~1 ms (95% scarica)**, calore = **CPU main thread** che a 60 fps rifà il loop 60
+  volte/s per niente. La leva DIRETTA sul calore è quindi il **cap fps** (PerformanceGovernor:
+  30 attivi / 15 idle), non lo shader. Corollario per il futuro: **GPU-FIRST.** La GPU ha
+  margine enorme → metti lì il lavoro nuovo (dettaglio per-pixel/parallax negli shader, GPU
+  instancing per rocce/vegetazione via `RenderMeshIndirect`, compute shader), tieni leggero il
+  main thread (le ~400 draw call del quadtree sono il costo CPU principale). Il `RenderScaler`
+  è a 1.0 (piena risoluzione): la GPU se lo permette; è la prima leva da riabbassare (0.85) SE
+  un domani la carichiamo di effetti. `TimeScale 3` (acceleratore orbite di debug) triplica la
+  fisica: in gioco normale è 1.
 - **Niente ombre proiettate** (direzionale e torcia): su questa mesh a luce radente
   danno "crepe" (shadow acne) e lo "schiarimento" oltre la shadow distance. Il
   rilievo emerge bene dalle sole normali.
@@ -126,33 +156,52 @@ vicino all'origine di Unity → la precisione non degrada mai.
   mentre il displacement userebbe `fbmRelief` (HLSL) → il giocatore "fluttua" sui
   bump nuovi finché le due altezze non si uniscono.
 
-## Fasce di distanza del terreno (stato attuale, texture-based)
+## Superficie e shader (Wanderer/PlanetBaked)
 
-- **vicino (≤45 m):** terra coi sassolini + grana + bump → buono.
-- **media (45–800 m):** è il punto debole strutturale. Solo texture su mesh liscia;
-  qualunque dettaglio aggiunto (bump/albedo) oscilla tra "fuso", "cavolfiore" (chiazze
-  d'albedo) e "striature" (bump a sguardo radente). La config stabile committata
-  evita gli artefatti accettando un dettaglio "pulito ma non scolpito". Il salto vero
-  lì lo danno solo CRATERI (geometria con struttura) o LOD della mesh, non altri knob.
-- **lontano (>800 m):** lunare pulita.
-- Manopole/scelte anti-artefatto nel materiale `Wanderer/PlanetBaked`: `_FlatDist`/`_FlatStr`
-  (appiattisce l'albedo a distanza → niente cavolfiore, che era l'albedo a chiazze, non il
-  bump); il **bump del rilievo è gated su due assi**: per ANGOLO (pieno dove la superficie
-  guarda la camera, spento al limbo/sguardo radente → niente striature) e per DISTANZA LONTANA
-  (svanisce tra 480 e 780 m: lì il rilievo bakeato a 0.4 m/texel va sub-pixel e mippa in blob,
-  quindi si lascia la sola ombreggiatura pulita della mesh, ottava 6). Resta sempre pieno da
-  vicino. De-repeat dei suoli a doppio campione ruotato. `_ReliefBias` (mip bias negativo, -0.6)
-  de-sfuoca la fascia 450-600 m dove la texture sta per esaurirsi (troppo negativo → sfarfallio).
-  Limite strutturale: oltre ~600 m la texture del rilievo è esaurita (texel sub-pixel), la
-  definizione lì può venire SOLO dalla mesh/crateri, non da altri knob.
+Lo shader USATO è `Wanderer/PlanetBaked`, assegnato per faccia dal quadtree via
+`PlanetBaker.BakeFaceMaterials`. Lavora in spazio oggetto (stabile con floating origin).
+Catena del colore in `surf`:
+1. colore base `_SoilMean` (grigio lunare) × variazione **macro** a bassa frequenza
+   (`_MacroVar`/`_MacroScale`, campo dunale ~150 m, NON alta frequenza → niente cavolfiore);
+2. **grana** fotografica a basso contrasto (`_SandDetail`), solo < ~120 m, letta SFOCATA
+   (mip bias +2) → tono, non puntini; normalizzata sul grigio medio (non sposta il colore);
+3. **regioni minerali** (`_MaskMap` R, bakeato per faccia): tinta larga calda/fredda
+   (`_MineralA`/`_MineralB`/`_MineralStr`), bassa frequenza — tenue ora, leva per pianeti vari;
+4. cappucci chiari sulle creste (`_PeakColor`/`_PeakStr`);
+5. **normale**: un soffio di micro-grana (`_GrainStr`) solo < ~13 m (la normale ad alta
+   frequenza è la prima causa di sparkle/moiré sotto luce → quasi spenta).
 
-## Shader PlanetSurface (Wanderer/Planet)
+`vert` fa il **geomorph** (CDLOD) leggendo UV2 (xyz = spostamento verso il genitore, w =
+splitDist): transizione LOD continua, niente pop. Tutto è world-fixed + mipmappato.
 
-`#pragma target 4.0` (serve uint per l'hash PCG). Lavora in spazio oggetto
-(stabile con la floating origin). Manopole utili nel materiale: `_DetailStr`
-(forza rilievo), `_BaseFreq` (scala), `_RoughThresh`/`_RoughBoost` (zone rugose),
-colori mari/altopiani/vette. La mesh fa la forma larga (5 ottave), lo shader il
-dettaglio fine con LOD continuo.
+Manopole identità pianeta: `_SoilMean`/`_SoilTint` (colore), `Amplitude`/`Octaves` nel
+terreno (forma). Texture: solo `soil_dirt` è usata (base+grana+normale). `soil_red`/`soil_rock`
+sono importate per i pianeti futuri (rosso/scuro), non ancora cablate.
+
+## Generazione pianeti (roadmap concordata)
+
+Obiettivo: dare a Claude la **composizione chimica** (+ proprietà fisiche) di un corpo e
+generare un pianeta "tipo-Mercurio / tipo-Luna / tipo-Ganimede".
+
+**Verità tecnica:** la composizione NON produce l'aspetto in modo deterministico — l'aspetto
+nasce dai PROCESSI (impatti, vulcanismo, ghiaccio, atmosfera) sulla storia del corpo. Non
+serve accuratezza fisica: serve una mappatura **plausibile e coerente**. Architettura:
+
+```
+composizione + fisica  →  [ricetta: regole + preset di riferimento]  →  parametri generatore  →  pianeta
+(ferro, silicati, ghiaccio,                                            (colore, ottave/ampiezza,
+ zolfo; massa, temp, atmosfera)                                         crateri, ghiaccio, atmosfera)
+```
+
+Un "archetipo" = struct/ScriptableObject di parametri. La ricetta li riempie (regole +
+interpolazione tra corpi reali). Sfrutta la separazione già esistente FORMA (noise) / ASPETTO
+(shader). Mappature: silicati→grigio-bruno · ossidi di ferro→rosso · ghiaccio→chiaro/liscio/
+alto albedo · zolfo→giallo · massa/raggio→gravità→ripidità · temperatura→roccia/ghiaccio.
+
+**Ordine di costruzione (modo Carmack — NON costruire l'astrazione per prima):** fai 2-3
+pianeti A MANO con manopole dirette (Luna, Marte, Mercurio), guarda cosa li distingue davvero,
+POI estrai la ricetta dai pianeti veri. Aggiungi UN processo alla volta (prima crateri, poi
+ghiaccio, poi atmosfera). Mai costruire sul vuoto.
 
 ## Git
 

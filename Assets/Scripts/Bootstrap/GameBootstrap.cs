@@ -70,12 +70,12 @@ public class GameBootstrap : MonoBehaviour
         // veri (km): una mesh uniforme non può risolvere insieme l'intero pianeta e il suolo a
         // portata di mano. Il rilievo resta bakeato per faccia (2048²) e i nodi lo indirizzano
         // con le proprie UV — stessa resa di prima, ma ora la densità segue la distanza.
-        var faceMats = PlanetBaker.BakeFaceMaterials(terrain, 0.25f, 2048, 256);
+        var faceMats = PlanetBaker.BakeFaceMaterials(terrain, 256);
         if (faceMats != null)
         {
             var qt = planetGo.AddComponent<PlanetQuadtree>();
             qt.Init(terrain, faceMats, null);   // la camera la prende da Camera.main quando esiste
-            Debug.Log("Pianeta: quadtree LOD attivo (rilievo bakeato per faccia).");
+            Debug.Log("Pianeta: quadtree LOD attivo (maschera bakeata per faccia).");
         }
         else
         {

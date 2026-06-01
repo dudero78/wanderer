@@ -1,28 +1,26 @@
 Shader "Wanderer/PlanetBaked"
 {
-    // Shader di superficie del pianeta. Quattro fonti, ognuna usata dove FUNZIONA:
-    //   - RILIEVO (forma del terreno): texture bakeata (Wanderer/PlanetBake), valore+gradiente,
-    //     con mipmap → niente sfarfallio, freddo, coerente a ogni distanza.
-    //   - GRANA (micro-rilievo come NORMALE): da foto PBR, SOLO ravvicinata. Il bump si vede
-    //     bene solo da vicino e a sguardo ripido; a luce radente/distanza collassa, quindi lì
-    //     non lo usiamo.
-    //   - COLORE / SUOLI: tre foto (terra bruna, sabbia grigia, fango oliva) usate per BANDA DI
-    //     DISTANZA — ognuna dove rende meglio: terra coi sassolini da vicino, sabbia nel medio,
-    //     fango a macchie larghe in lontananza. La variazione tonale la danno le foto stesse.
+    // Shader di superficie del pianeta (Lambert). Filosofia: la FORMA del terreno (colline/dune) e
+    // la LUCE fanno il lavoro; il colore è quasi uniforme e WORLD-FIXED, niente alta frequenza
+    // diffusa (che su una superficie liscia diventa "rumore"/"neve TV"). Fonti:
+    //   - COLORE: colore base (_SoilMean) modulato da una variazione MACRO a bassa frequenza (campo
+    //     dunale) + una grana fotografica a BASSO contrasto, solo da vicino e letta sfocata.
+    //   - REGIONI MINERALI (_MaskMap, bakeato per faccia): tinta larga calda/fredda, bassa frequenza.
+    //   - MICRO-GRANA (_DetailNormal): un soffio di normale solo da naso a terra (premio microscopio).
+    //   - GEOMORPH (UV2): transizione LOD continua, niente pop.
+    // Tutto world-fixed (UV ancorata alla faccia) + mipmap hardware → niente moiré, niente
+    // scivolamento, nitido a ogni distanza senza trucchi che galleggiano con la camera.
     //
-    // PERCORSO FREDDO: il costo per-pixel è tenuto basso apposta — i masks (rugosità, minerali)
-    // usano value-noise a 1 ottava, e il lavoro di dettaglio (terra vicina, bump, grana) si
-    // SALTA via branch quando la distanza lo annulla. Così il caso peggiore (pianeta intero a
-    // video) resta leggero: è ciò che tiene fresco il Mac.
+    // NOTA perf: la GPU è ampiamente sotto-utilizzata (profilo ~1 ms); il collo di bottiglia è la
+    // CPU. Quindi qui c'è margine: il dettaglio per-pixel ricco (crateri, parallax, roccia) andrà
+    // messo NELLO SHADER per i pianeti strutturati, non in geometria che pesa sulla CPU.
     Properties
     {
         _PeakColor  ("Vette (cappucci chiari)", Color) = (0.74, 0.76, 0.70, 1)
-        _RockColor  ("Roccia (zone rugose)", Color) = (0.46, 0.42, 0.36, 1)
+        _PeakStr  ("Forza cappucci vetta", Range(0,1)) = 0.5
 
         _BaseRadius ("Raggio base",      Float) = 500
         _Amplitude  ("Ampiezza terreno", Float) = 30
-
-        _MottleStr  ("Variazione colore avvallamenti", Range(0,1)) = 0.12
 
         // SUOLO LISCIO: colore quasi uniforme. Il bello è la FORMA del terreno e la LUCE, non il
         // dettaglio di superficie. _SoilMean = colore base (grigio lunare); _SoilTint lo modula.
@@ -31,48 +29,29 @@ Shader "Wanderer/PlanetBaked"
         _SoilMean ("Suolo: colore base", Color) = (0.44, 0.44, 0.45, 1)
         _MacroVar ("Variazione macro (campo dunale)", Range(0,1)) = 0.45
         _MacroScale ("Variazione macro: scala (basso = chiazze larghe)", Float) = 5
-        // contrasto della grana fotografica: 0 = sabbia perfettamente liscia, alto = grana visibile.
-        // Tenuto BASSO apposta: sulla sabbia l'alta frequenza diventa "rumore"/"neve TV".
-        _SandDetail ("Sabbia: contrasto grana (0 = liscia)", Range(0,1)) = 0.18
+        // contrasto della grana fotografica: 0 = superficie perfettamente liscia, alto = grana visibile.
+        // Tenuto BASSO apposta: l'alta frequenza diffusa diventa "rumore"/"neve TV".
+        _SandDetail ("Suolo: contrasto grana (0 = liscio)", Range(0,1)) = 0.18
 
-        // --- regioni minerali: variazione di TINTA larga (non di luminosità) ---
-        // base neutra + chiazze calde (A) e fredde (B) distinte: regioni vere, non una velatura.
+        // regioni minerali (da _MaskMap bakeato): tinta larga calda (A) / fredda (B), bassa frequenza.
+        // Tenuta tenue (Str basso): è una velatura regionale, non chiazze. Forte = pianeti più "vari".
         _MineralA ("Minerale: chiazze calde (ruggine)", Color) = (1.18, 0.92, 0.74, 1)
         _MineralB ("Minerale: chiazze fredde (ardesia)", Color) = (0.82, 0.92, 1.08, 1)
-        _MineralFreq ("Minerale: scala regioni", Float) = 1.8
         _MineralStr  ("Minerale: forza", Range(0,1)) = 0.18
 
-        _PeakStr  ("Forza cappucci vetta", Range(0,1)) = 0.5
-
-        _RoughFreq  ("Scala zone rugose",     Float) = 0.8
-        _RoughThresh ("Soglia zone rugose",   Range(0,1)) = 0.60
-        _RoughBoost ("Rilievo extra zone rugose", Range(1,4)) = 1.8
-
-        _BaseFreq   ("Scala rilievo (ottava base)", Float) = 0.25
-        _DetailStr  ("Forza rilievo (media/lontana dist.)", Range(0,1)) = 0.25
-        // bias di mip sul rilievo: negativo = mip piu' nitida. Tenuto MITE (-0.2): ora il dettaglio
-        // medio lo fa la GEOMETRIA (ottava 7), non serve spremere la texture, e un bias aggressivo
-        // dava "rugosità che striscia" (sfarfallio) a volo radente.
-        _ReliefBias ("Rilievo: bias mip (neg = nitido)", Range(-2,0)) = -0.2
-
-        // micro-grana come NORMALE, solo da naso a terra (< ~13 m): un soffio. Sulla sabbia la
-        // normale ad alta frequenza è la prima causa di sparkle/moiré sotto luce → quasi spenta.
+        // micro-grana come NORMALE, solo da naso a terra (< ~13 m): un soffio. La normale ad alta
+        // frequenza è la prima causa di sparkle/moiré sotto luce → quasi spenta.
         _GrainStr    ("Micro-grana (normale, solo vicino)", Range(0,1)) = 0.06
-        // scala FISSA (world-fixed) della grana fotografica/normale: ripetizioni sulla faccia.
+        // scala FISSA (world-fixed) della grana/normale: ripetizioni sulla faccia.
         _DetailScale ("Dettaglio: ripetizioni sulla faccia", Float) = 320
 
-        // GEOMORPH: ampiezza della banda di morphing come frazione della distanza di split del
-        // nodo. 0.4 = il nodo è coerente col genitore tra splitDist e 1.4×splitDist, poi "cresce"
-        // nel dettaglio fine. Più alto = transizione più lunga e morbida (ma dettaglio un filo più
-        // tardi); più basso = dettaglio prima ma transizione più corta.
+        // GEOMORPH: ampiezza della banda di morphing come frazione della distanza di split del nodo.
+        // Più alto = transizione più lunga e morbida; più basso = dettaglio prima ma transizione corta.
         _MorphRange ("Geomorph: ampiezza banda", Range(0.1, 0.9)) = 0.4
 
-        [NoScaleOffset] _ReliefMap ("Rilievo bakeato (ottave grosse)", 2D) = "black" {}
-        [NoScaleOffset] _MaskMap ("Maschere bakeate (R=minerali, G=rugosità)", 2D) = "gray" {}
+        [NoScaleOffset] _MaskMap ("Maschere bakeate (R=minerali)", 2D) = "gray" {}
         [NoScaleOffset] _DetailNormal ("Grana suolo (normal tileable)", 2D) = "bump" {}
-        [NoScaleOffset] _SoilSand ("Suolo: sabbia grigia (diffuse)", 2D) = "gray" {}
-        [NoScaleOffset] _SoilMud  ("Suolo: fango oliva (diffuse)",   2D) = "gray" {}
-        [NoScaleOffset] _SoilDirt ("Suolo: terra bruna (diffuse)",   2D) = "gray" {}
+        [NoScaleOffset] _SoilSand ("Suolo: foto diffuse (grana/macro)", 2D) = "gray" {}
     }
 
     SubShader
@@ -85,18 +64,14 @@ Shader "Wanderer/PlanetBaked"
         #pragma target 4.0
         #include "PlanetNoise.cginc"
 
-        fixed4 _PeakColor, _RockColor, _SoilTint, _SoilMean, _MineralA, _MineralB;
-        float _MineralFreq, _MineralStr;
-        float _BaseRadius, _Amplitude, _MottleStr;
-        float _RoughFreq, _RoughThresh, _RoughBoost;
-        float _BaseFreq, _DetailStr, _ReliefBias;
+        fixed4 _PeakColor, _SoilTint, _SoilMean, _MineralA, _MineralB;
+        float _MineralStr, _PeakStr;
+        float _BaseRadius, _Amplitude;
         float _GrainStr, _DetailScale, _MacroVar, _MacroScale, _SandDetail;
-        float _PeakStr;
         float _MorphRange;
-        sampler2D _ReliefMap;
         sampler2D _MaskMap;
         sampler2D _DetailNormal;
-        sampler2D _SoilSand, _SoilMud, _SoilDirt;
+        sampler2D _SoilSand;
 
         // DETTAGLIO WORLD-FIXED: la UV è ancorata alla superficie del pianeta (texUV globale della
         // faccia), quindi grani e sassi NON scivolano mai. UNA scala fissa, mipmappata + aniso:
