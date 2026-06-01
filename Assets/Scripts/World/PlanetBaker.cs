@@ -52,12 +52,12 @@ public static class PlanetBaker
         // ripetibile. Se manca lo shader, le facce restano senza grana ma il bake procede.
         RenderTexture detailRT = BakeDetailNormal(1024);
 
-        // tre foto di suolo per i biomi di colore (sabbia grigia base + fango oliva + terra
-        // bruna): lo shader le mescola per zone larghe. Caricate UNA volta, condivise. Se una
+        // due foto di suolo STRUTTURATE per i biomi di colore (terra bruna coi sassi = base; terra
+        // rossastra = zone calde minerali). Strutturate apposta: una foto a grana uniforme (asfalto)
+        // letta da vicino legge come "neve TV", queste no. Caricate UNA volta, condivise. Se una
         // manca, il materiale resta col default "gray" dello shader (zona neutra): nessun crash.
-        var soilSand = Resources.Load<Texture2D>("Textures/soil_grain");
-        var soilMud  = Resources.Load<Texture2D>("Textures/soil_mud");
-        var soilDirt = Resources.Load<Texture2D>("Textures/soil_dirt");
+        var soilBase = Resources.Load<Texture2D>("Textures/soil_dirt");   // base: terra bruna coi sassi
+        var soilWarm = Resources.Load<Texture2D>("Textures/soil_red");    // zone calde: terra rossastra (Marte)
 
         int baked = 0;
         var prev = RenderTexture.active;
@@ -94,9 +94,8 @@ public static class PlanetBaker
             mat.SetFloat("_BaseFreq", baseFreq);
             mat.SetTexture("_ReliefMap", rt);
             if (detailRT != null) mat.SetTexture("_DetailNormal", detailRT);
-            if (soilSand != null) mat.SetTexture("_SoilSand", soilSand);
-            if (soilMud  != null) mat.SetTexture("_SoilMud",  soilMud);
-            if (soilDirt != null) mat.SetTexture("_SoilDirt", soilDirt);
+            if (soilBase != null) mat.SetTexture("_SoilSand", soilBase);   // slot "base"
+            if (soilWarm != null) mat.SetTexture("_SoilDirt", soilWarm);   // slot "zone calde"
             mr.sharedMaterial = mat;
             baked++;
         }
@@ -130,11 +129,14 @@ public static class PlanetBaker
         var bakeMat = new Material(bakeShader);
         bakeMat.SetFloat("_BaseFreq", baseFreq);
         bakeMat.SetFloat("_BakeOct", 6.0f);
+        // frequenze delle maschere: DEVONO coincidere coi default dello shader di superficie
+        // (_MineralFreq, _RoughFreq) o le zone non combaciano col resto.
+        bakeMat.SetFloat("_MineralFreq", 1.8f);
+        bakeMat.SetFloat("_RoughFreq", 0.8f);
 
         RenderTexture detailRT = BakeDetailNormal(1024);
-        var soilSand = Resources.Load<Texture2D>("Textures/soil_grain");
-        var soilMud  = Resources.Load<Texture2D>("Textures/soil_mud");
-        var soilDirt = Resources.Load<Texture2D>("Textures/soil_dirt");
+        var soilBase = Resources.Load<Texture2D>("Textures/soil_dirt");   // base: terra bruna coi sassi
+        var soilWarm = Resources.Load<Texture2D>("Textures/soil_red");    // zone calde: terra rossastra (Marte)
 
         var mats = new Material[6];
         var prev = RenderTexture.active;
@@ -154,24 +156,40 @@ public static class PlanetBaker
             };
             rt.Create();
 
+            // maschera (minerali + rugosità): bassa frequenza → RT piccola ARGB32, sostituisce i
+            // 2 rumori procedurali per-pixel dello shader di superficie (meno calore).
+            var maskRT = new RenderTexture(512, 512, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
+            {
+                name = "MaskBake_" + f,
+                useMipMap = true,
+                autoGenerateMips = false,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear
+            };
+            maskRT.Create();
+
             var cb = new CommandBuffer { name = "PlanetBake_" + f };
             cb.SetRenderTarget(rt);
             cb.ClearRenderTarget(true, true, Color.clear);
-            cb.DrawMesh(bakeMesh, Matrix4x4.identity, bakeMat, 0, 0);
+            cb.DrawMesh(bakeMesh, Matrix4x4.identity, bakeMat, 0, 0);   // pass 0: rilievo
+            cb.SetRenderTarget(maskRT);
+            cb.ClearRenderTarget(true, true, Color.clear);
+            cb.DrawMesh(bakeMesh, Matrix4x4.identity, bakeMat, 0, 1);   // pass 1: maschere
             Graphics.ExecuteCommandBuffer(cb);
             cb.Release();
             rt.GenerateMips();
-            Object.Destroy(bakeMesh);   // la texture è fatta: la mesh non serve più
+            maskRT.GenerateMips();
+            Object.Destroy(bakeMesh);   // le texture sono fatte: la mesh non serve più
 
             var mat = new Material(sampleShader);
             mat.SetFloat("_BaseRadius", terrain.BaseRadius);
             mat.SetFloat("_Amplitude", terrain.Amplitude);
             mat.SetFloat("_BaseFreq", baseFreq);
             mat.SetTexture("_ReliefMap", rt);
+            mat.SetTexture("_MaskMap", maskRT);
             if (detailRT != null) mat.SetTexture("_DetailNormal", detailRT);
-            if (soilSand != null) mat.SetTexture("_SoilSand", soilSand);
-            if (soilMud  != null) mat.SetTexture("_SoilMud",  soilMud);
-            if (soilDirt != null) mat.SetTexture("_SoilDirt", soilDirt);
+            if (soilBase != null) mat.SetTexture("_SoilSand", soilBase);   // slot "base"
+            if (soilWarm != null) mat.SetTexture("_SoilDirt", soilWarm);   // slot "zone calde"
             mats[f] = mat;
         }
         RenderTexture.active = prev;
@@ -190,13 +208,15 @@ public static class PlanetBaker
             Debug.LogWarning("PlanetBaker: shader detail-normal non trovato, suolo senza grana.");
             return null;
         }
-        // foto PBR di sabbia grigia (Resources/Textures/soil_grain). Da questa lo shader deriva
-        // il RILIEVO della grana (non il colore: le ombre cotte nella foto illuminerebbero il
-        // lato in ombra). Se manca, niente grana ma il resto procede.
-        var source = Resources.Load<Texture2D>("Textures/soil_grain");
+        // foto della terra bruna strutturata (Resources/Textures/soil_dirt). Da questa lo shader
+        // deriva il RILIEVO del micro-suolo (non il colore: le ombre cotte nella foto
+        // illuminerebbero il lato in ombra). Strutturata, non rumore uniforme → niente sparkle/moiré
+        // sotto luce forte (la grana d'asfalto generava normali ad alta frequenza che scintillavano).
+        // Se manca, niente grana ma il resto procede.
+        var source = Resources.Load<Texture2D>("Textures/soil_dirt");
         if (source == null)
         {
-            Debug.LogWarning("PlanetBaker: Textures/soil_grain non trovata, suolo senza grana.");
+            Debug.LogWarning("PlanetBaker: Textures/soil_dirt non trovata, suolo senza grana.");
             return null;
         }
         var mat = new Material(shader);
@@ -208,7 +228,7 @@ public static class PlanetBaker
             autoGenerateMips = false,
             wrapMode = TextureWrapMode.Repeat,   // tileable: si ripete sul terreno senza cuciture
             filterMode = FilterMode.Trilinear,
-            anisoLevel = 8
+            anisoLevel = 4
         };
         rt.Create();
 

@@ -56,19 +56,13 @@ public class GameBootstrap : MonoBehaviour
         // il PlanetWalker ci cammina sopra. Una sola fonte di verità.
         var terrain = planetGo.AddComponent<PlanetTerrain>();
         terrain.BaseRadius = (float)planet.Radius;
-        terrain.Amplitude = 55f;    // colline più marcate: silhouette meno "palla liscia"
-        terrain.Frequency = 2.5f;
-        // 7 ottave: l'ottava 7 dà rilievo REALE a ~9 m. È geometria vera, non bump: a luce radente
-        // fa ombra e silhouette → la fascia media (200–800 m) ha bordi netti che il bump su mesh
-        // liscia non può dare. Non oltre 7: l'ottava 8 (~4.5 m) a mesh 300 (~2.6 m tra vertici)
-        // cade sotto Nyquist (~5.2 m) e alia in "rugosità che striscia" a volo radente — e dava
-        // pochissimo (~0.8 m), quindi non vale il prezzo.
-        terrain.Octaves = 7;
-        // gain 0.56 (default 0.5): ogni ottava pesa un filo di più → le ottave fini (5–18 m) hanno
-        // AMPIEZZA visibile, non ~1 m piatto. È la vera leva del dettaglio a media distanza: con
-        // gain 0.5 le ottave alte esistono ma sono quasi piatte (geometria invisibile). Più alto di
-        // così il pianeta diventa troppo uniforme/granuloso, perde le colline larghe.
-        terrain.Gain = 0.56f;
+        terrain.Amplitude = 45f;    // colline morbide: silhouette dolce, non "palla liscia"
+        terrain.Frequency = 2.0f;
+        // 5 ottave: terreno DOLCE, "luna prima di crateri/mari/rocce". Le feature più piccole sono
+        // ~100 m → colline larghe e morbide, niente increspature fini. La definizione a media/corta
+        // distanza arriverà dalle FEATURE vere (crateri, rocce), che sono geometria con struttura.
+        terrain.Octaves = 5;
+        terrain.Gain = 0.55f;
         terrain.Seed = 1337;
 
         // Geometria a QUADTREE LOD: niente più mesh uniforme. Le 6 facce sono le radici di

@@ -18,6 +18,8 @@ Shader "Wanderer/PlanetBake"
     {
         _BaseFreq ("Scala rilievo (ottava base)", Float) = 0.25
         _BakeOct  ("Ottave grosse da bakeare",    Float) = 3.0
+        _MineralFreq ("Maschera: scala regioni minerali", Float) = 1.8
+        _RoughFreq   ("Maschera: scala zone rugose",      Float) = 0.8
     }
     SubShader
     {
@@ -26,40 +28,54 @@ Shader "Wanderer/PlanetBake"
         ZTest Always
         ZWrite Off
 
+        // vert condiviso dai due pass: srotola la mesh-faccia sul quadrato della texture.
+        CGINCLUDE
+        #include "UnityCG.cginc"
+        #include "PlanetNoise.cginc"
+        struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
+        struct v2f     { float4 pos : SV_POSITION; float3 localPos : TEXCOORD0; };
+        v2f vert(appdata v)
+        {
+            v2f o;
+            float2 p = v.uv * 2.0 - 1.0;
+            #if UNITY_UV_STARTS_AT_TOP
+                p.y = -p.y;
+            #endif
+            o.pos = float4(p, 0.0, 1.0);
+            o.localPos = v.vertex.xyz;   // posizione oggetto GIA' spostata in altezza (la mesh vera)
+            return o;
+        }
+        ENDCG
+
+        // PASS 0 — rilievo: R = valore, GBA = gradiente (RGBAHalf).
         Pass
         {
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             #pragma target 4.0
-            #include "UnityCG.cginc"
-            #include "PlanetNoise.cginc"
+            float _BaseFreq, _BakeOct;
+            float4 frag(v2f i) : SV_Target { return fbmRelief(i.localPos * _BaseFreq, _BakeOct); }
+            ENDCG
+        }
 
-            float _BaseFreq;
-            float _BakeOct;
-
-            struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
-            struct v2f     { float4 pos : SV_POSITION; float3 localPos : TEXCOORD0; };
-
-            v2f vert(appdata v)
-            {
-                v2f o;
-                // uv [0,1] -> clip [-1,1]: la mesh viene "srotolata" sul quadrato della texture.
-                float2 p = v.uv * 2.0 - 1.0;
-                // su Metal/D3D l'origine della texture e' in alto: ribaltiamo Y in scrittura
-                // cosi' che, leggendo a runtime con la stessa uv, il texel torni allineato.
-                #if UNITY_UV_STARTS_AT_TOP
-                    p.y = -p.y;
-                #endif
-                o.pos = float4(p, 0.0, 1.0);
-                o.localPos = v.vertex.xyz;   // posizione oggetto GIA' spostata in altezza (la mesh vera)
-                return o;
-            }
-
+        // PASS 1 — maschere (sostituiscono i vnoise per-pixel nello shader di superficie):
+        //   R = rumore regioni minerali, G = rumore zone rugose. Valori grezzi: lo shader di
+        //   superficie applica soglie/smoothstep (così le manopole restano vive). Bassa frequenza
+        //   → bastano pochi texel, e si toglie il calore di 2 rumori procedurali per pixel.
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 4.0
+            float _MineralFreq, _RoughFreq;
             float4 frag(v2f i) : SV_Target
             {
-                // identica alla riga dello shader di superficie: fbmRelief(P * _BaseFreq, oct)
-                return fbmRelief(i.localPos * _BaseFreq, _BakeOct);
+                float3 N = normalize(i.localPos);
+                float mineral = vnoise(N * _MineralFreq);
+                float rough   = vnoise(N * _RoughFreq + 5.1);
+                return float4(mineral, rough, 0.0, 1.0);
             }
             ENDCG
         }

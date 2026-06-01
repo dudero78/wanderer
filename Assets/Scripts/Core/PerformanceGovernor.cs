@@ -20,9 +20,14 @@ using UnityEngine;
 /// </summary>
 public class PerformanceGovernor : MonoBehaviour
 {
-    public int activeFps = 60;      // quando ti muovi o guardi intorno
-    public int idleFps = 30;        // quando la scena è ferma
-    public float idleDelay = 0.4f;  // secondi di immobilità prima di scendere
+    // I profili (Stats) dicono che la GPU finisce il frame in ~1 ms: il collo di bottiglia e il
+    // CALORE sono il MAIN THREAD CPU, che a 60 fps rifà il loop completo 60 volte/s per niente
+    // (la GPU avrebbe finito comunque). Quindi il cap fps qui è la leva DIRETTA sul calore: meno
+    // fps = meno giri di CPU al secondo = meno watt. 30 attivi è il registro di Outer Wilds e con
+    // questa GPU si disegna senza sforzo. Per più fluidità rimetti 60 (più caldo, è il prezzo).
+    public int activeFps = 30;      // quando ti muovi o guardi intorno
+    public int idleFps = 15;        // quando la scena è ferma: a occhio identica, metà CPU
+    public float idleDelay = 0.3f;  // secondi di immobilità prima di scendere
     public float moveThreshold = 2f; // m/s sopra cui il giocatore è "in movimento" (volo balistico)
 
     PlanetWalker walker;
