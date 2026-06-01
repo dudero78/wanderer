@@ -33,6 +33,7 @@ public static class PlanetMeshBuilder
         var verts = new Vector3[res * res];
         var normals = new Vector3[res * res];
         var tangents = new Vector4[res * res];
+        var uvs = new Vector2[res * res];   // (tx,ty) in [0,1]²: indirizza la texture di rilievo bakeata
         var tris = new int[(res - 1) * (res - 1) * 6];
         int ti = 0;
         float eps = 2f / (res - 1);   // passo per la differenza centrale (~ una cella di griglia)
@@ -54,6 +55,7 @@ public static class PlanetMeshBuilder
                 Vector3 refV = Mathf.Abs(nrm.y) < 0.99f ? Vector3.up : Vector3.right;
                 Vector3 tan = Vector3.Normalize(Vector3.Cross(refV, nrm));
                 tangents[i] = new Vector4(tan.x, tan.y, tan.z, 1f);
+                uvs[i] = new Vector2(tx, ty);   // la stessa parametrizzazione usata dal bake
 
                 if (x < res - 1 && y < res - 1)
                 {
@@ -78,6 +80,7 @@ public static class PlanetMeshBuilder
         mesh.vertices = verts;
         mesh.normals = normals;   // normali analitiche, continue tra le facce: niente cuciture
         mesh.tangents = tangents; // per le normali di dettaglio dello shader
+        mesh.uv = uvs;            // indirizza la texture di rilievo bakeata, per faccia
         mesh.triangles = tris;
         mesh.RecalculateBounds();
         return mesh;
