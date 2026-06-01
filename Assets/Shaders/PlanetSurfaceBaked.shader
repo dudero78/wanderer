@@ -53,9 +53,10 @@ Shader "Wanderer/PlanetBaked"
 
         _BaseFreq   ("Scala rilievo (ottava base)", Float) = 0.25
         _DetailStr  ("Forza rilievo",         Range(0,1)) = 0.42
-        // bias di mip sul rilievo: negativo = mip piu' nitida (de-sfuoca la fascia 450-600 m dove
-        // la texture sta per esaurirsi). Troppo negativo → sfarfallio in movimento. -0.5 e' prudente.
-        _ReliefBias ("Rilievo: bias mip (neg = nitido)", Range(-2,0)) = -0.6
+        // bias di mip sul rilievo: negativo = mip piu' nitida. Tenuto MITE (-0.2): ora il dettaglio
+        // medio lo fa la GEOMETRIA (ottava 7), non serve spremere la texture, e un bias aggressivo
+        // dava "rugosità che striscia" (sfarfallio) a volo radente.
+        _ReliefBias ("Rilievo: bias mip (neg = nitido)", Range(-2,0)) = -0.2
 
         _GrainTiling ("Ripetizioni grana fine", Float) = 2400
         _GrainStr    ("Forza grana fine",     Range(0,1)) = 0.18
@@ -134,11 +135,32 @@ Shader "Wanderer/PlanetBaked"
 
             float dist = distance(IN.worldPos, _WorldSpaceCameraPos);
 
-            // rilievo: letto interamente dalla texture bakeata (pulita, con mipmap). Bias di mip
-            // negativo → tira dentro una mip piu' nitida nella fascia media (de-sfuoca i 450-600 m).
-            float4 baked = tex2Dbias(_ReliefMap, float4(IN.texUV, 0.0, _ReliefBias));
-            float reliefVal = baked.x;
-            float3 G = baked.yzw * _BaseFreq;   // gradiente del rilievo grosso, spazio oggetto
+            // --- gate del bump (solo ALU, niente texture) — calcolato SUBITO perché decide anche
+            // se vale la pena LEGGERE il rilievo. Due assi:
+            //   ANGOLO (grazeW): spento al limbo/sguardo radente → niente striature.
+            //   DISTANZA (farW): svanisce 480-780 m, dove il texel del rilievo (0.4 m) va sub-pixel
+            //     e mipperebbe in blob; lì il dettaglio lo fa la mesh (ottava 7, geometria netta).
+            //   nearW: pieno da vicino a prescindere (gradevole a terra, sguardo ripido).
+            float3 worldN  = normalize(mul((float3x3)unity_ObjectToWorld, N));
+            float3 viewDir = normalize(_WorldSpaceCameraPos - IN.worldPos);
+            float ndotv = dot(worldN, viewDir);
+            float grazeW = smoothstep(0.18, 0.5, ndotv);
+            float farW   = 1.0 - smoothstep(480.0, 780.0, dist);
+            float nearW  = 1.0 - smoothstep(60.0, 140.0, dist);
+            float gate = saturate(max(nearW, grazeW * farW));
+            float nearF = saturate(1.0 - dist / 120.0);   // mottle avvallamenti: solo da vicino
+
+            // rilievo bakeato: SALTATO quando non serve (pixel lontani o al limbo → bump spento e
+            // mottle a zero). Toglie una lettura texture sui pixel del pianeta visto da lontano o
+            // di taglio: è gran parte del calore "sprecato", invisibile a video.
+            float reliefVal = 0.0;
+            float3 G = float3(0.0, 0.0, 0.0);
+            if (gate > 0.0 || nearF > 0.0)
+            {
+                float4 baked = tex2Dbias(_ReliefMap, float4(IN.texUV, 0.0, _ReliefBias));
+                reliefVal = baked.x;
+                G = baked.yzw * _BaseFreq;   // gradiente del rilievo grosso, spazio oggetto
+            }
 
             // zone rugose: rare e grandi → value-noise a 1 ottava (vnoise), non fbm: a questa
             // scala il dettaglio in più non si vede e costa la metà.
@@ -156,17 +178,27 @@ Shader "Wanderer/PlanetBaked"
             float fFar  = saturate((dist - _DistMid) / max(_DistFar - _DistMid, 1.0));
             float fMid  = saturate(1.0 - fNear - fFar);
             float wsum  = max(fNear + fMid + fFar, 1e-4);
-            // sabbia (medio, de-repeat) + fango (lontano, 1 campione). La TERRA vicina costa due
-            // campioni: la calcoliamo SOLO se siamo abbastanza vicini (a quota fNear=0 → saltata).
-            float3 soil = soilSample(_SoilSand, IN.texUV, _TileMid)  * fMid
-                        + soilSample1(_SoilMud, IN.texUV, _TileFar)  * fFar;
-            if (fNear > 0.001) soil += soilSample(_SoilDirt, IN.texUV, _TileNear) * fNear;
-            soil /= wsum;
             // appiattimento a distanza: l'albedo tende a un colore medio → da lontano resta solo
             // l'ombreggiatura della FORMA (mesh), niente chiazze d'albedo che fanno "cavolfiore".
             // Indipendente dalla luminosità: il colore medio può essere chiaro quanto serve.
             float flatF = saturate(dist / _FlatDist) * _FlatStr;
-            soil = lerp(soil, _SoilMean.rgb, flatF);
+            float3 soil;
+            if (dist < 300.0)
+            {
+                // sabbia (medio, de-repeat) + fango (lontano, 1 campione). La TERRA vicina costa due
+                // campioni: la calcoliamo SOLO se siamo abbastanza vicini (a quota fNear=0 → saltata).
+                soil = soilSample(_SoilSand, IN.texUV, _TileMid) * fMid
+                     + soilSample1(_SoilMud, IN.texUV, _TileFar) * fFar;
+                if (fNear > 0.001) soil += soilSample(_SoilDirt, IN.texUV, _TileNear) * fNear;
+                soil = lerp(soil / wsum, _SoilMean.rgb, flatF);
+            }
+            else
+            {
+                // oltre 300 m l'albedo è già appiattito (>=90%): il ~10% di texture residuo è
+                // invisibile → uso direttamente il colore medio e salto 2-3 letture texture/pixel.
+                // È il grosso del risparmio quando il pianeta riempie lo schermo da lontano.
+                soil = _SoilMean.rgb;
+            }
             float3 alb = soil * _SoilTint.rgb;
 
             // --- regioni minerali: tinta larga (hue) da noise a bassa freq sulla sfera.
@@ -187,29 +219,11 @@ Shader "Wanderer/PlanetBaked"
             float t = saturate((h - (_BaseRadius - _Amplitude)) / (2.0 * _Amplitude));
             alb = lerp(alb, _PeakColor.rgb, smoothstep(0.74, 0.97, t) * _PeakStr);
             alb = lerp(alb, _RockColor.rgb, rough * 0.30);
-            float nearF = saturate(1.0 - dist / 120.0);
-            alb *= 1.0 + _MottleStr * reliefVal * nearF;   // avvallamenti piu' scuri, solo da vicino
+            alb *= 1.0 + _MottleStr * reliefVal * nearF;   // avvallamenti piu' scuri, solo da vicino (nearF in cima)
 
-            // --- normale: rugosità bakeata + grana fine ---
-            // gradiente del rilievo bakeato proiettato sui tangenti della mesh (T,B), aggiunto
-            // sopra la forma vera (Noise3D nella mesh). È il dettaglio fine di superficie.
-            //
-            // GATE A DUE ASSI — angolo e distanza, ma per ragioni diverse:
-            //   - ANGOLO (grazeW): il bump si stira in "striature" a sguardo RADENTE (limbo). Lo
-            //     teniamo pieno dove la superficie guarda la camera, lo spegniamo al radente.
-            //   - DISTANZA LONTANA (farW): il rilievo bakeato è ~0.4 m/texel; oltre ~300 m un texel
-            //     va sub-pixel e la texture entra in mip pieno → il gradiente si impasta in blob
-            //     morbidi ("cavolfiore" di bump). Lì la definizione VERA ce l'ha già la mesh
-            //     (ottava 6, ~9 m, geometria che non sfuoca). Quindi svaniamo il bump-texture tra
-            //     480 e 780 m e lasciamo l'ombreggiatura pulita della mesh (il look lunare >800 m).
-            // nearW tiene il pieno da vicino a prescindere (gradevole a terra, sguardo ripido).
-            float3 worldN  = normalize(mul((float3x3)unity_ObjectToWorld, N));
-            float3 viewDir = normalize(_WorldSpaceCameraPos - IN.worldPos);
-            float ndotv = dot(worldN, viewDir);
-            float grazeW = smoothstep(0.18, 0.5, ndotv);            // 0 al limbo, 1 di fronte
-            float farW   = 1.0 - smoothstep(480.0, 780.0, dist);    // svanisce dove i texel vanno sub-pixel
-            float nearW  = 1.0 - smoothstep(60.0, 140.0, dist);     // sempre pieno da vicino
-            float gate = saturate(max(nearW, grazeW * farW));
+            // --- normale: rilievo bakeato (gradiente proiettato sui tangenti della mesh T,B,
+            // sopra la forma vera della Noise3D) + grana fine. Il gate e G sono già stati calcolati
+            // in cima (lì decidevano se leggere il rilievo): qui si applicano soltanto.
             float2 nxy = float2(0.0, 0.0);
             if (gate > 0.0)
             {

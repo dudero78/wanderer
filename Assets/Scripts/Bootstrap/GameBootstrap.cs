@@ -58,11 +58,17 @@ public class GameBootstrap : MonoBehaviour
         terrain.BaseRadius = (float)planet.Radius;
         terrain.Amplitude = 55f;    // colline più marcate: silhouette meno "palla liscia"
         terrain.Frequency = 5.5f;
-        // 6 ottave: oltre alle colline larghe, l'ottava 6 dà rilievo REALE a ~9 m. È geometria
-        // vera, non bump: a luce radente fa ombra e silhouette → la fascia media non collassa più
-        // in una macchia piatta (il bump da solo, senza ombre, lì sparisce). Non oltre 6: a mesh
-        // 300 (~2.6 m tra vertici) un'ottava più fine cadrebbe sotto Nyquist e aliaserebbe.
-        terrain.Octaves = 6;
+        // 7 ottave: l'ottava 7 dà rilievo REALE a ~9 m. È geometria vera, non bump: a luce radente
+        // fa ombra e silhouette → la fascia media (200–800 m) ha bordi netti che il bump su mesh
+        // liscia non può dare. Non oltre 7: l'ottava 8 (~4.5 m) a mesh 300 (~2.6 m tra vertici)
+        // cade sotto Nyquist (~5.2 m) e alia in "rugosità che striscia" a volo radente — e dava
+        // pochissimo (~0.8 m), quindi non vale il prezzo.
+        terrain.Octaves = 7;
+        // gain 0.56 (default 0.5): ogni ottava pesa un filo di più → le ottave fini (5–18 m) hanno
+        // AMPIEZZA visibile, non ~1 m piatto. È la vera leva del dettaglio a media distanza: con
+        // gain 0.5 le ottave alte esistono ma sono quasi piatte (geometria invisibile). Più alto di
+        // così il pianeta diventa troppo uniforme/granuloso, perde le colline larghe.
+        terrain.Gain = 0.56f;
         terrain.Seed = 1337;
 
         // materiale procedurale: resta come FALLBACK (e fonte dei parametri _BaseFreq ecc.).
@@ -71,7 +77,8 @@ public class GameBootstrap : MonoBehaviour
         planetMat.SetFloat("_BaseRadius", terrain.BaseRadius);
         planetMat.SetFloat("_Amplitude", terrain.Amplitude);
         // Mesh densa (300 per faccia ≈ 2.6 m tra i vertici): serve perché le ottave fini del
-        // terreno diventino geometria risolta, non vertici troppo radi che le lisciano via.
+        // terreno (fino alla 7ª, ~9 m) diventino geometria risolta, non vertici troppo radi che
+        // le lisciano via. Nyquist a ~5.2 m: l'ottava 7 ci sta comoda, l'8ª no (aliaserebbe).
         PlanetMeshBuilder.Build(planetGo.transform, terrain, 300, planetMat);
 
         // Bake del rilievo in texture, UNA volta: da "6 ottave di Perlin per pixel per frame"

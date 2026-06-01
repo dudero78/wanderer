@@ -106,6 +106,11 @@ vicino all'origine di Unity → la precisione non degrada mai.
   Retina tiene la GPU al 100%. Tenere le ottave basse dove si può, value noise
   economico per le maschere, break anticipato nei cicli per distanza. Cap fps a 60
   (`GameBootstrap`). Se scotta ancora: 30 fps, o meno ottave vicine.
+  Leva chiave a costo zero visivo: **saltare via branch le letture texture dove non
+  contribuiscono** — nel `PlanetBaked` il rilievo non si legge sui pixel lontani/al limbo
+  (bump spento) e i suoli non si leggono oltre 300 m (albedo già appiattito). È gran parte
+  del calore "sprecato" col pianeta intero a video. Leve successive se serve: aniso 8→4
+  sulle texture, poi `RenderScaler` con scale 0.85–0.9 (perde un filo di nitidezza).
 - **Niente ombre proiettate** (direzionale e torcia): su questa mesh a luce radente
   danno "crepe" (shadow acne) e lo "schiarimento" oltre la shadow distance. Il
   rilievo emerge bene dalle sole normali.
