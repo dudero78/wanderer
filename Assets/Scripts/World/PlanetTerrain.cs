@@ -39,6 +39,20 @@ public class PlanetTerrain : MonoBehaviour
     readonly List<TerrainLayer> layers = new List<TerrainLayer>();
     bool built;
 
+    // RICETTA: se impostata, è LEI la fonte di verità (l'editor la modifica e chiama ApplyRecipe). I campi
+    // qui sopra restano per la scena legacy / l'inspector quando non c'è ricetta.
+    public PlanetRecipe Recipe { get; private set; }
+
+    /// <summary>Imposta la ricetta come fonte di verità e ricostruisce la pipeline. Lo usa l'editor (live) e
+    /// il bootstrap. Aggiorna BaseRadius così bake e walker leggono il raggio giusto.</summary>
+    public void ApplyRecipe(PlanetRecipe r)
+    {
+        Recipe = r;
+        if (r != null) BaseRadius = r.baseRadius;
+        built = false;
+        RebuildLayers();
+    }
+
     /// <summary>
     /// (Ri)costruisce la pipeline dai parametri correnti. Lazy: parte da sola al primo
     /// SampleHeight. Chiamala a mano solo se cambi i parametri a runtime (es. dall'inspector).
@@ -47,9 +61,26 @@ public class PlanetTerrain : MonoBehaviour
     public void RebuildLayers()
     {
         layers.Clear();
-        // 1. Forma di base del corpo.
+
+        // RICETTA (fonte di verità dell'editor): forma base + UNA pipeline di crateri per ogni voce abilitata.
+        if (Recipe != null)
+        {
+            layers.Add(new BaseTerrainLayer(Recipe.baseRadius, Recipe.amplitude, Recipe.frequency,
+                Recipe.octaves, Recipe.lacunarity, Recipe.gain, Recipe.seed));
+            foreach (var c in Recipe.craters)
+            {
+                if (c == null || !c.enabled) continue;
+                var cl = new CraterTerrainLayer(Recipe.baseRadius, c.seed, c.octaves,
+                    c.largestRadius, c.density, c.depthRatio, c.rimRatio);
+                if (c.dominant) cl.AddManual(c.dominantDir, c.dominantRadius);
+                layers.Add(cl);
+            }
+            built = true;
+            return;
+        }
+
+        // LEGACY (campi inspector, scene senza ricetta).
         layers.Add(new BaseTerrainLayer(BaseRadius, Amplitude, Frequency, Octaves, Lacunarity, Gain, Seed));
-        // 2. Bombardamento: crateri scavati nella forma.
         if (CratersEnabled)
         {
             var craters = new CraterTerrainLayer(BaseRadius, CraterSeed, CraterOctaves,
@@ -57,7 +88,6 @@ public class PlanetTerrain : MonoBehaviour
             if (DominantCrater) craters.AddManual(DominantCraterDir, DominantCraterRadius);
             layers.Add(craters);
         }
-        // 3. ...i processi successivi (mari, ...) si aggiungono qui, in ordine fisico.
         built = true;
     }
 

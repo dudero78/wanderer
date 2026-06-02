@@ -69,7 +69,21 @@ con prograde/retrograde. Azzerarlo del tutto = lavoro dell'**autopilota** (#12),
   margine reazione + frenata erosa dalla gravità `aEff = brakeAccel − g`): arriva in tempo, da non ritoccare.
   Compare solo oltre `WarnMinClosing` (~50 m/s): avviso da viaggio, non per volo radente / saltelli / manovra fine.
 
-## PROSSIMO: #14 Rifondazione del terreno (heightmap + CDLOD + micro) — FOCUS CORRENTE
+## PROSSIMO: #14 GENERATORE/EDITOR pianeti + rendering quadtree — FOCUS CORRENTE
+
+**Piano DEFINITIVO** (vedi memoria `wanderer-terreno-strategia`, dopo molte iterazioni fallite):
+Look target = KSP2/Elite/luna-Star-Citizen (crateri netti calpestabili vicino, globo pulito lontano).
+Strada corretta = **quad-sphere QUADTREE LOD (CDLOD)** geometria vera + **RICETTA** (stack modificatori) +
+**scaled-space** (texture bakeata) per l'orbita. La mesh-singola+normale-bakeata NON dà bordi netti da vicino
+(muro di risoluzione) — smettere di lucidarla.
+- **Ricetta** (`PlanetRecipe`, FATTO): serializable, forma base + List<CraterRecipe> + colore/mari. Fonte di
+  verità; `PlanetTerrain.ApplyRecipe` esegue lo stack. `PlanetPresets.Demo()` la usa (behavior-neutral).
+- **PROSSIMO — EDITOR (dal menu del gioco):** pianeta al centro, pannelli/slider che editano la ricetta dal
+  vivo (forma base + aggiungi/togli pipeline crateri + tarane i settaggi), salva, bakea in texture.
+- **Poi — RENDERING quadtree CDLOD** (vicino, geometria vera dalla ricetta) + scaled-space (orbita) + cross-fade.
+- Più avanti: editing fine (cancella/modifica singolo cratere/collina).
+
+(Storia precedente, archiviata — heightmap bakeata Stage 1 fatta, tassellazione Stage 2 accantonata.)
 
 La mesh singola a risoluzione fissa ha toccato il soffitto: crateri sempre o morbidi, o finti nella normale,
 o "tutto rugged". Causa: una risoluzione sola non copre 5 ordini di grandezza (1 km corpo → 1 cm passo).
