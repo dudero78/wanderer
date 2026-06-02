@@ -33,14 +33,19 @@ public class DebugHud : MonoBehaviour
         if (Event.current.type != EventType.Repaint) return;
         if (!player || planet == null) return;
         if (style == null)
-            style = new GUIStyle(GUI.skin.label) { fontSize = 15, normal = { textColor = Color.white } };
+            style = new GUIStyle(GUI.skin.label) { normal = { textColor = Color.white } };
+
+        // scala l'HUD con la risoluzione: a pixel fissi, su uno schermo Retina/4K il testo è minuscolo.
+        // Riferimento 1080p; non scendere mai sotto 1× (schermi piccoli restano leggibili).
+        float ui = Mathf.Max(1f, Screen.height / 1080f);
+        style.fontSize = Mathf.RoundToInt(15f * ui);
 
         if (cachedText == null || Time.unscaledTime >= nextRebuild)
         {
             cachedText = BuildText();
             nextRebuild = Time.unscaledTime + 0.1f;
         }
-        GUI.Label(new Rect(14, 12, 820, 240), cachedText, style);
+        GUI.Label(new Rect(14f * ui, 12f * ui, 820f * ui, 240f * ui), cachedText, style);
 
         // banner alla raccolta della tuta (valutato ogni repaint: è solo un confronto di tempo, niente alloc)
         if (walker != null && walker.HasJetpack && Time.time - walker.EquipTime < 5f)
@@ -48,12 +53,12 @@ public class DebugHud : MonoBehaviour
             if (banner == null)
                 banner = new GUIStyle(GUI.skin.label)
                 {
-                    fontSize = 26,
                     fontStyle = FontStyle.Bold,
                     alignment = TextAnchor.MiddleCenter,
                     normal = { textColor = new Color(0.4f, 0.95f, 1f) }
                 };
-            GUI.Label(new Rect(0, Screen.height * 0.32f, Screen.width, 60),
+            banner.fontSize = Mathf.RoundToInt(26f * ui);
+            GUI.Label(new Rect(0, Screen.height * 0.32f, Screen.width, 60f * ui),
                 "TUTA EQUIPAGGIATA — tieni premuto Space per volare", banner);
         }
     }

@@ -97,7 +97,9 @@ public class RouteIndicator : MonoBehaviour
         var target = solar.Destination;
         if (target == null) return;
         if (label == null)
-            label = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold };
+            label = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
+        float ui = Mathf.Max(1f, Screen.height / 1080f);   // scala l'HUD con la risoluzione (Retina/4K)
+        label.fontSize = Mathf.RoundToInt(14f * ui);
 
         Vector3 camPos = cam.transform.position;
         Vector3 tp = target.transform.position;
@@ -123,12 +125,12 @@ public class RouteIndicator : MonoBehaviour
             // l'anello cresce col disco da vicino (niente tetto: la dissolvenza ravvicinata lo spegne quando
             // il corpo riempie lo schermo). La banda della texture sta a ~0.40 del raggio → moltiplicatore 3.4
             // mette l'anello a ~1.35× il raggio del disco: poco FUORI dai confini, non sopra.
-            float rad = Mathf.Max(trueRad, 30f);   // minimo per restare leggibile da lontano
+            float rad = Mathf.Max(trueRad, 30f * ui);   // minimo per restare leggibile da lontano
             float ring = rad * 3.4f;
 
             DrawTex(ringTex, gui, ring, ring, 0f, baseCol, fade);
-            DrawTex(discTex, gui, 6f, 6f, 0f, A(Cyan, fade));            // pip centrale ciano
-            DrawTex(chevronTex, gui + new Vector2(0f, -ring * 0.5f - 14f), 16f, 16f, 0f, baseCol, fade);  // casetta sopra il varco
+            DrawTex(discTex, gui, 6f * ui, 6f * ui, 0f, A(Cyan, fade));            // pip centrale ciano
+            DrawTex(chevronTex, gui + new Vector2(0f, -ring * 0.5f - 14f * ui), 16f * ui, 16f * ui, 0f, baseCol, fade);  // casetta sopra il varco
 
             // VETTORE VELOCITÀ — due marker: PROGRADE (pieno ⊕, dove derivi di lato) e RETROGRADE (cerchietto
             // vuoto, l'opposto: spingi di là per annullare la deriva). L'offset è proporzionale alla velocità
@@ -137,9 +139,9 @@ public class RouteIndicator : MonoBehaviour
             // instabile. Tratteggio su entrambi. Deriva laterale ~0 mentre ti avvicini = allineato (verde).
             if (airborne && relSpeed > SyncSpeed)
             {
-                const float pxPerMS = 6f;       // pixel di offset per m/s di deriva laterale
+                float pxPerMS = 6f * ui;        // pixel di offset per m/s di deriva laterale
                 float ringEdge = ring * 0.5f;
-                float maxLeash = Mathf.Clamp(ring * 1.3f, 130f, 320f);
+                float maxLeash = Mathf.Clamp(ring * 1.3f, 130f * ui, 320f * ui);
 
                 Vector3 toT = (tp - camPos).normalized;
                 float closing = Vector3.Dot(relVel, toT);          // + = ti avvicini
@@ -155,29 +157,29 @@ public class RouteIndicator : MonoBehaviour
                 Vector2 mpos = gui + off, rpos = gui - off;
 
                 float lead = off.magnitude;
-                if (lead > ringEdge + 12f)
+                if (lead > ringEdge + 12f * ui)
                 {
                     Vector2 d = off / lead;
-                    DrawDots(gui + d * (ringEdge + 4f), mpos - d * 12f, pc, fade);             // verso prograde
-                    DrawDots(gui - d * (ringEdge + 4f), rpos + d * 12f, A(Blue, 0.5f), fade);  // verso retrograde
+                    DrawDots(gui + d * (ringEdge + 4f * ui), mpos - d * 12f * ui, pc, fade, ui);             // verso prograde
+                    DrawDots(gui - d * (ringEdge + 4f * ui), rpos + d * 12f * ui, A(Blue, 0.5f), fade, ui);  // verso retrograde
                 }
-                DrawTex(retroTex, rpos, 18f, 18f, 0f, A(Blue, 0.55f), fade);    // retrograde: cerchietto vuoto
-                DrawTex(progradeTex, mpos, 24f, 24f, 0f, pc, fade);            // prograde: ⊕ pieno
+                DrawTex(retroTex, rpos, 18f * ui, 18f * ui, 0f, A(Blue, 0.55f), fade);    // retrograde: cerchietto vuoto
+                DrawTex(progradeTex, mpos, 24f * ui, 24f * ui, 0f, pc, fade);            // prograde: ⊕ pieno
                 if (aligned && !synced)
-                    Shadowed(new Rect(gui.x - 70f, gui.y + ringEdge + 6f, 140f, 20f), "ALLINEATO", Green, fade, TextAnchor.UpperCenter);
+                    Shadowed(new Rect(gui.x - 70f * ui, gui.y + ringEdge + 6f * ui, 140f * ui, 20f * ui), "ALLINEATO", Green, fade, TextAnchor.UpperCenter);
             }
 
             // testo a lato: distanza sempre; velocità (col SEGNO) solo in volo.
-            float tx = gui.x + ring * 0.5f + 12f, ty = gui.y - 16f;
-            Shadowed(new Rect(tx, ty, 170f, 22f), FmtDist(dist), White, fade, TextAnchor.UpperLeft);
+            float tx = gui.x + ring * 0.5f + 12f * ui, ty = gui.y - 16f * ui;
+            Shadowed(new Rect(tx, ty, 170f * ui, 22f * ui), FmtDist(dist), White, fade, TextAnchor.UpperLeft);
             if (synced)
-                Shadowed(new Rect(tx, ty + 18f, 170f, 22f), "SINCRONIZZATO", Green, fade, TextAnchor.UpperLeft);
+                Shadowed(new Rect(tx, ty + 18f * ui, 170f * ui, 22f * ui), "SINCRONIZZATO", Green, fade, TextAnchor.UpperLeft);
             else if (airborne)
             {
                 // velocità di avvicinamento col segno: − = ti ALLONTANI, + = ti avvicini.
                 Vector3 toT = (tp - camPos).normalized;
                 float closing = Vector3.Dot(relVel, toT);
-                Shadowed(new Rect(tx, ty + 18f, 170f, 22f), closing.ToString("+0;-0;0") + " m/s", White, fade, TextAnchor.UpperLeft);
+                Shadowed(new Rect(tx, ty + 18f * ui, 170f * ui, 22f * ui), closing.ToString("+0;-0;0") + " m/s", White, fade, TextAnchor.UpperLeft);
             }
         }
         else
@@ -187,10 +189,11 @@ public class RouteIndicator : MonoBehaviour
             Vector2 dir = gui - ctr;
             if (dir.sqrMagnitude < 1e-4f) dir = new Vector2(0f, -1f);
             dir.Normalize();
-            Vector2 edge = ClampToRect(ctr, dir, new Rect(64f, 64f, Screen.width - 128f, Screen.height - 128f));
+            float m = 64f * ui;
+            Vector2 edge = ClampToRect(ctr, dir, new Rect(m, m, Screen.width - 2f * m, Screen.height - 2f * m));
             float ang = Mathf.Atan2(dir.x, -dir.y) * Mathf.Rad2Deg;  // casetta apice in alto → ruota verso dir
-            DrawTex(chevronTex, edge, 26f, 26f, ang, baseCol, fade);
-            Shadowed(new Rect(edge.x - 60f, edge.y + 18f, 120f, 20f), FmtDist(dist), White, fade, TextAnchor.UpperCenter);
+            DrawTex(chevronTex, edge, 26f * ui, 26f * ui, ang, baseCol, fade);
+            Shadowed(new Rect(edge.x - 60f * ui, edge.y + 18f * ui, 120f * ui, 20f * ui), FmtDist(dist), White, fade, TextAnchor.UpperCenter);
         }
     }
 
@@ -237,15 +240,16 @@ public class RouteIndicator : MonoBehaviour
     static Color A(Color c, float a) => new Color(c.r, c.g, c.b, c.a * a);
 
     // linea tratteggiata (puntini) tra due punti: collega il marker prograde al reticolo.
-    void DrawDots(Vector2 a, Vector2 b, Color col, float fade)
+    void DrawDots(Vector2 a, Vector2 b, Color col, float fade, float ui)
     {
         Vector2 d = b - a;
         float len = d.magnitude;
         if (len < 1f) return;
         Vector2 step = d / len;
-        int n = Mathf.FloorToInt(len / 9f);
+        float gap = 9f * ui;
+        int n = Mathf.FloorToInt(len / gap);
         for (int i = 0; i <= n; i++)
-            DrawTex(discTex, a + step * (i * 9f), 3.5f, 3.5f, 0f, col, fade);
+            DrawTex(discTex, a + step * (i * gap), 3.5f * ui, 3.5f * ui, 0f, col, fade);
     }
 
     void DrawTex(Texture2D tex, Vector2 c, float w, float h, float ang, Color col, float fade = 1f)

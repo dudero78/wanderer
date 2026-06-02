@@ -30,6 +30,7 @@ public class MapMode : MonoBehaviour
     float t;
     Vector3 fromPos; Quaternion fromRot;
 
+    GUIStyle mapStyle;
     readonly List<GameObject> markers = new List<GameObject>();
     readonly Dictionary<GameObject, CelestialBody> markerBody = new Dictionary<GameObject, CelestialBody>();
     readonly List<LineRenderer> orbits = new List<LineRenderer>();
@@ -262,10 +263,13 @@ public class MapMode : MonoBehaviour
 
     void OnGUI()
     {
-        GUI.color = Color.white;
-        if (state != State.Off)
-            GUI.Label(new Rect(20, Screen.height - 60, 640, 24),
-                selected != null ? "Selezionato: " + selected.gameObject.name + "   ·   M / Esc per uscire"
-                                 : "Clicca un corpo per selezionarlo   ·   M / Esc per uscire");
+        if (state == State.Off) return;
+        if (Event.current.type != EventType.Repaint) return;
+        float ui = Mathf.Max(1f, Screen.height / 1080f);   // scala col display (Retina/4K)
+        if (mapStyle == null) mapStyle = new GUIStyle(GUI.skin.label) { normal = { textColor = Color.white } };
+        mapStyle.fontSize = Mathf.RoundToInt(15f * ui);
+        GUI.Label(new Rect(20f * ui, Screen.height - 60f * ui, 700f * ui, 24f * ui),
+            selected != null ? "Selezionato: " + selected.gameObject.name + "   ·   M / Esc per uscire"
+                             : "Clicca un corpo per selezionarlo   ·   M / Esc per uscire", mapStyle);
     }
 }
