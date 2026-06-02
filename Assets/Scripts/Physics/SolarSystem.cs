@@ -25,6 +25,7 @@ public class SolarSystem : MonoBehaviour
     // così i numeri parlano sempre del corpo con cui stai interagendo (sotto i piedi o in viaggio).
     public CelestialBody Reference { get; private set; }
     CelestialBody currentAnchor;
+    CelestialBody lastNearest;              // isteresi sul corpo più vicino (vedi NearestBody)
     bool traveling;                         // isteresi zona-locale/viaggio: evita il flip-flop sul bordo
 
     // Ri-ancoraggio = teletrasporto del giocatore + traslazione degli oggetti sciolti. È pulito perché il
@@ -70,7 +71,8 @@ public class SolarSystem : MonoBehaviour
         if (PlayerBody != null)
         {
             Vector3 pp = PlayerBody.position;
-            var nearest = NearestBody(pp);
+            var nearest = NearestBody(pp, lastNearest);
+            lastNearest = nearest;
             float alt = nearest != null ? (nearest.transform.position - pp).magnitude - (float)nearest.Radius : 1e12f;
 
             // ZONA LOCALE / VIAGGIO con ISTERESI. La soglia di "decollo" cresce col raggio del corpo
@@ -116,7 +118,11 @@ public class SolarSystem : MonoBehaviour
             if (Bodies[i] != null) Bodies[i].SyncTransform();
     }
 
-    CelestialBody NearestBody(Vector3 scenePos)
+    // Corpo più vicino al giocatore, CON ISTERESI. Senza isteresi, a metà strada fra due corpi (es. Pianeta
+    // e luna) il vincitore dell'argmin oscilla ogni frame; siccome l'origine della scena si ancora a lui,
+    // SceneOrigin salterebbe tra due posizioni-universo → la vista sobbalza fra due inquadrature (nausea).
+    // Si passa a un nuovo corpo solo se è più vicino di almeno il 10% rispetto a quello attuale (sticky).
+    CelestialBody NearestBody(Vector3 scenePos, CelestialBody sticky)
     {
         CelestialBody best = null; float bd = float.MaxValue;
         for (int i = 0; i < Bodies.Count; i++)
@@ -125,6 +131,11 @@ public class SolarSystem : MonoBehaviour
             if (b == null) continue;
             float d = (b.transform.position - scenePos).sqrMagnitude;
             if (d < bd) { bd = d; best = b; }
+        }
+        if (sticky != null && best != sticky)
+        {
+            float ds = (sticky.transform.position - scenePos).sqrMagnitude;
+            if (bd > ds * 0.81f) best = sticky;   // 0.9² → banda morta del 10% sulla distanza
         }
         return best;
     }
