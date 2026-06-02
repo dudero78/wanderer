@@ -42,6 +42,8 @@ public class PlanetWalker : MonoBehaviour
     public float brakeKnee = 40f;         // sotto questa velocità il freno entra nella coda dolce (inizia prima)
     public float brakeEaseTau = 0.5f;     // costante di tempo dell'avvicinamento finale a 0 (più alto = più lento/visibile)
     public float brakeFloor = 5f;         // decel minima nella coda: evita che striscia all'infinito vicino a 0
+    public float softStopAccel = 700f;    // decelerazione dello STOP DOLCE (autopilota interrotto): più RAPIDA del freno X (brakeAccel)
+    public float softStopEndSpeed = 0.6f; // sotto questa velocità relativa lo stop dolce molla e ridà il controllo
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
     public float rollSpeed = 75f;         // gradi/s di rollio con Q/E in volo libero
 
@@ -73,6 +75,7 @@ public class PlanetWalker : MonoBehaviour
     public bool Braking { get; private set; }         // freno di assetto attivo (per l'HUD)
     public bool Autopilot { get; private set; }        // autopilota inserito (toggle T): vola da solo verso la destinazione
     public bool AutoHolding { get; private set; }       // arrivato: tiene la stazione (hover) finché non dai un comando
+    public bool SoftStopping { get; private set; }      // hai interrotto l'autopilota: auto-freno fino a v≈0, poi molla
 
     Rigidbody rb;
     float pitch;
@@ -118,9 +121,11 @@ public class PlanetWalker : MonoBehaviour
         if (HasJetpack && Input.GetKeyDown(autopilotKey))
         {
             var dest = SolarSystem.Instance != null ? SolarSystem.Instance.Destination : null;
+            bool wasAuto = Autopilot;
             Autopilot = !Autopilot && dest != null;
             AutoHolding = false;
-            if (Autopilot) { Model = FlightModel.Newtonian; autoTransitTime = 0f; autoLastTarget = null; autoAligned = false; }
+            if (Autopilot) { Model = FlightModel.Newtonian; autoTransitTime = 0f; autoLastTarget = null; autoAligned = false; SoftStopping = false; }
+            else if (wasAuto) SoftStopping = GameSettings.AutopilotSoftStop;   // interrotto a mano → frena fino a v≈0 (se l'opzione è ON)
         }
 
         // ARRIVATO → l'autopilota TIENE LA STAZIONE (hover) finché non dai un comando: a quel punto molla e
@@ -132,6 +137,12 @@ public class PlanetWalker : MonoBehaviour
             Autopilot = false;
             AutoHolding = false;
         }
+
+        // Lo stop dolce (dopo aver interrotto l'autopilota) si annulla appena prendi il controllo: qualunque
+        // spinta manuale → smetti di frenare e voli tu. X NON annulla (sta già frenando, lascialo continuare).
+        if (SoftStopping && (Mathf.Abs(Input.GetAxisRaw("Horizontal")) > 0.01f || Mathf.Abs(Input.GetAxisRaw("Vertical")) > 0.01f
+            || Input.GetButton("Jump") || Input.GetKey(KeyCode.LeftShift)))
+            SoftStopping = false;
 
         // sguardo: yaw sul corpo, pitch sulla camera. CONGELATO solo durante l'allineamento iniziale
         // dell'autopilota (il computer punta il muso al target); appena allineato la camera torna LIBERA —
@@ -155,6 +166,7 @@ public class PlanetWalker : MonoBehaviour
             Model = Model == FlightModel.Cruise ? FlightModel.Newtonian : FlightModel.Cruise;
             Autopilot = false;
             AutoHolding = false;
+            SoftStopping = false;
         }
 
         // rollio in volo libero (Q/E): accumulato qui, applicato e azzerato in FixedUpdate.
@@ -266,6 +278,9 @@ public class PlanetWalker : MonoBehaviour
         bool grounded = r <= restHeight + 0.05f;
         bool flying = HasJetpack && (!grounded || thrustUp);
         Braking = false;
+        // lo stop dolce vale solo in volo libero newtoniano: a terra, in crociera o con l'autopilota
+        // ri-inserito si annulla (niente freno latente che riparte da solo al prossimo decollo).
+        if (SoftStopping && (!flying || Model != FlightModel.Newtonian || autoActive)) SoftStopping = false;
 
         if (flying)
         {
@@ -318,11 +333,14 @@ public class PlanetWalker : MonoBehaviour
                 // velocità relativa a quel corpo. Tenuto premuto: annulla lo slancio E contrasta la gravità →
                 // resti FERMO rispetto al corpo (hover vicino a un pianeta, sincronizzato con la destinazione in
                 // viaggio). NON è "frena e cadi": per scendere/atterrare RILASCI X (la gravità ti riprende) o Shift.
-                Braking = Input.GetKey(brakeKey);
+                // X premuto, OPPURE stop dolce in corso (autopilota interrotto): stesso freno graduale.
+                Braking = Input.GetKey(brakeKey) || SoftStopping;
                 // spool del freno: sale a 1 in brakeRampTime tenendo X, ricade quasi subito al rilascio. Così
                 // un tap accidentale frena/tiene pochissimo (parte dolce) ma tenuto premuto sale RAPIDISSIMO.
+                // lo stop dolce sale a regime più in fretta (onset più corto) del freno X tenuto a mano.
+                float rampTime = SoftStopping ? brakeRampTime * 0.4f : brakeRampTime;
                 brakeSpool01 = Mathf.MoveTowards(brakeSpool01, Braking ? 1f : 0f,
-                                                 Time.fixedDeltaTime / (Braking ? Mathf.Max(brakeRampTime, 0.01f) : 0.05f));
+                                                 Time.fixedDeltaTime / (Braking ? Mathf.Max(rampTime, 0.01f) : 0.05f));
                 if (Braking)
                 {
                     Vector3 vel = rb.linearVelocity;
@@ -332,7 +350,9 @@ public class PlanetWalker : MonoBehaviour
                         // forte nel mezzo; sotto il ginocchio la decelerazione diventa PROPORZIONALE alla velocità
                         // (decadimento esponenziale, τ = brakeEaseTau) → l'ultimo tratto rallenta e l'occhio coglie
                         // il marker che entra al centro. Floor minimo per chiudere davvero a 0 in tempo finito.
-                        float core = sp > brakeKnee ? brakeAccel : sp / Mathf.Max(brakeEaseTau, 0.01f);
+                        // Lo stop dolce usa softStopAccel (più alto di brakeAccel) → frenata più rapida della X.
+                        float peakAccel = SoftStopping ? softStopAccel : brakeAccel;
+                        float core = sp > brakeKnee ? peakAccel : sp / Mathf.Max(brakeEaseTau, 0.01f);
                         float decel = Mathf.Max(core, brakeFloor) * brakeSpool01;
                         float newSp = Mathf.Max(0f, sp - decel * Time.fixedDeltaTime);
                         rb.linearVelocity = vel * (newSp / sp);
@@ -342,6 +362,10 @@ public class PlanetWalker : MonoBehaviour
                     // poca autorità vicino allo zero e la gravità vinceva → si scendeva a ~5 m/s. In spazio g≈0 → nullo.
                     rb.AddForce(up * g * brakeSpool01, ForceMode.Acceleration);
                 }
+
+                // fine dello stop dolce: quasi fermo rispetto al corpo ancorato → molla il freno automatico e
+                // ridà il controllo (resti fermo, in volo libero). rb.linearVelocity è già relativa all'ancora.
+                if (SoftStopping && rb.linearVelocity.magnitude < softStopEndSpeed) SoftStopping = false;
             }
             else
             {
