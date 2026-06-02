@@ -37,7 +37,10 @@ public class PlanetWalker : MonoBehaviour
     [Header("Newtoniano")]
     public float newtonThrust = 22f;      // accelerazione a pieno regime, nessun limite di velocità (più bassa = assetto più fine)
     public float thrustRampTime = 1.8f;   // secondi perché i motori salgano a piena spinta (inerzia, onset morbido)
-    public float brakeAccel = 250f;       // freno di assetto: doma centinaia di m/s in un paio di secondi
+    public float brakeAccel = 250f;       // freno di assetto: picco di decelerazione (doma centinaia di m/s)
+    public float brakeRampTime = 0.3f;    // secondi per salire a piena potenza tenendo X (anti-tap accidentale)
+    public float brakeKnee = 12f;         // sotto questa velocità il freno entra nella coda dolce
+    public float brakeEaseTau = 0.35f;    // costante di tempo dell'avvicinamento finale a 0 (più alto = più lento/visibile)
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
     public float rollSpeed = 75f;         // gradi/s di rollio con Q/E in volo libero
 
@@ -61,6 +64,7 @@ public class PlanetWalker : MonoBehaviour
     float rollDelta;  // rollio Q/E accumulato in Update, applicato in FixedUpdate (solo volo libero)
     float boost01;    // rampa di potenza della crociera, 0..1
     float thrustSpool01;   // regime dei motori newtoniani, 0..1: prendono gradualmente
+    float brakeSpool01;    // rampa di potenza del freno X, 0..1: parte dolce → sale rapidissimo (anti-tap)
 
     public void EquipJetpack()
     {
@@ -231,16 +235,21 @@ public class PlanetWalker : MonoBehaviour
                 // corpo. Tienilo premuto per "sincronizzarti" con la destinazione (resta centrata) o
                 // per uscire dall'orbita di un pianeta (annulli la tangenziale e la gravità ti fa scendere).
                 Braking = Input.GetKey(brakeKey);
+                // spool del freno: sale a 1 in brakeRampTime tenendo X, ricade quasi subito al rilascio. Così
+                // un tap accidentale frena pochissimo (parte dolce) ma tenuto premuto sale RAPIDISSIMO.
+                brakeSpool01 = Mathf.MoveTowards(brakeSpool01, Braking ? 1f : 0f,
+                                                 Time.fixedDeltaTime / (Braking ? Mathf.Max(brakeRampTime, 0.01f) : 0.05f));
                 if (Braking)
                 {
                     Vector3 vel = rb.linearVelocity;
                     float sp = vel.magnitude;
                     if (sp > 0.001f)
                     {
-                        // forte alle alte velocità, ma sotto il "ginocchio" il freno cala in proporzione →
-                        // l'arrivo a 0 è morbido (niente stop secco). Pavimento di 6 m/s² così tocca comunque 0.
-                        const float knee = 25f;
-                        float decel = sp > knee ? brakeAccel : Mathf.Max(brakeAccel * (sp / knee), 6f);
+                        // forte nel mezzo; sotto il ginocchio la decelerazione diventa PROPORZIONALE alla velocità
+                        // (decadimento esponenziale, τ = brakeEaseTau) → l'ultimo tratto rallenta e l'occhio coglie
+                        // il marker che entra al centro. Floor minimo per chiudere davvero a 0 in tempo finito.
+                        float core = sp > brakeKnee ? brakeAccel : sp / Mathf.Max(brakeEaseTau, 0.01f);
+                        float decel = Mathf.Max(core, 2f) * brakeSpool01;
                         float newSp = Mathf.Max(0f, sp - decel * Time.fixedDeltaTime);
                         rb.linearVelocity = vel * (newSp / sp);
                     }
