@@ -40,7 +40,8 @@ public class PlanetWalker : MonoBehaviour
     public float brakeAccel = 250f;       // freno di assetto: picco di decelerazione (doma centinaia di m/s)
     public float brakeRampTime = 0.3f;    // secondi per salire a piena potenza tenendo X (anti-tap accidentale)
     public float brakeKnee = 40f;         // sotto questa velocità il freno entra nella coda dolce (inizia prima)
-    public float brakeEaseTau = 0.8f;     // costante di tempo dell'avvicinamento finale a 0 (più alto = più lento/visibile)
+    public float brakeEaseTau = 0.5f;     // costante di tempo dell'avvicinamento finale a 0 (più alto = più lento/visibile)
+    public float brakeFloor = 5f;         // decel minima nella coda: evita che striscia all'infinito vicino a 0
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
     public float rollSpeed = 75f;         // gradi/s di rollio con Q/E in volo libero
 
@@ -249,7 +250,7 @@ public class PlanetWalker : MonoBehaviour
                         // (decadimento esponenziale, τ = brakeEaseTau) → l'ultimo tratto rallenta e l'occhio coglie
                         // il marker che entra al centro. Floor minimo per chiudere davvero a 0 in tempo finito.
                         float core = sp > brakeKnee ? brakeAccel : sp / Mathf.Max(brakeEaseTau, 0.01f);
-                        float decel = Mathf.Max(core, 2f) * brakeSpool01;
+                        float decel = Mathf.Max(core, brakeFloor) * brakeSpool01;
                         float newSp = Mathf.Max(0f, sp - decel * Time.fixedDeltaTime);
                         rb.linearVelocity = vel * (newSp / sp);
                     }

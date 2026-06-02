@@ -83,7 +83,7 @@ public class DebugHud : MonoBehaviour
 
         bool jetpack = walker != null && walker.HasJetpack;
         string controls = jetpack
-            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende · Q/E rollio · N cambia volo · X freno (newtoniano).  F torcia · Mouse guarda · Esc cursore"
+            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende · Q/E rollio · N cambia volo · X freno (newtoniano).  F torcia · M mappa · O orbite · Mouse guarda · Esc cursore"
             : "WASD muovi  ·  Space salta  ·  Mouse guarda  ·  Esc libera il cursore";
 
         // velocità/radiale relative al RIFERIMENTO: "ti avvicini" parla del corpo verso cui viaggi.

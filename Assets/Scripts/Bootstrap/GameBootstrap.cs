@@ -250,6 +250,10 @@ public class GameBootstrap : MonoBehaviour
         var route = gameObject.AddComponent<RouteIndicator>();
         route.Init(cam, walker, solar);
 
+        // --- Orbite a schermo (O): linee delle orbite del sistema, anche in volo ---
+        var orbitDisplay = gameObject.AddComponent<OrbitDisplay>();
+        orbitDisplay.Init(solar);
+
         var hud = gameObject.AddComponent<DebugHud>();
         hud.Init(playerGo.transform, planet, star, solar, walker, flashlight, suitGo.transform, camGo.transform);
     }
