@@ -51,8 +51,9 @@ public class PlanetWalker : MonoBehaviour
     public float autoAccel = 140f;         // accelerazione con cui PRENDE velocità nel tratto lungo (più alta = raggiunge prima la velocità di crociera)
     public float autoBrakeAccel = 200f;    // decelerazione per FRENARE / annullare la deriva; detta la distanza di frenata e quindi la velocità di picco sulla tratta
     public float autoTurnTau = 0.7f;       // costante di tempo dell'allineamento del muso (più alto = più dolce/lento, ease-out)
-    public float autoHoverRadii = 1f;      // quota d'arrivo = questo × raggio del corpo SOPRA la superficie (sorvolo sicuro)
-    public float autoArriveSync = 1f;      // |velocità relativa| sotto cui, arrivati a quota, l'autopilota si disinserisce
+    public float autoHoverRadii = 1f;      // quota d'arrivo (minima) = questo × raggio del corpo SOPRA la superficie
+    public float autoHoverG = 6f;          // ...ma mai più dentro di dove la gravità LOCALE scende a questo (m/s²): su corpi pesanti ti fermi più in alto, dove g è dolce → tempo per manovrare
+    public float autoArriveSync = 1f;      // |velocità relativa| sotto cui, arrivati a quota, sei "arrivato"
 
     [System.NonSerialized] public bool HasJetpack;
     [System.NonSerialized] public bool ControlsActive = true;   // false = comandi congelati (es. modalità mappa)
@@ -401,8 +402,13 @@ public class PlanetWalker : MonoBehaviour
         if (dist < 0.001f) { Autopilot = false; AutoHolding = false; return; }
         Vector3 toT = toDest / dist;
 
-        // punto d'arrivo: autoHoverRadii raggi SOPRA la superficie → distanza dal centro = (1 + hover)·raggio.
-        float standoff = (float)target.Radius * (1f + Mathf.Max(0f, autoHoverRadii));
+        // PUNTO DI SORVOLO: il PIÙ ESTERNO tra una quota proporzionale al raggio (minima, per i corpi leggeri)
+        // e la distanza a cui la gravità LOCALE scende a autoHoverG (√(μ/autoHoverG)). Su un corpo pesante (la
+        // stella) ti fermi molto più in alto, dove g è dolce → quando l'autopilota molla hai TEMPO di manovrare
+        // prima di cadere, invece di trovarti incollato a una superficie ad alta gravità.
+        float standoffByRadius = (float)target.Radius * (1f + Mathf.Max(0f, autoHoverRadii));
+        float standoffByGravity = autoHoverG > 0.01f ? Mathf.Sqrt((float)target.Mu / autoHoverG) : 0f;
+        float standoff = Mathf.Max(standoffByRadius, standoffByGravity);
         float dtg = dist - standoff;   // distanza dal punto di sorvolo: >0 fuori (avvicìnati), <0 dentro (allontànati)
 
         Vector3 relVel = RelativeVelocityTo(target);
@@ -410,28 +416,36 @@ public class PlanetWalker : MonoBehaviour
 
         // Velocità RADIALE desiderata BIDIREZIONALE: profilo "frena in tempo" √(2·a·|dtg|), col SEGNO di dtg.
         //  - fuori dal sorvolo (dtg>0): avvicìnati (+), capato alla crociera (di norma il vero limite è il √).
-        //  - dentro al sorvolo (dtg<0): allontànati (−) per RISALIRE alla quota.
-        // → la quota di sorvolo è un EQUILIBRIO STABILE: l'autopilota ci si assesta e ci RESTA contro la gravità
-        //   (station-keeping), invece di azzerare solo la velocità e affondare piano. La decel di riferimento è
-        //   ≥ 1.6·g, così regge anche vicino a un corpo pesante.
-        float aBrake = Mathf.Max(autoBrakeAccel, g * 1.6f);
-        float mag = Mathf.Min(autoCruiseSpeed, Mathf.Sqrt(2f * aBrake * Mathf.Abs(dtg)));
+        //  - dentro al sorvolo (dtg<0): allontànati (−) per RISALIRE alla quota → il sorvolo è un EQUILIBRIO STABILE.
+        // La decel del PROFILO è CONSERVATIVA: freno MENO la gravità di superficie (il caso peggiore lungo la
+        // discesa). Tuffandoti verso un corpo pesante la gravità erode la frenata reale (decel netta = freno − g):
+        // se il profilo usasse il freno pieno freneresti troppo tardi e SFONDERESTI sulla superficie (era il bug
+        // sul sole). Con aProfile = freno − g_superficie la frenata è sempre realizzabile (la decel reale ≥ aProfile).
+        float gSurf = (float)target.SurfaceGravity;
+        float aProfile = Mathf.Max(autoBrakeAccel - gSurf, autoBrakeAccel * 0.3f);
+        float mag = Mathf.Min(autoCruiseSpeed, Mathf.Sqrt(2f * aProfile * Mathf.Abs(dtg)));
         float vWant = (dtg >= 0f ? 1f : -1f) * mag;
         Vector3 desiredRel = toT * vWant;   // SOLO radiale verso/dal bersaglio; componente laterale desiderata = 0
 
         // quanto possiamo cambiare la velocità in questo frame: morbido per PRENDERE velocità, forte per
-        // FRENARE/raddrizzare (come il freno X tarato a mano). Autorità ≥ 1.6·g in ENTRAMBE le fasi → vicino a
-        // un corpo pesante l'autopilota risale e tiene il sorvolo, non si fa tirare dentro.
-        float accelCap = (closing < vWant ? Mathf.Max(autoAccel, g * 1.6f) : aBrake);
+        // FRENARE/raddrizzare. Autorità ≥ 1.6·g in ENTRAMBE le fasi → al netto della gravità resta ≥ aProfile,
+        // quindi l'autopilota può davvero seguire il profilo e risalire/tenere il sorvolo anche vicino alla stella.
+        float aAuthority = Mathf.Max(autoBrakeAccel, g * 1.6f);
+        float accelCap = (closing < vWant ? Mathf.Max(autoAccel, g * 1.6f) : aAuthority);
         Vector3 newRel = Vector3.MoveTowards(relVel, desiredRel, accelCap * Time.fixedDeltaTime);
         rb.linearVelocity += newRel - relVel;   // Δv: identico in ogni riferimento inerziale
 
-        // ARRIVATO: a quota di sorvolo e quasi fermo → entra in STAZIONE (latch). NON disinserisce: tiene l'hover
-        // (il controllo qui sopra lo fa già) finché non dai un comando (gestito in Update) → niente caduta libera.
-        // Isteresi: se torni nettamente in transito (nuova meta scelta dalla mappa) esci dalla stazione → il
-        // viaggio resta hands-off e i comandi non disinseriscono per sbaglio.
+        // ARRIVATO: a quota di sorvolo e quasi fermo. Cosa succede dipende dall'impostazione:
+        //  - station-keeping ON  → entra in STAZIONE (latch): tiene l'hover finché non dai un comando (Update).
+        //  - station-keeping OFF (default) → DISINSERISCE: ti molla a distanza di sicurezza, manovri tu.
+        // Isteresi: tornando nettamente in transito (nuova meta dalla mappa) esci dalla stazione → resta hands-off.
         float arriveBand = Mathf.Max(standoff * 0.08f, 5f);
-        if (Mathf.Abs(dtg) < arriveBand && relVel.magnitude < autoArriveSync * 2f) AutoHolding = true;
+        bool atStation = Mathf.Abs(dtg) < arriveBand && relVel.magnitude < autoArriveSync * 2f;
+        if (atStation)
+        {
+            if (GameSettings.AutopilotStationKeeping) AutoHolding = true;
+            else { Autopilot = false; AutoHolding = false; Braking = false; return; }
+        }
         else if (Mathf.Abs(dtg) > arriveBand * 3f) AutoHolding = false;
         Braking = !AutoHolding && closing > vWant + 1f;   // per l'HUD: in avvicinamento sta decelerando
     }

@@ -15,6 +15,9 @@ public class GameBootstrap : MonoBehaviour
 
     void Start()
     {
+        // impostazioni di gioco (facilitazioni opzionali, regolabili dal menù à) lette da PlayerPrefs.
+        GameSettings.Load();
+
         // Frame rate governato in modo dinamico: 60 fps quando ti muovi o guardi intorno,
         // 30 quando la scena è ferma. Un fotogramma immobile a 30 è a occhio identico a 60,
         // ma la GPU (che spende quasi tutto sullo shader procedurale del pianeta, per-pixel
@@ -261,6 +264,10 @@ public class GameBootstrap : MonoBehaviour
 
         var hud = gameObject.AddComponent<DebugHud>();
         hud.Init(playerGo.transform, planet, star, solar, walker, flashlight, suitGo.transform, camGo.transform);
+
+        // --- Schermata impostazioni (à): facilitazioni opzionali (es. autopilota stazionario) ---
+        var settings = gameObject.AddComponent<SettingsMenu>();
+        settings.Init(walker);
     }
 
     static void SetColor(GameObject go, Color c, bool emissive = false)

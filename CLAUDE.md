@@ -94,18 +94,30 @@ velocità orbitali e rendeva il match-velocity ingiocabile).
   con la floating origin → niente solve orbitale per frame.
 
 Comandi volo: `WASD` spinta · `Space`/`Shift` su/giù · `Q/E` rollio (volo libero) · `N` Crociera/Newtoniano
-· `X` match-velocity · `T` autopilota · `F` torcia · `M` mappa · `O` orbite.
+· `X` match-velocity · `T` autopilota · `F` torcia · `M` mappa · `O` orbite · `à` impostazioni.
 
 **Autopilota (`T`, toggle)**: hands-off completo verso il corpo selezionato. Si inserisce solo con la tuta e
 con una destinazione scelta sulla mappa; passa a Newtoniano. Orienta il muso al bersaglio, pilota la velocità
 RADIALE verso/dal corpo con profilo "frena in tempo" **bidirezionale** `vWant = sign(dtg)·√(2·a·|dtg|)`
 (capato a `autoCruiseSpeed`, tetto largo → di norma comanda il √): fuori dal sorvolo si avvicina, dentro
-risale → la **quota di sorvolo** (`autoHoverRadii` raggi sopra la superficie) è un EQUILIBRIO STABILE.
-Componente laterale desiderata = 0 (annulla la deriva). Il Δv si applica a `rb.linearVelocity` (identico in
-ogni riferimento inerziale → indipendente dall'ancora). Autorità ≥ `1.6·g` in accelerazione E frenata → regge
-la gravità anche vicino alla stella. **Arrivato, NON si disinserisce: tiene la STAZIONE** (`AutoHolding`,
-hover contro la gravità) finché non dai un comando (WASD/Space/Shift/X) → allora molla. Mai una caduta libera
-a sorpresa. Si disinserisce anche atterrando o con `N`. È la soluzione hands-off al drift residuo del newtoniano.
+risale → il **punto di sorvolo** è un EQUILIBRIO STABILE. Componente laterale desiderata = 0 (annulla la
+deriva). Il Δv si applica a `rb.linearVelocity` (identico in ogni riferimento inerziale → indipendente
+dall'ancora).
+- **Punto di sorvolo gravity-aware**: il PIÙ ESTERNO tra `autoHoverRadii` raggi sopra la superficie e la
+  distanza dove la gravità LOCALE scende a `autoHoverG` (`√(μ/autoHoverG)`). Su un corpo pesante (la stella)
+  ti fermi MOLTO più in alto, dove `g` è dolce → hai tempo di manovrare prima di cadere.
+- **Profilo di frenata conservativo**: la decel del profilo è `freno − g_superficie` (non il freno pieno).
+  Tuffandoti verso un corpo pesante la gravità erode la frenata reale (decel netta = freno − g); col freno
+  pieno freneresti troppo tardi e SFONDERESTI (era il bug sul sole). Autorità effettiva ≥ profilo ovunque.
+- **Arrivo (dipende dall'impostazione `à` → "Autopilota stazionario", default OFF):** OFF = arrivi a
+  distanza di sicurezza e l'autopilota DISINSERISCE (manovri tu, hai tempo perché `g` lì è dolce). ON =
+  tiene la STAZIONE (`AutoHolding`, hover contro gravità) finché non dai un comando (WASD/Space/Shift/X).
+Si disinserisce anche atterrando o con `N`. È la soluzione hands-off al drift residuo del newtoniano.
+
+**Impostazioni (`à`)** (`SettingsMenu` + `GameSettings`): schermata opzioni IMGUI, congela i comandi e libera
+il cursore. Le opzioni sono statiche in `GameSettings` e persistono in PlayerPrefs. Pensata per crescere: per
+ora una sola voce, "Autopilota stazionario" (facilitazione, default OFF). Aggiungere un'opzione = un campo in
+`GameSettings` + una riga in `SettingsMenu.OnGUI`.
 
 ## Scala (decisa)
 
@@ -138,6 +150,7 @@ I parametri (raggi, gravità, terreno, torcia) sono lì, commentati.
 Core/      Vector3d, FloatingOrigin   — doppia precisione, origine ancorata al pianeta
            PerformanceGovernor        — cap fps (30 attivi / 15 idle): leva sul calore CPU
            RenderScaler               — render a frazione di risoluzione (ora 1.0: GPU libera)
+           GameSettings               — opzioni runtime (facilitazioni) statiche + PlayerPrefs
 Physics/   KeplerOrbit, CelestialBody (UniversePosition + UniverseVelocityAt), SolarSystem (Reference: corpo ancorato; preserva la velocità allo switch)
 World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di TerrainLayer, unica verità mesh+walker
            TerrainLayer      — astrazione di un processo (forma → altezza); base, poi crateri, ...
@@ -154,6 +167,7 @@ Player/    PlanetWalker   — camminata su sfera + volo jetpack (volo libero in 
            RouteIndicator — reticolo di rotta sul corpo selezionato (HUD, texture procedurali)
            OrbitDisplay   — orbite del sistema a schermo (O), anche in volo (ellisse cacheata)
 Items/     SuitPickup
+UI/        SettingsMenu   — schermata impostazioni (à): congela i comandi, regola le facilitazioni
 Bootstrap/ GameBootstrap  — costruisce la scena (tutti i parametri sono qui)
 Debug/     DebugHud
 Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta (la mesh singola usa questo)

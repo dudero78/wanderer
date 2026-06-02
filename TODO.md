@@ -52,9 +52,15 @@ con prograde/retrograde. Azzerarlo del tutto = lavoro dell'**autopilota** (#12),
   il √, auto-dosato sulla tratta) + laterale desiderata = 0 → la **quota di sorvolo** (`autoHoverRadii` raggi
   sopra la superficie) è un EQUILIBRIO STABILE. Accel morbida (`autoAccel`), freno forte (`autoBrakeAccel`),
   autorità ≥1.6·g in entrambe → regge anche la stella. Il Δv si applica a `rb.linearVelocity` (identico in ogni
-  riferimento inerziale). **Arrivato TIENE LA STAZIONE** (`AutoHolding`, hover contro gravità) finché non dai
-  un comando → niente caduta libera a sorpresa. Si disinserisce anche atterrando o con `N`. **Gauge di frenata**
+  riferimento inerziale). **Punto di sorvolo gravity-aware** (più esterno tra `autoHoverRadii` raggi e dove
+  g locale scende a `autoHoverG`): su corpi pesanti ti fermi più in alto, hai tempo. **Profilo di frenata
+  conservativo** (freno − g_superficie): non sfonda più tuffandosi verso la stella. **Arrivo** secondo
+  l'impostazione: default DISINSERISCE a distanza di sicurezza; con "Autopilota stazionario" ON tiene l'hover
+  (`AutoHolding`) finché non dai un comando. Si disinserisce anche atterrando o con `N`. **Gauge di frenata**
   HUD in volo libero manuale. Riusa `RelativeVelocityTo` (contabilità del `RouteIndicator`).
+- ✅ **Schermata impostazioni** (`à`) — `SettingsMenu` + `GameSettings` (statiche + PlayerPrefs). Congela i
+  comandi, libera il cursore. Prima voce: "Autopilota stazionario" (facilitazione, default OFF). Estendibile:
+  campo in `GameSettings` + riga in `OnGUI`. Futuro: rebinding tasti, volume, qualità, sensibilità mouse.
 
 ## PROSSIMO: #10 Teletrasporto / #7 più pianeti (Dario riparte da qui)
 
