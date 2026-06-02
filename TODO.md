@@ -52,7 +52,9 @@ con prograde/retrograde. Azzerarlo del tutto = lavoro dell'**autopilota** (#12),
   il √, auto-dosato sulla tratta) + laterale desiderata = 0 → la **quota di sorvolo** (`autoHoverRadii` raggi
   sopra la superficie) è un EQUILIBRIO STABILE. Accel morbida (`autoAccel`), freno forte (`autoBrakeAccel`),
   autorità ≥1.6·g in entrambe → regge anche la stella. Il Δv si applica a `rb.linearVelocity` (identico in ogni
-  riferimento inerziale). **Punto di sorvolo gravity-aware** (più esterno tra `autoHoverRadii` raggi e dove
+  riferimento inerziale). **Rampa di accelerazione** (`autoTransitTime`): gentile all'inizio, poi sale da
+  `autoAccel` a `autoAccelMax` finché resti sullo stesso bersaglio → i viaggi lunghi accelerano in fretta;
+  cambiare meta azzera. **Punto di sorvolo gravity-aware** (più esterno tra `autoHoverRadii` raggi e dove
   g locale scende a `autoHoverG`): su corpi pesanti ti fermi più in alto, hai tempo. **Profilo di frenata
   conservativo** (freno − g_superficie): non sfonda più tuffandosi verso la stella. **Arrivo** secondo
   l'impostazione: default DISINSERISCE a distanza di sicurezza; con "Autopilota stazionario" ON tiene l'hover

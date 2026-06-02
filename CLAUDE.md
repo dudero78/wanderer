@@ -103,6 +103,10 @@ RADIALE verso/dal corpo con profilo "frena in tempo" **bidirezionale** `vWant = 
 risale → il **punto di sorvolo** è un EQUILIBRIO STABILE. Componente laterale desiderata = 0 (annulla la
 deriva). Il Δv si applica a `rb.linearVelocity` (identico in ogni riferimento inerziale → indipendente
 dall'ancora).
+- **Rampa di accelerazione** (`autoTransitTime`): parte gentile (`autoAccel` per `autoAccelGentle` secondi →
+  tempo di cambiare idea se sfreccia un corpo interessante), poi sale da `autoAccel` a `autoAccelMax` in
+  `autoAccelRampTime` FINCHÉ resti sullo stesso bersaglio → i viaggi lunghi (al sole) prendono velocità in
+  fretta. Cambiare destinazione o disinserire azzera la rampa: la tratta seguente riparte gentile.
 - **Punto di sorvolo gravity-aware**: il PIÙ ESTERNO tra `autoHoverRadii` raggi sopra la superficie e la
   distanza dove la gravità LOCALE scende a `autoHoverG` (`√(μ/autoHoverG)`). Su un corpo pesante (la stella)
   ti fermi MOLTO più in alto, dove `g` è dolce → hai tempo di manovrare prima di cadere.

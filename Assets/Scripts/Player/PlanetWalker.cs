@@ -48,7 +48,10 @@ public class PlanetWalker : MonoBehaviour
     [Header("Autopilota (T): aggancia il corpo selezionato, allinea, accelera, frena a quota di sorvolo")]
     public KeyCode autopilotKey = KeyCode.T;  // toggle: T inserisce/disinserisce; vola hands-off verso la destinazione
     public float autoCruiseSpeed = 5000f;  // tetto LARGO: il VERO limite è il "frena in tempo" (√(2·a·d)) → su tratte normali non lo tocca mai, l'autopilota si auto-dosa
-    public float autoAccel = 140f;         // accelerazione con cui PRENDE velocità nel tratto lungo (più alta = raggiunge prima la velocità di crociera)
+    public float autoAccel = 140f;         // accelerazione INIZIALE (partenza gentile: hai tempo di cambiare idea se passa un corpo interessante)
+    public float autoAccelMax = 1000f;     // accelerazione a regime: ci sale se resti sullo stesso bersaglio → i viaggi lunghi (es. fino al sole) prendono velocità in fretta
+    public float autoAccelGentle = 3f;     // secondi di partenza gentile prima che la rampa di accelerazione cominci a salire
+    public float autoAccelRampTime = 7f;   // secondi per passare (dopo la fase gentile) da autoAccel a autoAccelMax tenendo lo stesso target
     public float autoBrakeAccel = 200f;    // decelerazione per FRENARE / annullare la deriva; detta la distanza di frenata e quindi la velocità di picco sulla tratta
     public float autoTurnTau = 0.7f;       // costante di tempo dell'allineamento del muso (più alto = più dolce/lento, ease-out)
     public float autoHoverRadii = 1f;      // quota d'arrivo (minima) = questo × raggio del corpo SOPRA la superficie
@@ -78,6 +81,8 @@ public class PlanetWalker : MonoBehaviour
     float boost01;    // rampa di potenza della crociera, 0..1
     float thrustSpool01;   // regime dei motori newtoniani, 0..1: prendono gradualmente
     float brakeSpool01;    // rampa di potenza del freno X, 0..1: parte dolce → sale rapidissimo (anti-tap)
+    float autoTransitTime;          // secondi di volo autopilota sullo STESSO bersaglio: alza l'accelerazione sui viaggi lunghi
+    CelestialBody autoLastTarget;   // bersaglio dell'autopilota al frame scorso: se cambia, azzera la rampa di accelerazione
 
     public void EquipJetpack()
     {
@@ -114,7 +119,7 @@ public class PlanetWalker : MonoBehaviour
             var dest = SolarSystem.Instance != null ? SolarSystem.Instance.Destination : null;
             Autopilot = !Autopilot && dest != null;
             AutoHolding = false;
-            if (Autopilot) Model = FlightModel.Newtonian;
+            if (Autopilot) { Model = FlightModel.Newtonian; autoTransitTime = 0f; autoLastTarget = null; }
         }
 
         // ARRIVATO → l'autopilota TIENE LA STAZIONE (hover) finché non dai un comando: a quel punto molla e
@@ -402,6 +407,15 @@ public class PlanetWalker : MonoBehaviour
         if (dist < 0.001f) { Autopilot = false; AutoHolding = false; return; }
         Vector3 toT = toDest / dist;
 
+        // RAMPA DI ACCELERAZIONE: gentile i primi autoAccelGentle secondi (tempo di cambiare idea se sfreccia
+        // vicino un corpo interessante), poi sale da autoAccel a autoAccelMax in autoAccelRampTime → finché
+        // resti sullo STESSO bersaglio l'autopilota "capisce" che è un viaggio lungo e spinge sempre più forte.
+        // Cambiare destinazione (o disinserire) azzera la rampa: la prossima tratta riparte di nuovo gentile.
+        if (target != autoLastTarget) { autoTransitTime = 0f; autoLastTarget = target; }
+        autoTransitTime += Time.fixedDeltaTime;
+        float accelRamp = Mathf.Clamp01((autoTransitTime - autoAccelGentle) / Mathf.Max(autoAccelRampTime, 0.01f));
+        float effAccel = Mathf.Lerp(autoAccel, autoAccelMax, accelRamp);
+
         // PUNTO DI SORVOLO: il PIÙ ESTERNO tra una quota proporzionale al raggio (minima, per i corpi leggeri)
         // e la distanza a cui la gravità LOCALE scende a autoHoverG (√(μ/autoHoverG)). Su un corpo pesante (la
         // stella) ti fermi molto più in alto, dove g è dolce → quando l'autopilota molla hai TEMPO di manovrare
@@ -431,7 +445,7 @@ public class PlanetWalker : MonoBehaviour
         // FRENARE/raddrizzare. Autorità ≥ 1.6·g in ENTRAMBE le fasi → al netto della gravità resta ≥ aProfile,
         // quindi l'autopilota può davvero seguire il profilo e risalire/tenere il sorvolo anche vicino alla stella.
         float aAuthority = Mathf.Max(autoBrakeAccel, g * 1.6f);
-        float accelCap = (closing < vWant ? Mathf.Max(autoAccel, g * 1.6f) : aAuthority);
+        float accelCap = (closing < vWant ? Mathf.Max(effAccel, g * 1.6f) : aAuthority);
         Vector3 newRel = Vector3.MoveTowards(relVel, desiredRel, accelCap * Time.fixedDeltaTime);
         rb.linearVelocity += newRel - relVel;   // Δv: identico in ogni riferimento inerziale
 
