@@ -9,6 +9,10 @@ using UnityEngine;
 /// </summary>
 public class GameBootstrap : MonoBehaviour
 {
+    [Header("Rendering del pianeta (mesh singola, no LOD)")]
+    [Tooltip("Risoluzione della mesh per faccia. La build full-res gira su thread (niente freeze).")]
+    public int singleMeshRes = 320;
+
     void Start()
     {
         // Frame rate governato in modo dinamico: 60 fps quando ti muovi o guardi intorno,
@@ -65,17 +69,36 @@ public class GameBootstrap : MonoBehaviour
         terrain.Gain = 0.55f;
         terrain.Seed = 1337;
 
-        // Geometria a QUADTREE LOD: niente più mesh uniforme. Le 6 facce sono le radici di
-        // altrettanti quadtree che si infittiscono sotto la camera. È la fondazione per pianeti
-        // veri (km): una mesh uniforme non può risolvere insieme l'intero pianeta e il suolo a
-        // portata di mano. Il rilievo resta bakeato per faccia (2048²) e i nodi lo indirizzano
-        // con le proprie UV — stessa resa di prima, ma ora la densità segue la distanza.
+        // Bombardamento: crateri come geometria vera nella forma (ci cammini dentro). È il primo
+        // "processo" sopra la forma di base, e la cura al vuoto di scala media (gli ~80–800 m che
+        // sembravano sfocati: niente struttura lì, ora i bordi dei crateri prendono la luce).
+        // Tarati per un corpo piccolo tipo Phobos: tanti piccoli + un dominante (tipo Stickney).
+        terrain.CratersEnabled = true;
+        terrain.CraterOctaves = 5;            // ~110, 55, 27, 13, 7 m
+        terrain.CraterLargestRadius = 110f;
+        // densità alta per compensare la spaziatura più larga (SPACING=10): celle più grandi →
+        // meno crateri per cella, quindi ne mettiamo in (quasi) ogni cella per tenere il campo fitto.
+        terrain.CraterDensity = 0.9f;
+        terrain.CraterDepthRatio = 0.20f;
+        terrain.CraterRimRatio = 0.30f;
+        terrain.DominantCrater = true;
+        terrain.DominantCraterDir = new Vector3(0.3f, 1f, 0.2f);  // verso il polo; lo spawn è all'equatore → separati
+        terrain.DominantCraterRadius = 230f;
+
+        // Costruisce la pipeline ORA, sul main thread: i thread di build del quadtree leggeranno
+        // una lista già pronta (SampleHeight è thread-safe in lettura, non in costruzione).
+        terrain.RebuildLayers();
+
+        // RENDERING: mesh singola per faccia, NESSUN LOD. A questa scala (corpi ≤ ~1.5 km) basta, e
+        // scioglie alla radice cuciture/skirt/popping (difetti inerenti al chunked LOD). Il rilievo è
+        // GEOMETRIA vera nella mesh; la maschera minerale + la normale dei crateri sono bakeate per
+        // faccia. La build full-res gira su thread (SingleMeshPlanet) → niente freeze di caricamento.
         var faceMats = PlanetBaker.BakeFaceMaterials(terrain, 256);
         if (faceMats != null)
         {
-            var qt = planetGo.AddComponent<PlanetQuadtree>();
-            qt.Init(terrain, faceMats, null);   // la camera la prende da Camera.main quando esiste
-            Debug.Log("Pianeta: quadtree LOD attivo (maschera bakeata per faccia).");
+            var smp = planetGo.AddComponent<SingleMeshPlanet>();
+            smp.Build(terrain, faceMats, singleMeshRes, 40);   // proxy res 40 istantaneo, poi full-res su thread
+            Debug.Log("Pianeta: mesh singola (no LOD), build su thread.");
         }
         else
         {
@@ -94,24 +117,36 @@ public class GameBootstrap : MonoBehaviour
         planet.UpdatePosition(0);
         solar.Step();
 
-        // --- Giocatore: nasce a terra usando l'altezza del terreno (la stessa che usa il
-        // vincolo analitico), così è già al livello del suolo: niente caduta iniziale. ---
-        Vector3 spawnDir = Vector3.up;
+        // --- Giocatore: nasce a terra all'ALBA sull'EQUATORE, rivolto verso il sole (sole
+        // all'orizzonte davanti). Direzione del sole = dal pianeta verso la stella. Il polo è
+        // Vector3.up → l'equatore è il piano y=0. Il terminatore (alba/tramonto) è il cerchio
+        // perpendicolare al sole. Il loro incrocio = cross(sole, polo): equatore E terminatore. ---
+        Vector3 sunDir = (starGo.transform.position - planetGo.transform.position).normalized;
+        Vector3 pole = Vector3.up;
+        Vector3 spawnDir = Vector3.Cross(sunDir, pole);
+        if (spawnDir.sqrMagnitude < 1e-4f) spawnDir = Vector3.Cross(sunDir, Vector3.right);   // sole sul polo: ripiego
+        spawnDir.Normalize();
+        // il sole è già tangente al suolo qui (perpendicolare a spawnDir) → forward = verso il sole
+        Quaternion spawnRot = Quaternion.LookRotation(sunDir, spawnDir);   // forward=sole, up=radiale
+
         Vector3 playerSpawnPos = planetGo.transform.position + spawnDir * (terrain.SampleHeight(spawnDir) + 1f);
         var playerGo = GameObject.CreatePrimitive(PrimitiveType.Capsule);
         playerGo.name = "Player";
         var prb = playerGo.AddComponent<Rigidbody>();
         var walker = playerGo.AddComponent<PlanetWalker>();
-        playerGo.transform.position = playerSpawnPos;
+        playerGo.transform.SetPositionAndRotation(playerSpawnPos, spawnRot);
         prb.position = playerSpawnPos;   // allinea subito lo stato fisico: niente teletrasporto a (0,0,0) al frame 0
+        prb.rotation = spawnRot;         // guarda verso il sole all'orizzonte (il walker preserva questo orientamento)
+        solar.PlayerBody = prb;          // da ora l'origine ancora al corpo PIÙ VICINO al giocatore (viaggi tra corpi)
         // il giocatore sta a terra col vincolo analitico: il collider fisico non serve
         var playerCol = playerGo.GetComponent<Collider>();
         if (playerCol) playerCol.enabled = false;
         SetColor(playerGo, new Color(0.85f, 0.35f, 0.3f));
 
         // --- Tuta-jetpack: faro-pilastro. Posizione calcolata QUI, da dati noti e stabili
-        // (spawn del giocatore + altezza del terreno): ~8 m davanti, sul terreno. ---
-        Vector3 forwardTangent = Vector3.ProjectOnPlane(Vector3.forward, spawnDir).normalized;   // sguardo iniziale, sul piano del suolo
+        // (spawn del giocatore + altezza del terreno): ~8 m DAVANTI al giocatore, sul terreno. Il
+        // giocatore guarda verso il sole, quindi "davanti" = verso il sole (già tangente al suolo). ---
+        Vector3 forwardTangent = sunDir;
         Vector3 suitDir = (playerSpawnPos + forwardTangent * 8f - planetGo.transform.position).normalized;
         Vector3 suitGround = planetGo.transform.position + suitDir * terrain.SampleHeight(suitDir);
 
@@ -134,6 +169,7 @@ public class GameBootstrap : MonoBehaviour
         pickup.surfaceClearance = 1.2f;   // metà altezza della capsula: la base tocca il suolo
         pickup.pickupRadius = 3.5f;
         pickup.Init(playerGo.transform, walker, suitGround, suitDir);
+        solar.Loose.Add(suitGo.transform);   // oggetto sciolto: va traslato allo switch di corpo
 
         // --- Camera ---
         var camGo = new GameObject("PlayerCamera");
@@ -197,6 +233,10 @@ public class GameBootstrap : MonoBehaviour
         // Con l'atmosfera, più avanti, sarà lo scattering a rialzare la luce sul lato in ombra.
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.05f, 0.054f, 0.065f);
+
+        // --- Modalità mappa (M): zoom-out sul sistema, orbite disegnate, click per selezionare un corpo ---
+        var map = gameObject.AddComponent<MapMode>();
+        map.Init(cam, walker, solar);
 
         var hud = gameObject.AddComponent<DebugHud>();
         hud.Init(playerGo.transform, planet, star, solar, walker, flashlight, suitGo.transform, camGo.transform);
