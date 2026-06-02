@@ -68,6 +68,10 @@ Phobos/Luna). Identità pianeta = 2 colori (`_SoilMean`/`_SoilTint`) + manopole 
   lo slancio E contrasta la gravità (in proporzione allo spool del freno) → resti FERMO rispetto al corpo
   (hover vicino a un pianeta, sincronizzato con la destinazione in viaggio). Non è "frena e cadi": per
   scendere/atterrare **rilasci X** (la gravità ti riprende) o usi Shift. In spazio profondo (g≈0) = puro freno.
+  Decelerazione a **tre fasce**: ALTA velocità → proporzionale (`sp/brakeTimeConstant`, frena molto più forte
+  del picco da migliaia di m/s); fascia media → picco costante (`brakeAccel`); CODA sotto `brakeKnee` →
+  `sp/brakeEaseTau` + `brakeFloor` (governa gli ultimi numeri 3·2·1: floor alto = scorrono svelti). Stessi
+  parametri tarabili in Impostazioni (tab Volo).
 
 HUD volo: **altitudine** sul corpo di gravità più vicino + **distanza** sul corpo
 selezionato (separate); velocità, **radiale con segno** (− = ti avvicini),
@@ -117,20 +121,29 @@ velocità orbitali e rendeva il match-velocity ingiocabile).
   autopilota è nascosta (frena lui). Compare SOLO oltre `WarnMinClosing` (~50 m/s): è un avviso da viaggio
   interplanetario, non per volo radente / saltelli / manovra fine vicino al suolo (lì usi i motori, non il freno;
   e lo skim tangenziale ha closing ~0, quindi è già escluso).
-- **Orbite a schermo** (`O`, `OrbitDisplay`): mostra/nasconde le orbite del sistema come linee anche in
-  volo. L'ellisse (Kepler, fissa nel frame del genitore) è cacheata una volta e ogni frame solo traslata
-  con la floating origin → niente solve orbitale per frame.
+- **Orbite a schermo** (`O`, `OrbitDisplay` + shader `Wanderer/OrbitLine`): mostra/nasconde le orbite del
+  sistema come **fili luminosi alla Outer Wilds** anche in volo. Spessore COSTANTE in pixel (espansione in
+  spazio schermo nel vertex shader: l'arco vicino e quello lontano della stessa orbita hanno lo stesso
+  spessore — impossibile con la larghezza per-linea del `LineRenderer`); additivo, nucleo+alone gaussiano;
+  la linea brilla dove sta il pianeta ADESSO (`_PeakU = frac(SimTime/Period)`) e sfuma a coda andando
+  indietro. L'ellisse (Kepler, fissa nel frame del genitore) è una mesh-nastro costruita UNA volta; ogni
+  frame solo trasla il GameObject col genitore (floating origin) + aggiorna un uniform di fase → zero alloc,
+  niente solve orbitale, niente loop per-vertice. **Trappola chiusa:** la luminosità lungo l'anello va
+  calcolata PER-VERTICE e interpolata (valore continuo attorno all'anello); calcolarla nel fragment da una
+  coordinata interpolata accende un nodo alla cucitura (il segmento di chiusura spazza 1→0 all'indietro).
 
 Comandi volo: `WASD` spinta · `Space`/`Shift` su/giù · `Q/E` rollio (volo libero) · `N` Crociera/Newtoniano
 · `X` match-velocity · `T` autopilota · `F` torcia · `M` mappa · `O` orbite · `à` impostazioni.
 
 **Autopilota (`T`, toggle)**: hands-off completo verso il corpo selezionato. Si inserisce solo con la tuta e
 con una destinazione scelta sulla mappa; passa a Newtoniano. Orienta il muso al bersaglio, pilota la velocità
-RADIALE verso/dal corpo con profilo "frena in tempo" **bidirezionale** `vWant = sign(dtg)·√(2·a·|dtg|)`
-(capato a `autoCruiseSpeed`, tetto largo → di norma comanda il √): fuori dal sorvolo si avvicina, dentro
-risale → il **punto di sorvolo** è un EQUILIBRIO STABILE. Componente laterale desiderata = 0 (annulla la
-deriva). Il Δv si applica a `rb.linearVelocity` (identico in ogni riferimento inerziale → indipendente
-dall'ancora).
+RADIALE verso/dal corpo con profilo "frena in tempo" **bidirezionale** `vWant = sign(dtg)·√(2·a·|dtg|)`:
+fuori dal sorvolo si avvicina, dentro risale → il **punto di sorvolo** è un EQUILIBRIO STABILE. Componente
+laterale desiderata = 0 (annulla la deriva). Il Δv si applica a `rb.linearVelocity` (identico in ogni
+riferimento inerziale → indipendente dall'ancora). **NESSUN tetto di crociera**: il limite è il `√(2·a·d)`
+stesso (per costruzione la velocità max da cui riesce a fermarsi), sopra c'è solo un **soffitto di sicurezza
+alto** (`autoMaxSpeed` 50000, di norma non si tocca). `autoBrakeAccel` più alto → frena più forte → crociera
+più veloce restando in grado di fermarsi.
 - **Rampa di accelerazione** (`autoTransitTime`): parte gentile (`autoAccel` per `autoAccelGentle` secondi →
   tempo di cambiare idea se sfreccia un corpo interessante), poi sale da `autoAccel` a `autoAccelMax` in
   `autoAccelRampTime` FINCHÉ resti sullo stesso bersaglio → i viaggi lunghi (al sole) prendono velocità in
@@ -150,6 +163,11 @@ dall'ancora).
   distanza di sicurezza e l'autopilota DISINSERISCE (manovri tu, hai tempo perché `g` lì è dolce). ON =
   tiene la STAZIONE (`AutoHolding`, hover contro gravità) finché non dai un comando (WASD/Space/Shift/X).
 Si disinserisce anche atterrando o con `N`. È la soluzione hands-off al drift residuo del newtoniano.
+- **Stop dolce all'interruzione** (opzione `GameSettings.AutopilotSoftStop`, default ON): interrompendo
+  l'autopilota con `T` mentre voli, la nave FRENA da sola fino a fermarsi rispetto al corpo ancorato (= la
+  destinazione in viaggio) invece di restare alla deriva. Riusa il blocco freno (`SoftStopping` → `Braking`)
+  ma più DECISO della X (`softStopAccel`); si annulla appena prendi il controllo (WASD/Space/Shift), con `N`,
+  atterrando o ri-inserendo l'autopilota; vale solo in volo libero newtoniano. HUD: `STOP` (vs `FRENO` di X).
 
 **Impostazioni (`à`)** (`SettingsMenu` + `GameSettings`): schermata opzioni a TAB (IMGUI), congela i comandi e
 libera il cursore. È un banco di prova: gli slider editano i campi LIVE del `PlanetWalker` → effetto immediato.
@@ -216,7 +234,7 @@ Player/    PlanetWalker   — camminata su sfera + volo jetpack (volo libero in 
            Flashlight     — torcia che scala con la quota
            MapMode        — mappa (M): zoom-out + orbite + selezione corpo destinazione
            RouteIndicator — reticolo di rotta sul corpo selezionato (HUD, texture procedurali)
-           OrbitDisplay   — orbite del sistema a schermo (O), anche in volo (ellisse cacheata)
+           OrbitDisplay   — orbite a schermo (O): fili luminosi OW (shader Wanderer/OrbitLine, mesh-nastro cacheata, spessore costante in px)
 Items/     SuitPickup
 UI/        SettingsMenu   — schermata impostazioni (à): congela i comandi, regola le facilitazioni
            PlanetEditor   — UI dell'editor di pianeti (scena separata): modifica la RICETTA, anteprima live, salva/carica
@@ -229,6 +247,7 @@ Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta 
            CraterNormalBake (Wanderer/CraterNormalBake) — bake normale crateri per faccia (mippata)
            PlanetBake (Wanderer/PlanetBake)          — bake maschera minerale
            DetailNormalBake                          — bake grana → normal map tileable
+           OrbitLine (Wanderer/OrbitLine)            — filo d'orbita: additivo, spessore costante in px (espansione screen-space nel vert), glow + coda al pianeta
            PlanetSurface (Wanderer/Planet)           — vecchio shader procedurale, solo fallback
            PlanetNoise.cginc                         — libreria noise condivisa (vnoise, fbm...)
 ```

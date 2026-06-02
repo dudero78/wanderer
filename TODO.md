@@ -1,6 +1,6 @@
 # Wanderer — TODO
 
-Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **2 giugno 2026**.
+Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **3 giugno 2026**.
 Dettaglio tecnico nel `CLAUDE.md`.
 
 ## Fatto (milestone)
@@ -9,8 +9,15 @@ Dettaglio tecnico nel `CLAUDE.md`.
 - ✅ Volo a due modelli (`N`: Crociera / Newtoniano), tuta + torcia, volo libero, rollio Q/E.
 - ✅ **Viaggio fra corpi**: origine ancorata al corpo di riferimento, **match-velocity (`X`)**, spinta scalata
   alla gravità (decolli da qualunque corpo), velocità-universo preservata allo switch. `TimeScale=1`.
-- ✅ **Mappa (`M`)** + selezione destinazione, **indicatore di rotta** (`RouteIndicator`), **orbite (`O`)**.
-- ✅ **Autopilota (`T`)** hands-off, **impostazioni a TAB (`à`)**, **gauge di frenata** onesta.
+- ✅ **Mappa (`M`)** + selezione destinazione, **indicatore di rotta** (`RouteIndicator`).
+- ✅ **Orbite a schermo (`O`)**: fili luminosi alla Outer Wilds (shader `Wanderer/OrbitLine`, spessore
+  costante in px, glow + coda al pianeta; mesh-nastro cacheata, zero alloc).
+- ✅ **Autopilota (`T`)** hands-off, **impostazioni a TAB (`à`)**, **gauge di frenata** onesta. **Stop dolce**
+  all'interruzione (opzione, default ON, frenata > X). **Nessun tetto di crociera** (solo soffitto di sicurezza
+  alto): l'autopilota va più veloce sulle tratte lunghe.
+- ✅ **Freno X**: decel a tre fasce (alta velocità proporzionale → frena forte da migliaia di m/s; coda con
+  floor che fa scorrere svelti gli ultimi numeri). Isteresi sull'ancora (`NearestBody`) → niente sobbalzo di
+  inquadratura a metà fra due corpi.
 - ✅ **Build standalone** funziona (scena nei Build Settings + shader Always Included; HUD scalato).
 - ✅ **Crateri** come geometria vera (`CraterTerrainLayer`, profilo a legge di potenza `rimSharpness`) + normale
   bakeata per i bordi fini.
