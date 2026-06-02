@@ -84,11 +84,13 @@ velocità orbitali e rendeva il match-velocity ingiocabile).
   **SINCRONIZZATO** (verde) quando la velocità relativa ~0. Freccia al bordo se fuori vista, si
   dissolve quando il corpo riempie lo schermo. Tutto scalato con la risoluzione. Texture procedurali una
   volta all'avvio. Drift residuo dopo il match = FISICA (gravità), si trimma a mano (→ autopilota #12).
-  **Gauge di frenata** (in basso al centro, solo in volo libero MANUALE newtoniano): barra che si riempie
-  verso la tacca "ORA" man mano che `d_stop = v²/(2·brakeAccel)` si avvicina alla distanza dalla superficie
-  — ambra "FRENA" vicino al punto, ROSSA "TROPPO VELOCE" quando l'hai superato (col freno X non ti fermi
-  più in tempo). Disegnata anche quando il reticolo svanisce (lì serve di più). Sotto autopilota è nascosta
-  (frena lui).
+  **Gauge di frenata** (in basso al centro, solo in volo libero MANUALE newtoniano): barra verso la tacca
+  "ORA". Distanza necessaria calcolata ONESTAMENTE dai valori in gioco (non va più ritoccata): `d_react`
+  (continui ad avvicinarti mentre reagisci + lo spool del freno: `closing·(brakeRampTime + ReactionTime)`)
+  `+ d_brake` (`closing²/(2·aEff)`, con `aEff = brakeAccel − g_superficie`, perché la gravità erode la frenata).
+  `u = d_required / distanza-dalla-superficie`: ambra "FRENA" vicino a 1, ROSSA "TROPPO VELOCE" oltre. Arriva
+  PRIMA dell'ultimo istante grazie al margine di reazione. Disegnata anche quando il reticolo svanisce. Sotto
+  autopilota è nascosta (frena lui).
 - **Orbite a schermo** (`O`, `OrbitDisplay`): mostra/nasconde le orbite del sistema come linee anche in
   volo. L'ellisse (Kepler, fissa nel frame del genitore) è cacheata una volta e ogni frame solo traslata
   con la floating origin → niente solve orbitale per frame.
@@ -118,10 +120,13 @@ dall'ancora).
   tiene la STAZIONE (`AutoHolding`, hover contro gravità) finché non dai un comando (WASD/Space/Shift/X).
 Si disinserisce anche atterrando o con `N`. È la soluzione hands-off al drift residuo del newtoniano.
 
-**Impostazioni (`à`)** (`SettingsMenu` + `GameSettings`): schermata opzioni IMGUI, congela i comandi e libera
-il cursore. Le opzioni sono statiche in `GameSettings` e persistono in PlayerPrefs. Pensata per crescere: per
-ora una sola voce, "Autopilota stazionario" (facilitazione, default OFF). Aggiungere un'opzione = un campo in
-`GameSettings` + una riga in `SettingsMenu.OnGUI`.
+**Impostazioni (`à`)** (`SettingsMenu` + `GameSettings`): schermata opzioni a TAB (IMGUI), congela i comandi e
+libera il cursore. È un banco di prova: gli slider editano i campi LIVE del `PlanetWalker` → effetto immediato.
+Tab attuali: **Autopilota** (stazionario, crociera, accel iniziale/max, fase gentile, rampa, freno, dolcezza
+allineamento, quota sorvolo raggi/g), **Volo** (spinta newtoniana, onset, freno X, rollio, crociera...),
+**Camera** (sensibilità mouse, velocità a piedi). Ogni manopola persiste in PlayerPrefs (chiave `wanderer.tune.*`);
+il toggle stazionario persiste via `GameSettings`. Estendere = una riga `F(...)`/`B(...)` nella tab giusta in
+`SettingsMenu.Build()`. Le preferenze "vere" del giocatore stanno in `GameSettings` (statiche + PlayerPrefs).
 
 ## Scala (decisa)
 

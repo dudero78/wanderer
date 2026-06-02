@@ -60,9 +60,12 @@ con prograde/retrograde. Azzerarlo del tutto = lavoro dell'**autopilota** (#12),
   l'impostazione: default DISINSERISCE a distanza di sicurezza; con "Autopilota stazionario" ON tiene l'hover
   (`AutoHolding`) finché non dai un comando. Si disinserisce anche atterrando o con `N`. **Gauge di frenata**
   HUD in volo libero manuale. Riusa `RelativeVelocityTo` (contabilità del `RouteIndicator`).
-- ✅ **Schermata impostazioni** (`à`) — `SettingsMenu` + `GameSettings` (statiche + PlayerPrefs). Congela i
-  comandi, libera il cursore. Prima voce: "Autopilota stazionario" (facilitazione, default OFF). Estendibile:
-  campo in `GameSettings` + riga in `OnGUI`. Futuro: rebinding tasti, volume, qualità, sensibilità mouse.
+- ✅ **Schermata impostazioni a TAB** (`à`) — `SettingsMenu` + `GameSettings`. Banco di prova: slider che
+  editano i campi LIVE del `PlanetWalker` (effetto immediato), ogni manopola persiste in PlayerPrefs. Tab:
+  Autopilota / Volo / Camera. Toggle "Autopilota stazionario" (default OFF) via `GameSettings`. Estendibile:
+  riga `F(...)`/`B(...)` in `Build()`. Futuro: rebinding tasti, volume, qualità.
+- ✅ **Gauge di frenata auto-calcolata** — distanza di non ritorno onesta dai valori reali (spool freno +
+  margine reazione + frenata erosa dalla gravità `aEff = brakeAccel − g`): arriva in tempo, da non ritoccare.
 
 ## PROSSIMO: #10 Teletrasporto / #7 più pianeti (Dario riparte da qui)
 

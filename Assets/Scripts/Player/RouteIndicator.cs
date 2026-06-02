@@ -31,6 +31,7 @@ public class RouteIndicator : MonoBehaviour
 
     const float SyncSpeed = 1.0f;        // |velocità relativa| sotto cui il reticolo è "sincronizzato"
     const float AirborneAlt = 3f;        // sopra questa quota mostri la velocità (a terra è l'orbita del pianeta)
+    const float ReactionTime = 1.5f;     // margine di reazione umano (s) sommato allo spool del freno nella gauge di frenata
 
     public void Init(Camera playerCamera, PlanetWalker w, SolarSystem s)
     {
@@ -116,12 +117,16 @@ public class RouteIndicator : MonoBehaviour
         bool airborne = walker != null && walker.HasJetpack && walker.Altitude > AirborneAlt;
         bool synced = airborne && relSpeed < SyncSpeed;
 
-        // GAUGE DI FRENATA (volo libero MANUALE): "ce la faccio a fermarmi prima del corpo?". A pilotaggio
-        // manuale (newtoniano, niente autopilota) la distanza per fermarsi da fermo dipende dalla velocità di
-        // avvicinamento e dalla decelerazione del freno X: d_stop = v²/(2·a). Se d_stop si avvicina alla distanza
-        // dalla superficie sei al PUNTO DI FRENATA; se la supera non freni più in tempo. Disegnata SEMPRE (anche
-        // quando il corpo riempie lo schermo e il reticolo svanisce): è proprio lì che serve. L'autopilota gestisce
-        // la frenata da sé, quindi sotto autopilota non la mostro.
+        // GAUGE DI FRENATA (volo libero MANUALE): "ce la faccio a fermarmi prima del corpo?". Calcolata
+        // ONESTAMENTE dai valori reali in gioco (così non va più ritoccata), distanza necessaria per fermarsi =
+        //   d_react (continui ad avvicinarti mentre reagisci + i motori del freno spoolano) + d_brake (frenata vera).
+        //  - d_react = closing · (brakeRampTime + ReactionTime): lo spool del freno X è reale, il tempo di
+        //    reazione umano è un margine fisso → la barra arriva PRIMA, non all'ultimo istante.
+        //  - d_brake = closing²/(2·aEff), con aEff = freno − g_superficie (la gravità erode la frenata reale
+        //    tuffandoti su un corpo pesante, esattamente come per l'autopilota): conservativo, mai ottimista.
+        // u = d_required / distanza-dalla-superficie. u=1 → ULTIMO momento per frenare; >1 → non ce la fai più.
+        // Disegnata SEMPRE (anche quando il corpo riempie lo schermo e il reticolo svanisce): lì serve di più.
+        // Sotto autopilota è nascosta (frena lui).
         if (airborne && walker != null && walker.IsNewtonian && !walker.Autopilot)
         {
             Vector3 toTb = (tp - camPos).normalized;
@@ -129,10 +134,12 @@ public class RouteIndicator : MonoBehaviour
             float stopDist = dist - (float)target.Radius;        // distanza dalla SUPERFICIE del bersaglio
             if (closingB > 1f && stopDist > 0f)
             {
-                float aBrake = Mathf.Max(walker.brakeAccel, 1f);
-                float dStop = closingB * closingB / (2f * aBrake);
-                float u = dStop / stopDist;   // 1 = sei ESATTAMENTE al punto in cui devi frenare ora; >1 = troppo tardi
-                if (u > 0.5f) DrawBrakeGauge(u, Mathf.Max(1f, Screen.height / 1080f));
+                float gSurf = (float)target.SurfaceGravity;
+                float aEff = Mathf.Max(walker.brakeAccel - gSurf, walker.brakeAccel * 0.3f);
+                float tReact = walker.brakeRampTime + ReactionTime;
+                float dReq = closingB * tReact + closingB * closingB / (2f * aEff);
+                float u = dReq / stopDist;   // 1 = ULTIMO momento per frenare; >1 = troppo tardi
+                if (u > 0.4f) DrawBrakeGauge(u, Mathf.Max(1f, Screen.height / 1080f));
             }
         }
 
