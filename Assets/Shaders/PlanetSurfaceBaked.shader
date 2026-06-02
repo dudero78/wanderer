@@ -54,7 +54,7 @@ Shader "Wanderer/PlanetBaked"
 
         // GEOMORPH: ampiezza della banda di morphing come frazione della distanza di split del nodo.
         // Più alto = transizione più lunga e morbida; più basso = dettaglio prima ma transizione corta.
-        _MorphRange ("Geomorph: ampiezza banda", Range(0.1, 0.9)) = 0.4
+        _MorphRange ("Geomorph: ampiezza banda", Range(0.1, 0.9)) = 0.5
 
         [NoScaleOffset] _MaskMap ("Maschere bakeate (R=minerali)", 2D) = "gray" {}
         [NoScaleOffset] _DetailNormal ("Grana suolo (normal tileable)", 2D) = "bump" {}
@@ -132,7 +132,12 @@ Shader "Wanderer/PlanetBaked"
             {
                 float3 wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
                 float d = distance(wpos, _WorldSpaceCameraPos);
-                float mf = saturate((d - mph.w) / (mph.w * _MorphRange));   // 0 vicino, 1 lontano
+                // mf: 0 = dettaglio fine (vicino), 1 = forma del genitore (lontano). Il morph COMPLETA a
+                // d = splitDist (la distanza di split del nodo), morfando nella banda [splitDist·(1-range), splitDist].
+                // Così quando una patch arriva al suo limite — dove può confinare con una vicina più GROSSA — è
+                // già del tutto sulla forma del genitore (= la forma della vicina) → i gradini di LOD si chiudono,
+                // la transizione è graduale, niente scalini seghettati. (Prima completava a 1.4·splitDist, troppo tardi.)
+                float mf = saturate((d - mph.w * (1.0 - _MorphRange)) / (mph.w * _MorphRange));
                 v.vertex.xyz += mph.xyz * mf;
             }
 
