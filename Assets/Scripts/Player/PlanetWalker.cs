@@ -49,7 +49,6 @@ public class PlanetWalker : MonoBehaviour
 
     [Header("Autopilota (T): aggancia il corpo selezionato, allinea, accelera, frena a quota di sorvolo")]
     public KeyCode autopilotKey = KeyCode.T;  // toggle: T inserisce/disinserisce; vola hands-off verso la destinazione
-    public float autoCruiseSpeed = 5000f;  // tetto LARGO: il VERO limite è il "frena in tempo" (√(2·a·d)) → su tratte normali non lo tocca mai, l'autopilota si auto-dosa
     public float autoAccel = 140f;         // accelerazione INIZIALE (partenza gentile: hai tempo di cambiare idea se passa un corpo interessante)
     public float autoAccelMax = 1000f;     // accelerazione a regime: ci sale se resti sullo stesso bersaglio → i viaggi lunghi (es. fino al sole) prendono velocità in fretta
     public float autoAccelGentle = 3f;     // secondi di partenza gentile prima che la rampa di accelerazione cominci a salire
@@ -464,15 +463,17 @@ public class PlanetWalker : MonoBehaviour
         float closing = Vector3.Dot(relVel, toT);   // + = ti avvicini
 
         // Velocità RADIALE desiderata BIDIREZIONALE: profilo "frena in tempo" √(2·a·|dtg|), col SEGNO di dtg.
-        //  - fuori dal sorvolo (dtg>0): avvicìnati (+), capato alla crociera (di norma il vero limite è il √).
-        //  - dentro al sorvolo (dtg<0): allontànati (−) per RISALIRE alla quota → il sorvolo è un EQUILIBRIO STABILE.
+        //  - fuori dal sorvolo (dtg>0): avvicìnati (+); dentro (dtg<0): allontànati (−) per RISALIRE → il sorvolo
+        //    è un EQUILIBRIO STABILE. NESSUN tetto di velocità: il profilo √(2·a·d) È già il limite — per
+        //    costruzione è la velocità massima da cui l'autopilota riesce ancora a fermarsi entro l'arrivo,
+        //    quindi sulle tratte lunghe va più veloce senza rischio di sfondare.
         // La decel del PROFILO è CONSERVATIVA: freno MENO la gravità di superficie (il caso peggiore lungo la
         // discesa). Tuffandoti verso un corpo pesante la gravità erode la frenata reale (decel netta = freno − g):
         // se il profilo usasse il freno pieno freneresti troppo tardi e SFONDERESTI sulla superficie (era il bug
         // sul sole). Con aProfile = freno − g_superficie la frenata è sempre realizzabile (la decel reale ≥ aProfile).
         float gSurf = (float)target.SurfaceGravity;
         float aProfile = Mathf.Max(autoBrakeAccel - gSurf, autoBrakeAccel * 0.3f);
-        float mag = Mathf.Min(autoCruiseSpeed, Mathf.Sqrt(2f * aProfile * Mathf.Abs(dtg)));
+        float mag = Mathf.Sqrt(2f * aProfile * Mathf.Abs(dtg));
         float vWant = (dtg >= 0f ? 1f : -1f) * mag;
         Vector3 desiredRel = toT * vWant;   // SOLO radiale verso/dal bersaglio; componente laterale desiderata = 0
 

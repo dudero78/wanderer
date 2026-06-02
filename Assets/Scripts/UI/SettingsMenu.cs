@@ -65,7 +65,6 @@ public class SettingsMenu : MonoBehaviour
         ap.knobs.Add(B("Stop dolce all'interruzione (T)", true,
             () => GameSettings.AutopilotSoftStop, v => { GameSettings.AutopilotSoftStop = v; GameSettings.Save(); }));
         ap.knobs.Add(F("Decelerazione stop dolce", "softStopAccel", 100f, 2000f, () => w.softStopAccel, v => w.softStopAccel = v));
-        ap.knobs.Add(F("Velocità di crociera (tetto)", "autoCruiseSpeed", 100f, 8000f, () => w.autoCruiseSpeed, v => w.autoCruiseSpeed = v));
         ap.knobs.Add(F("Accelerazione iniziale", "autoAccel", 20f, 400f, () => w.autoAccel, v => w.autoAccel = v));
         ap.knobs.Add(F("Accelerazione massima", "autoAccelMax", 100f, 3000f, () => w.autoAccelMax, v => w.autoAccelMax = v));
         ap.knobs.Add(F("Fase gentile (s)", "autoAccelGentle", 0f, 12f, () => w.autoAccelGentle, v => w.autoAccelGentle = v));
