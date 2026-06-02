@@ -188,7 +188,9 @@ World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di Terrain
            Noise3D           — gradient noise (Perlin) CPU per la forma della mesh
            PlanetMeshBuilder — cube-sphere; ComputeFaceData (thread-safe) + CreateMesh (main thread)
            SingleMeshPlanet  — 6 facce, no LOD, build su thread + proxy
-           PlanetBaker       — bakea per faccia: maschera minerale + normale crateri; detail-normal condivisa
+           PlanetPresets     — parametri terreno dei corpi (preset condiviso scena + bake offline: una verità)
+           PlanetBaker       — bakea per faccia: maschera minerale + normale crateri; detail-normal condivisa.
+                               Runtime (RT, ~1.9s, fallback) o da disco (TryLoadBakedMaterials ← asset bakeati)
            SunLight
 Player/    PlanetWalker   — camminata su sfera + volo jetpack (volo libero in Newtoniano, spinta scalata alla gravità)
            Flashlight     — torcia che scala con la quota
@@ -198,6 +200,7 @@ Player/    PlanetWalker   — camminata su sfera + volo jetpack (volo libero in 
 Items/     SuitPickup
 UI/        SettingsMenu   — schermata impostazioni (à): congela i comandi, regola le facilitazioni
 Bootstrap/ GameBootstrap  — costruisce la scena (tutti i parametri sono qui)
+Editor/    SceneSetup, PlanetBakeTool (menu "Wanderer → Bake planet assets": bake offline su disco, #13)
 Debug/     DebugHud
 Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta (la mesh singola usa questo)
            CraterNormalBake (Wanderer/CraterNormalBake) — bake normale crateri per faccia (mippata)

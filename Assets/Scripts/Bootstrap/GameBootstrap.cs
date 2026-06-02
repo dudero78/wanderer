@@ -62,37 +62,13 @@ public class GameBootstrap : MonoBehaviour
             Inclination = 0.15
         };
 
-        // terreno procedurale: il noise definisce la forma, la mesh la mostra,
-        // il PlanetWalker ci cammina sopra. Una sola fonte di verità.
+        // terreno procedurale: il noise definisce la forma, la mesh la mostra, il PlanetWalker ci cammina
+        // sopra. Una sola fonte di verità. I parametri stanno in PlanetPresets (condiviso col bake offline).
         var terrain = planetGo.AddComponent<PlanetTerrain>();
-        terrain.BaseRadius = (float)planet.Radius;
-        terrain.Amplitude = 45f;    // colline morbide: silhouette dolce, non "palla liscia"
-        terrain.Frequency = 2.0f;
-        // 5 ottave: terreno DOLCE, "luna prima di crateri/mari/rocce". Le feature più piccole sono
-        // ~100 m → colline larghe e morbide, niente increspature fini. La definizione a media/corta
-        // distanza arriverà dalle FEATURE vere (crateri, rocce), che sono geometria con struttura.
-        terrain.Octaves = 5;
-        terrain.Gain = 0.55f;
-        terrain.Seed = 1337;
+        PlanetPresets.ConfigureDemoPlanet(terrain);
 
-        // Bombardamento: crateri come geometria vera nella forma (ci cammini dentro). È il primo
-        // "processo" sopra la forma di base, e la cura al vuoto di scala media (gli ~80–800 m che
-        // sembravano sfocati: niente struttura lì, ora i bordi dei crateri prendono la luce).
-        // Tarati per un corpo piccolo tipo Phobos: tanti piccoli + un dominante (tipo Stickney).
-        terrain.CratersEnabled = true;
-        terrain.CraterOctaves = 5;            // ~110, 55, 27, 13, 7 m
-        terrain.CraterLargestRadius = 110f;
-        // densità alta per compensare la spaziatura più larga (SPACING=10): celle più grandi →
-        // meno crateri per cella, quindi ne mettiamo in (quasi) ogni cella per tenere il campo fitto.
-        terrain.CraterDensity = 0.9f;
-        terrain.CraterDepthRatio = 0.20f;
-        terrain.CraterRimRatio = 0.30f;
-        terrain.DominantCrater = true;
-        terrain.DominantCraterDir = new Vector3(0.3f, 1f, 0.2f);  // verso il polo; lo spawn è all'equatore → separati
-        terrain.DominantCraterRadius = 230f;
-
-        // Costruisce la pipeline ORA, sul main thread: i thread di build del quadtree leggeranno
-        // una lista già pronta (SampleHeight è thread-safe in lettura, non in costruzione).
+        // Costruisce la pipeline ORA, sul main thread: i thread di build leggeranno una lista già
+        // pronta (SampleHeight è thread-safe in lettura, non in costruzione).
         terrain.RebuildLayers();
 
         // RENDERING: mesh singola per faccia, NESSUN LOD. A questa scala (corpi ≤ ~1.5 km) basta, e
@@ -101,9 +77,11 @@ public class GameBootstrap : MonoBehaviour
         // faccia. La build full-res gira su thread (SingleMeshPlanet) → niente freeze di caricamento.
         // bakeMeshRes basso: la mesh d'appoggio serve SOLO a coprire le UV per il bake (il dettaglio lo
         // calcola il fragment per-pixel); alzarla campiona il terreno per vertice per niente → load lento.
+        // PRIMA prova gli asset bakeati offline (Resources/BakedPlanet, dal comando "Wanderer/Bake planet
+        // assets"): se ci sono, avvio quasi istantaneo a piena qualità; altrimenti bake runtime (fallback).
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var faceMats = PlanetBaker.BakeFaceMaterials(terrain, 64);
-        Debug.Log($"[load] bake materiali pianeta: {sw.ElapsedMilliseconds} ms");
+        var faceMats = PlanetBaker.TryLoadBakedMaterials(terrain) ?? PlanetBaker.BakeFaceMaterials(terrain, 64);
+        Debug.Log($"[load] materiali pianeta: {sw.ElapsedMilliseconds} ms");
         if (faceMats != null)
         {
             var smp = planetGo.AddComponent<SingleMeshPlanet>();

@@ -2,129 +2,161 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /// <summary>
-/// Prepara i materiali "freddi" delle facce del pianeta per il quadtree. Bakea UNA volta, per
-/// faccia, una maschera di regioni minerali (Wanderer/PlanetBake) e, condivisa fra tutte le facce,
-/// una detail-normal map tileable della grana del suolo. Lo shader di superficie (Wanderer/PlanetBaked)
-/// legge queste texture invece di ricalcolare rumore procedurale a ogni frame.
+/// Prepara i materiali "freddi" delle facce del pianeta. Bakea UNA volta, per faccia, una maschera di
+/// regioni minerali (Wanderer/PlanetBake) e la normale dei crateri (Wanderer/CraterNormalBake), più una
+/// detail-normal map tileable condivisa. Lo shader di superficie (Wanderer/PlanetBaked) legge queste texture
+/// invece di ricalcolare rumore procedurale a ogni frame.
 ///
-/// Metodo: TEXTURE-SPACE BAKING. Disegniamo la mesh della faccia usando le sue UV come posizione
-/// (lo fa il vertex shader di PlanetBake): la RenderTexture si riempie col valore calcolato
-/// esattamente nei punti della mesh vera. Le UV coprono [0,1]² piene su ogni faccia → niente buchi.
-/// È lo stesso schema d'indirizzamento del virtual texturing: per pianeti enormi basterà bakeare
-/// tessere attorno alla camera invece di facce intere, senza cambiare l'approccio.
+/// Due strade:
+///  - RUNTIME (BakeFaceMaterials): bakea su RenderTexture all'avvio (~1.9s GPU). Fallback sempre disponibile.
+///  - DA DISCO (TryLoadBakedMaterials): se esistono gli asset bakeati offline in Resources/BakedPlanet (li
+///    genera il comando editor "Wanderer/Bake planet assets"), li carica e basta → avvio quasi istantaneo,
+///    e il bake offline gira a piena risoluzione delle mesh d'appoggio (qualità massima, non incide sul load).
+///
+/// Metodo di bake: TEXTURE-SPACE BAKING. La mesh della faccia viene disegnata usando le sue UV come
+/// posizione (vertex shader di PlanetBake): la RenderTexture si riempie nei punti della mesh vera. Le UV
+/// coprono [0,1]² piene su ogni faccia → niente buchi.
 /// </summary>
 public static class PlanetBaker
 {
-    /// <summary>
-    /// Costruisce 6 mesh-faccia temporanee solo per bakeare la maschera minerale in texture, e
-    /// RITORNA i 6 materiali (uno per faccia, ordine di PlanetMeshBuilder.FaceNormals). Le mesh
-    /// temporanee vengono distrutte: le texture vivono nelle RenderTexture. Il quadtree renderizza
-    /// con questi materiali. Ritorna null su qualsiasi problema (→ il chiamante resta sul procedurale).
-    /// </summary>
-    public static Material[] BakeFaceMaterials(PlanetTerrain terrain, int bakeMeshRes)
+    public const string BakedDir = "BakedPlanet";   // sotto Resources/ : asset bakeati offline
+    public const int MaskRtSize = 512;
+    public const int CraterRtSize = 1024;
+    public const int DetailRtSize = 1024;
+
+    // ---- ENTRY POINTS -------------------------------------------------------------------------------
+
+    /// <summary>Bake RUNTIME procedurale (fallback). maskMeshRes/craterMeshRes = risoluzione delle mesh
+    /// d'appoggio del bake (basse a runtime per il load; alte nel bake offline). Ritorna null se gli shader
+    /// mancano (→ il chiamante resta sul procedurale uniforme).</summary>
+    public static Material[] BakeFaceMaterials(PlanetTerrain terrain, int maskMeshRes, int craterMeshRes = 48)
     {
-        var bakeShader = Shader.Find("Wanderer/PlanetBake");
         var sampleShader = Shader.Find("Wanderer/PlanetBaked");
-        if (bakeShader == null || sampleShader == null)
+        var maskMat = CreateMaskMaterial();
+        if (sampleShader == null || maskMat == null)
         {
-            Debug.LogWarning("PlanetBaker: shader di bake non trovati, niente quadtree bakeato.");
+            Debug.LogWarning("PlanetBaker: shader di bake non trovati, niente superficie bakeata.");
             return null;
         }
-
-        var bakeMat = new Material(bakeShader);
-        // frequenze delle maschere: DEVONO coincidere coi default dello shader di superficie o le
-        // regioni non combaciano col resto. (_RoughFreq è bakeato ma per ora lo shader usa solo R.)
-        bakeMat.SetFloat("_MineralFreq", 1.8f);
-        bakeMat.SetFloat("_RoughFreq", 0.8f);
-
-        // detail normal map tileable della grana del suolo: UNA, condivisa da tutte le facce. Con
-        // mipmap+aniso non aliasa (in lontananza si media a piatto); il wrap Repeat la rende ripetibile.
-        RenderTexture detailRT = BakeDetailNormal(1024);
-
-        // materiale per il bake della NORMALE dei crateri (alta freq world-fixed). Parametri
-        // IDENTICI al campo geometrico → i bordi nitidi cadono esattamente sulle conche della mesh.
-        // Le ottave sono LE STESSE della geometria (niente +2): le ottave più fini sarebbero
-        // sub-texel sulla RT (rim < ~Nyquist) e il gradiente analitico per-pixel aliaserebbe in un
-        // pettine regolare — aliasing di campionamento, che nessun clamp toglie. Inoltre non esistono
-        // nemmeno nella geometria, quindi disegnerebbero rilievo fantasma.
-        var craterShader = Shader.Find("Wanderer/CraterNormalBake");
-        Material craterMat = null;
-        if (craterShader != null)
-        {
-            craterMat = new Material(craterShader);
-            craterMat.SetFloat("_BaseRadius", terrain.BaseRadius);
-            craterMat.SetFloat("_CraterSeed", terrain.CraterSeed);
-            craterMat.SetFloat("_CraterOctaves", terrain.CraterOctaves);
-            craterMat.SetFloat("_CraterLargest", terrain.CraterLargestRadius);
-            craterMat.SetFloat("_CraterDensity", terrain.CraterDensity);
-            craterMat.SetFloat("_CraterDepthRatio", terrain.CraterDepthRatio);
-            craterMat.SetFloat("_CraterRimRatio", terrain.CraterRimRatio);
-            // forza della normale dei crateri: troppo alta (≥~0.9) e i crateri PICCOLI sotto luce
-            // radente sembrano "cromati"/metallici (normali ripide che ribaltano la luce). 0.7 è il
-            // compromesso: bordi leggibili senza effetto metallico.
-            craterMat.SetFloat("_CraterNormalStr", 0.7f);
-        }
-
-        // foto del suolo STRUTTURATA (terra bruna coi sassi): da' la grana fine e la variazione macro.
-        // Strutturata apposta: una grana uniforme (asfalto) letta da vicino legge come "neve TV".
+        var craterMat = CreateCraterMaterial(terrain);
+        var detailRT = BakeDetailNormalRT(DetailRtSize);
         var soil = Resources.Load<Texture2D>("Textures/soil_dirt");
 
         var mats = new Material[6];
         var prev = RenderTexture.active;
         for (int f = 0; f < 6; f++)
         {
-            // mesh-faccia temporanea, solo per disegnare la maschera in spazio texture
-            var bakeMesh = PlanetMeshBuilder.BuildFaceMesh(PlanetMeshBuilder.FaceNormals[f], terrain, bakeMeshRes);
-
-            // maschera regioni minerali (R): bassa frequenza → RT piccola ARGB32 lineare. Una lettura
-            // al posto di rumore procedurale per-pixel: meno lavoro per pixel.
-            var maskRT = new RenderTexture(512, 512, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
-            {
-                name = "MaskBake_" + f,
-                useMipMap = true,
-                autoGenerateMips = false,
-                wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear
-            };
-            maskRT.Create();
-
-            var cb = new CommandBuffer { name = "PlanetBake_" + f };
-            cb.SetRenderTarget(maskRT);
-            cb.ClearRenderTarget(true, true, Color.clear);
-            cb.DrawMesh(bakeMesh, Matrix4x4.identity, bakeMat, 0, 0);   // pass 0: maschere
-            Graphics.ExecuteCommandBuffer(cb);
-            cb.Release();
-            maskRT.GenerateMips();
-            Object.Destroy(bakeMesh);   // la texture è fatta: la mesh non serve più
-
-            var mat = new Material(sampleShader);
-            mat.SetFloat("_BaseRadius", terrain.BaseRadius);
-            mat.SetFloat("_Amplitude", terrain.Amplitude);
-            mat.SetTexture("_MaskMap", maskRT);
-            if (detailRT != null) mat.SetTexture("_DetailNormal", detailRT);
-            if (soil != null) mat.SetTexture("_SoilSand", soil);
-            if (craterMat != null)
-            {
-                var craterRT = BakeCraterNormal(terrain, f, 1024, craterMat);
-                mat.SetTexture("_CraterNormalMap", craterRT);
-            }
-            mats[f] = mat;
+            var maskRT = BakeMaskRT(terrain, f, maskMeshRes, maskMat);
+            RenderTexture craterRT = craterMat != null ? BakeCraterNormalRT(terrain, f, CraterRtSize, craterMat, craterMeshRes) : null;
+            mats[f] = BuildMaterial(terrain, maskRT, craterRT, detailRT, soil);
         }
         RenderTexture.active = prev;
         return mats;
     }
 
-    /// <summary>
-    /// Bakea la NORMALE dei crateri di UNA faccia in una RenderTexture mippata (alta freq world-fixed).
-    /// La mesh-faccia (bassa risoluzione: serve solo il frame tangente liscio) viene disegnata in
-    /// spazio texture; il fragment calcola la normale del cratere per texel a piena risoluzione della
-    /// RT. Il MIPMAP poi la media in lontananza → niente sparkle. Clamp + trilinear + aniso.
-    /// </summary>
-    static RenderTexture BakeCraterNormal(PlanetTerrain terrain, int face, int size, Material craterMat)
+    /// <summary>Carica i materiali dagli asset bakeati offline (Resources/BakedPlanet). Ritorna null se il
+    /// set è incompleto/assente → il chiamante usa il bake runtime. Così la feature è OPT-IN e non rompe nulla.</summary>
+    public static Material[] TryLoadBakedMaterials(PlanetTerrain terrain)
     {
-        // res bassa: la mesh dà solo il FRAME TANGENTE liscio interpolato per-pixel; la normale del cratere
-        // la calcola il fragment a piena risoluzione → non serve campionare il terreno su tanti vertici.
-        var mesh = PlanetMeshBuilder.BuildFaceMesh(PlanetMeshBuilder.FaceNormals[face], terrain, 48);
+        var sampleShader = Shader.Find("Wanderer/PlanetBaked");
+        if (sampleShader == null) return null;
+        var detail = Resources.Load<Texture2D>(BakedDir + "/Detail");
+        var soil = Resources.Load<Texture2D>("Textures/soil_dirt");
+
+        var mats = new Material[6];
+        for (int f = 0; f < 6; f++)
+        {
+            var mask = Resources.Load<Texture2D>(BakedDir + "/Mask" + f);
+            var crater = Resources.Load<Texture2D>(BakedDir + "/Crater" + f);
+            if (mask == null || crater == null) return null;   // set incompleto → fallback al bake runtime
+            mats[f] = BuildMaterial(terrain, mask, crater, detail, soil);
+        }
+        Debug.Log("[load] superficie pianeta da asset bakeati (Resources/" + BakedDir + ")");
+        return mats;
+    }
+
+    // ---- MATERIALE ----------------------------------------------------------------------------------
+
+    /// <summary>Materiale di superficie di una faccia, con le texture (RT a runtime o Texture2D da disco).</summary>
+    static Material BuildMaterial(PlanetTerrain terrain, Texture maskTex, Texture craterTex, Texture detailTex, Texture soil)
+    {
+        var mat = new Material(Shader.Find("Wanderer/PlanetBaked"));
+        mat.SetFloat("_BaseRadius", terrain.BaseRadius);
+        mat.SetFloat("_Amplitude", terrain.Amplitude);
+        if (maskTex != null) mat.SetTexture("_MaskMap", maskTex);
+        if (detailTex != null) mat.SetTexture("_DetailNormal", detailTex);
+        if (soil != null) mat.SetTexture("_SoilSand", soil);
+        if (craterTex != null) mat.SetTexture("_CraterNormalMap", craterTex);
+        return mat;
+    }
+
+    // ---- MATERIALI DI BAKE (riusati da runtime e dal tool editor) ----------------------------------
+
+    public static Material CreateMaskMaterial()
+    {
+        var sh = Shader.Find("Wanderer/PlanetBake");
+        if (sh == null) return null;
+        var m = new Material(sh);
+        // frequenze delle maschere: DEVONO coincidere coi default dello shader di superficie o le regioni
+        // non combaciano col resto. (_RoughFreq è bakeato ma per ora lo shader usa solo R.)
+        m.SetFloat("_MineralFreq", 1.8f);
+        m.SetFloat("_RoughFreq", 0.8f);
+        return m;
+    }
+
+    public static Material CreateCraterMaterial(PlanetTerrain terrain)
+    {
+        var sh = Shader.Find("Wanderer/CraterNormalBake");
+        if (sh == null) return null;
+        // Parametri IDENTICI al campo geometrico → i bordi nitidi cadono esattamente sulle conche della mesh.
+        // Le ottave sono LE STESSE della geometria (niente +2): le più fini sarebbero sub-texel e il gradiente
+        // analitico per-pixel aliaserebbe in un pettine regolare (aliasing di campionamento, nessun clamp lo toglie).
+        var m = new Material(sh);
+        m.SetFloat("_BaseRadius", terrain.BaseRadius);
+        m.SetFloat("_CraterSeed", terrain.CraterSeed);
+        m.SetFloat("_CraterOctaves", terrain.CraterOctaves);
+        m.SetFloat("_CraterLargest", terrain.CraterLargestRadius);
+        m.SetFloat("_CraterDensity", terrain.CraterDensity);
+        m.SetFloat("_CraterDepthRatio", terrain.CraterDepthRatio);
+        m.SetFloat("_CraterRimRatio", terrain.CraterRimRatio);
+        // forza normale crateri: troppo alta (≥~0.9) e i piccoli sotto luce radente sembrano "cromati". 0.7 = bordi
+        // leggibili senza effetto metallico.
+        m.SetFloat("_CraterNormalStr", 0.7f);
+        return m;
+    }
+
+    // ---- BAKE DELLE RENDERTEXTURE (per faccia) -----------------------------------------------------
+
+    /// <summary>Maschera regioni minerali (R), bassa frequenza. La mesh d'appoggio (meshRes) copre le UV.</summary>
+    public static RenderTexture BakeMaskRT(PlanetTerrain terrain, int face, int meshRes, Material maskMat)
+    {
+        var bakeMesh = PlanetMeshBuilder.BuildFaceMesh(PlanetMeshBuilder.FaceNormals[face], terrain, meshRes);
+        var rt = new RenderTexture(MaskRtSize, MaskRtSize, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
+        {
+            name = "MaskBake_" + face,
+            useMipMap = true,
+            autoGenerateMips = false,
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear
+        };
+        rt.Create();
+
+        var cb = new CommandBuffer { name = "PlanetBake_" + face };
+        cb.SetRenderTarget(rt);
+        cb.ClearRenderTarget(true, true, Color.clear);
+        cb.DrawMesh(bakeMesh, Matrix4x4.identity, maskMat, 0, 0);
+        Graphics.ExecuteCommandBuffer(cb);
+        cb.Release();
+        rt.GenerateMips();
+        Object.DestroyImmediate(bakeMesh);
+        return rt;
+    }
+
+    /// <summary>NORMALE dei crateri di UNA faccia (alta freq world-fixed), mippata. La mesh d'appoggio
+    /// (meshRes) dà solo il frame tangente liscio; il fragment calcola la normale per texel a piena RT.</summary>
+    public static RenderTexture BakeCraterNormalRT(PlanetTerrain terrain, int face, int size, Material craterMat, int meshRes)
+    {
+        var mesh = PlanetMeshBuilder.BuildFaceMesh(PlanetMeshBuilder.FaceNormals[face], terrain, meshRes);
         var rt = new RenderTexture(size, size, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
         {
             name = "CraterNormalRT_" + face,
@@ -143,31 +175,19 @@ public static class PlanetBaker
         Graphics.ExecuteCommandBuffer(cb);
         cb.Release();
         rt.GenerateMips();
-        Object.Destroy(mesh);
+        Object.DestroyImmediate(mesh);
         return rt;
     }
 
-    /// <summary>
-    /// Genera la detail normal map tileable della grana del suolo in una RenderTexture con mipmap +
-    /// wrap Repeat. Ritorna null se lo shader manca (le facce restano senza grana).
-    /// </summary>
-    static RenderTexture BakeDetailNormal(int size)
+    /// <summary>Detail normal map tileable della grana del suolo (wrap Repeat, mippata). null se manca lo shader.</summary>
+    public static RenderTexture BakeDetailNormalRT(int size)
     {
         var shader = Shader.Find("Wanderer/DetailNormalBake");
-        if (shader == null)
-        {
-            Debug.LogWarning("PlanetBaker: shader detail-normal non trovato, suolo senza grana.");
-            return null;
-        }
-        // foto della terra bruna strutturata: da questa lo shader deriva il RILIEVO del micro-suolo
-        // (non il colore: le ombre cotte nella foto illuminerebbero il lato in ombra). Strutturata,
-        // non rumore uniforme → niente sparkle/moiré sotto luce forte.
+        if (shader == null) { Debug.LogWarning("PlanetBaker: shader detail-normal non trovato, suolo senza grana."); return null; }
+        // foto della terra bruna strutturata: lo shader ne deriva il RILIEVO (non il colore: le ombre cotte
+        // nella foto illuminerebbero il lato in ombra). Strutturata, non rumore uniforme → niente sparkle/moiré.
         var source = Resources.Load<Texture2D>("Textures/soil_dirt");
-        if (source == null)
-        {
-            Debug.LogWarning("PlanetBaker: Textures/soil_dirt non trovata, suolo senza grana.");
-            return null;
-        }
+        if (source == null) { Debug.LogWarning("PlanetBaker: Textures/soil_dirt non trovata, suolo senza grana."); return null; }
         var mat = new Material(shader);
         mat.SetTexture("_Source", source);
         var rt = new RenderTexture(size, size, 0, RenderTextureFormat.ARGB32)
@@ -175,7 +195,7 @@ public static class PlanetBaker
             name = "DetailNormalRT",
             useMipMap = true,
             autoGenerateMips = false,
-            wrapMode = TextureWrapMode.Repeat,   // tileable: si ripete sul terreno senza cuciture
+            wrapMode = TextureWrapMode.Repeat,
             filterMode = FilterMode.Trilinear,
             anisoLevel = 4
         };
@@ -184,7 +204,7 @@ public static class PlanetBaker
         var cb = new CommandBuffer { name = "DetailNormalBake" };
         cb.SetRenderTarget(rt);
         cb.ClearRenderTarget(true, true, Color.clear);
-        cb.Blit(null, rt, mat);   // full-screen pass: il frag genera la grana tileable
+        cb.Blit(null, rt, mat);
         Graphics.ExecuteCommandBuffer(cb);
         cb.Release();
         rt.GenerateMips();

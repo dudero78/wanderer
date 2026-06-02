@@ -91,12 +91,14 @@ richiede corpi residenti (buildarli tutti all'avvio); più pianeti dà materiale
 
 ## Igiene / infrastruttura
 
-- ⬜ **#13 Bake procedurale → asset su disco** (comando editor `Wanderer → Bake assets`): genera
-  una volta le texture procedurali (bake pianeta: normali crateri 1024²×6 + maschere; HUD opzionale)
-  e le salva sotto `Resources/`; a runtime si caricano con fallback procedurale. Elimina i ~1.9s di
-  bake GPU a ogni avvio. Priorità: pianeta. **Quando lo fai: RIALZA le risoluzioni delle mesh d'appoggio
-  del bake** (`BakeFaceMaterials` 64→256, `BakeCraterNormal` 48→200) — offline non incidono su load né
-  performance, quindi torna alla qualità massima del bake.
+- ✅ **#13 Bake procedurale → asset su disco** — comando editor **`Wanderer → Bake planet assets`**
+  (`Editor/PlanetBakeTool`): bakea offline a piena risoluzione (mask mesh 256, crateri 200) le 13 texture di
+  superficie (mask×6 + crater normal×6 + detail) e le salva in `Assets/Resources/BakedPlanet`. A runtime
+  `PlanetBaker.TryLoadBakedMaterials` le carica → avvio quasi istantaneo, niente ~1.9s di bake GPU.
+  **OPT-IN e sicuro**: senza la cartella il gioco usa il bake runtime (fallback, invariato); per tornare
+  indietro cancella la cartella; ri-lancia il comando se cambi `PlanetPresets`. Parametri terreno condivisi
+  in `PlanetPresets.ConfigureDemoPlanet` (scena + bake una sola verità). **DA PROVARE: lanciare il comando,
+  verificare load veloce e che la superficie sia identica.**
 - ⬜ **#4 Unificare la verità crateri**: il campo C# (`CraterTerrainLayer`) e la formula HLSL del bake
   (`CraterNormalBake`) descrivono lo stesso cratere in due posti → rischio di divergenza.
 
