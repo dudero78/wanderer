@@ -32,6 +32,7 @@ public class RouteIndicator : MonoBehaviour
     const float SyncSpeed = 1.0f;        // |velocità relativa| sotto cui il reticolo è "sincronizzato"
     const float AirborneAlt = 3f;        // sopra questa quota mostri la velocità (a terra è l'orbita del pianeta)
     const float ReactionTime = 1.5f;     // margine di reazione umano (s) sommato allo spool del freno nella gauge di frenata
+    const float WarnMinClosing = 50f;    // sotto questa velocità di avvicinamento (m/s) la gauge NON compare: è un avviso da viaggio interplanetario, non per volo radente / saltelli / manovra fine vicino al suolo (lì usi i motori, non il freno)
 
     public void Init(Camera playerCamera, PlanetWalker w, SolarSystem s)
     {
@@ -132,7 +133,7 @@ public class RouteIndicator : MonoBehaviour
             Vector3 toTb = (tp - camPos).normalized;
             float closingB = Vector3.Dot(relVel, toTb);          // + = ti avvicini
             float stopDist = dist - (float)target.Radius;        // distanza dalla SUPERFICIE del bersaglio
-            if (closingB > 1f && stopDist > 0f)
+            if (closingB > WarnMinClosing && stopDist > 0f)
             {
                 float gSurf = (float)target.SurfaceGravity;
                 float aEff = Mathf.Max(walker.brakeAccel - gSurf, walker.brakeAccel * 0.3f);

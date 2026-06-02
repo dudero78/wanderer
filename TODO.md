@@ -62,10 +62,12 @@ con prograde/retrograde. Azzerarlo del tutto = lavoro dell'**autopilota** (#12),
   HUD in volo libero manuale. Riusa `RelativeVelocityTo` (contabilità del `RouteIndicator`).
 - ✅ **Schermata impostazioni a TAB** (`à`) — `SettingsMenu` + `GameSettings`. Banco di prova: slider che
   editano i campi LIVE del `PlanetWalker` (effetto immediato), ogni manopola persiste in PlayerPrefs. Tab:
-  Autopilota / Volo / Camera. Toggle "Autopilota stazionario" (default OFF) via `GameSettings`. Estendibile:
-  riga `F(...)`/`B(...)` in `Build()`. Futuro: rebinding tasti, volume, qualità.
+  Autopilota / Volo / Camera. Toggle "Autopilota stazionario" (default OFF) via `GameSettings`. **Default
+  originali catturati al primo avvio + "Ripristina default" per scheda** → si sperimenta senza paura.
+  Estendibile: riga `F(...)`/`B(...)` in `Build()`. Futuro: rebinding tasti, volume, qualità.
 - ✅ **Gauge di frenata auto-calcolata** — distanza di non ritorno onesta dai valori reali (spool freno +
   margine reazione + frenata erosa dalla gravità `aEff = brakeAccel − g`): arriva in tempo, da non ritoccare.
+  Compare solo oltre `WarnMinClosing` (~50 m/s): avviso da viaggio, non per volo radente / saltelli / manovra fine.
 
 ## PROSSIMO: #10 Teletrasporto / #7 più pianeti (Dario riparte da qui)
 

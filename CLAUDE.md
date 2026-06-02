@@ -90,7 +90,9 @@ velocità orbitali e rendeva il match-velocity ingiocabile).
   `+ d_brake` (`closing²/(2·aEff)`, con `aEff = brakeAccel − g_superficie`, perché la gravità erode la frenata).
   `u = d_required / distanza-dalla-superficie`: ambra "FRENA" vicino a 1, ROSSA "TROPPO VELOCE" oltre. Arriva
   PRIMA dell'ultimo istante grazie al margine di reazione. Disegnata anche quando il reticolo svanisce. Sotto
-  autopilota è nascosta (frena lui).
+  autopilota è nascosta (frena lui). Compare SOLO oltre `WarnMinClosing` (~50 m/s): è un avviso da viaggio
+  interplanetario, non per volo radente / saltelli / manovra fine vicino al suolo (lì usi i motori, non il freno;
+  e lo skim tangenziale ha closing ~0, quindi è già escluso).
 - **Orbite a schermo** (`O`, `OrbitDisplay`): mostra/nasconde le orbite del sistema come linee anche in
   volo. L'ellisse (Kepler, fissa nel frame del genitore) è cacheata una volta e ogni frame solo traslata
   con la floating origin → niente solve orbitale per frame.
@@ -127,6 +129,10 @@ allineamento, quota sorvolo raggi/g), **Volo** (spinta newtoniana, onset, freno 
 **Camera** (sensibilità mouse, velocità a piedi). Ogni manopola persiste in PlayerPrefs (chiave `wanderer.tune.*`);
 il toggle stazionario persiste via `GameSettings`. Estendere = una riga `F(...)`/`B(...)` nella tab giusta in
 `SettingsMenu.Build()`. Le preferenze "vere" del giocatore stanno in `GameSettings` (statiche + PlayerPrefs).
+**Default originali + "Ripristina default" per scheda**: `Build()` gira PRIMA di applicare i PlayerPrefs, quindi
+cattura come default di ogni manopola il valore di codice (quelli decisi insieme, nei field initializer del
+`PlanetWalker` = unica fonte di verità). Il pulsante reimposta quei valori e cancella la taratura salvata →
+si sperimenta senza paura.
 
 ## Scala (decisa)
 

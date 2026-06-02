@@ -16,7 +16,7 @@ public class SettingsMenu : MonoBehaviour
     {
         public string label, key;
         public bool isToggle;
-        public float min, max;
+        public float min, max, def;   // def = valore ORIGINALE (catturato al primo avvio, prima dei PlayerPrefs)
         public System.Func<float> get;
         public System.Action<float> set;
     }
@@ -33,25 +33,32 @@ public class SettingsMenu : MonoBehaviour
     public void Init(PlanetWalker w)
     {
         walker = w;
+        // Build() PRIMA di toccare i PlayerPrefs: i campi del walker hanno ancora i default del codice (quelli
+        // decisi insieme) → li catturo come "default originale" di ogni manopola. Il reset ci torna sempre.
         Build();
-        // applica le tarature salvate ai campi LIVE (i default del codice sono già impostati; qui li sovrascrivi).
+        // poi applico le tarature salvate ai campi LIVE (sovrascrivono i default; il reset li può ripristinare).
         foreach (var t in tabs)
             foreach (var k in t.knobs)
                 if (!k.isToggle && k.key != null && PlayerPrefs.HasKey(k.key)) k.set(PlayerPrefs.GetFloat(k.key));
     }
 
-    // helper di costruzione manopole
+    // helper di costruzione manopole. F cattura il default LIVE (= valore di codice, dato che Build gira prima
+    // dell'applicazione dei PlayerPrefs). B (toggle) prende il default esplicito.
     Knob F(string label, string key, float min, float max, System.Func<float> get, System.Action<float> set)
-        => new Knob { label = label, key = "wanderer.tune." + key, min = min, max = max, get = get, set = set };
-    Knob B(string label, System.Func<bool> get, System.Action<bool> set)
-        => new Knob { label = label, isToggle = true, get = () => get() ? 1f : 0f, set = v => set(v > 0.5f) };
+    {
+        var k = new Knob { label = label, key = "wanderer.tune." + key, min = min, max = max, get = get, set = set };
+        k.def = k.get();
+        return k;
+    }
+    Knob B(string label, bool def, System.Func<bool> get, System.Action<bool> set)
+        => new Knob { label = label, isToggle = true, def = def ? 1f : 0f, get = () => get() ? 1f : 0f, set = v => set(v > 0.5f) };
 
     void Build()
     {
         var w = walker;
 
         var ap = new Tab { name = "Autopilota" };
-        ap.knobs.Add(B("Autopilota stazionario (hover all'arrivo)",
+        ap.knobs.Add(B("Autopilota stazionario (hover all'arrivo)", false,
             () => GameSettings.AutopilotStationKeeping, v => { GameSettings.AutopilotStationKeeping = v; GameSettings.Save(); }));
         ap.knobs.Add(F("Velocità di crociera (tetto)", "autoCruiseSpeed", 100f, 8000f, () => w.autoCruiseSpeed, v => w.autoCruiseSpeed = v));
         ap.knobs.Add(F("Accelerazione iniziale", "autoAccel", 20f, 400f, () => w.autoAccel, v => w.autoAccel = v));
@@ -127,8 +134,11 @@ public class SettingsMenu : MonoBehaviour
         foreach (var k in tabs[activeTab].knobs) DrawKnob(k, ui);
         GUILayout.EndScrollView();
 
-        GUILayout.Space(6f * ui);
-        GUILayout.Label("à o Esc per chiudere  ·  le tarature si salvano da sole", hint);
+        GUILayout.Space(8f * ui);
+        if (GUILayout.Button("Ripristina default (" + tabs[activeTab].name + ")", tabStyle, GUILayout.Height(32f * ui)))
+            ResetTab(tabs[activeTab]);
+        GUILayout.Space(4f * ui);
+        GUILayout.Label("à o Esc per chiudere  ·  le tarature si salvano da sole · il reset torna ai valori decisi", hint);
         GUILayout.EndArea();
     }
 
@@ -157,6 +167,18 @@ public class SettingsMenu : MonoBehaviour
         }
         GUILayout.EndHorizontal();
         GUILayout.Space(8f * ui);
+    }
+
+    // Ripristina ogni manopola della scheda al suo default originale (catturato al primo avvio) e cancella la
+    // taratura salvata, così non torna al riavvio. Puoi sperimentare senza paura: il reset riporta sempre indietro.
+    void ResetTab(Tab t)
+    {
+        foreach (var k in t.knobs)
+        {
+            k.set(k.def);
+            if (!k.isToggle && k.key != null) PlayerPrefs.DeleteKey(k.key);
+        }
+        PlayerPrefs.Save();
     }
 
     static string Fmt(float v) => Mathf.Abs(v) >= 100f ? v.ToString("F0") : v.ToString("F1");
