@@ -52,6 +52,9 @@ Shader "Wanderer/PlanetBaked"
         [NoScaleOffset] _MaskMap ("Maschere bakeate (R=minerali)", 2D) = "gray" {}
         [NoScaleOffset] _DetailNormal ("Grana suolo (normal tileable)", 2D) = "bump" {}
         [NoScaleOffset] _SoilSand ("Suolo: foto diffuse (grana/macro)", 2D) = "gray" {}
+        // normale dei crateri bakeata per faccia + mippata: alta freq nitida, antialiased dal mip.
+        [NoScaleOffset] _CraterNormalMap ("Crateri (normal bakeata)", 2D) = "bump" {}
+        _CraterNormalApply ("Crateri: forza in resa", Range(0,2)) = 0.85
     }
 
     SubShader
@@ -69,9 +72,11 @@ Shader "Wanderer/PlanetBaked"
         float _BaseRadius, _Amplitude;
         float _GrainStr, _DetailScale, _MacroVar, _MacroScale, _SandDetail;
         float _MorphRange;
+        float _CraterNormalApply;
         sampler2D _MaskMap;
         sampler2D _DetailNormal;
         sampler2D _SoilSand;
+        sampler2D _CraterNormalMap;
 
         // DETTAGLIO WORLD-FIXED: la UV è ancorata alla superficie del pianeta (texUV globale della
         // faccia), quindi grani e sassi NON scivolano mai. UNA scala fissa, mipmappata + aniso:
@@ -171,6 +176,15 @@ Shader "Wanderer/PlanetBaked"
                 float3 dn = detailNrm(_DetailNormal, IN.texUV, _DetailScale);
                 nxy += dn.xy * nW;
             }
+
+            // CRATERI: normale bakeata+mippata, world-fixed. Applicata in modo COSTANTE (niente
+            // dissolvenza con la distanza: feature che spariscono avvicinandoti rompono l'immersione).
+            // Resta un dettaglio di transizione: l'obiettivo è portare i crateri visibili in GEOMETRIA
+            // vera (mesh ad alta risoluzione, build su thread) — questa normale resterà solo per la
+            // grana più fine del passo-vertice.
+            float3 cn = tex2D(_CraterNormalMap, IN.texUV).xyz * 2.0 - 1.0;
+            nxy += cn.xy * _CraterNormalApply;
+
             o.Normal = normalize(float3(nxy, 1.0));
 
             o.Albedo = alb;

@@ -41,6 +41,30 @@ public static class PlanetBaker
         // mipmap+aniso non aliasa (in lontananza si media a piatto); il wrap Repeat la rende ripetibile.
         RenderTexture detailRT = BakeDetailNormal(1024);
 
+        // materiale per il bake della NORMALE dei crateri (alta freq world-fixed). Parametri
+        // IDENTICI al campo geometrico → i bordi nitidi cadono esattamente sulle conche della mesh.
+        // Le ottave sono LE STESSE della geometria (niente +2): le ottave più fini sarebbero
+        // sub-texel sulla RT (rim < ~Nyquist) e il gradiente analitico per-pixel aliaserebbe in un
+        // pettine regolare — aliasing di campionamento, che nessun clamp toglie. Inoltre non esistono
+        // nemmeno nella geometria, quindi disegnerebbero rilievo fantasma.
+        var craterShader = Shader.Find("Wanderer/CraterNormalBake");
+        Material craterMat = null;
+        if (craterShader != null)
+        {
+            craterMat = new Material(craterShader);
+            craterMat.SetFloat("_BaseRadius", terrain.BaseRadius);
+            craterMat.SetFloat("_CraterSeed", terrain.CraterSeed);
+            craterMat.SetFloat("_CraterOctaves", terrain.CraterOctaves);
+            craterMat.SetFloat("_CraterLargest", terrain.CraterLargestRadius);
+            craterMat.SetFloat("_CraterDensity", terrain.CraterDensity);
+            craterMat.SetFloat("_CraterDepthRatio", terrain.CraterDepthRatio);
+            craterMat.SetFloat("_CraterRimRatio", terrain.CraterRimRatio);
+            // forza della normale dei crateri: troppo alta (≥~0.9) e i crateri PICCOLI sotto luce
+            // radente sembrano "cromati"/metallici (normali ripide che ribaltano la luce). 0.7 è il
+            // compromesso: bordi leggibili senza effetto metallico.
+            craterMat.SetFloat("_CraterNormalStr", 0.7f);
+        }
+
         // foto del suolo STRUTTURATA (terra bruna coi sassi): da' la grana fine e la variazione macro.
         // Strutturata apposta: una grana uniforme (asfalto) letta da vicino legge come "neve TV".
         var soil = Resources.Load<Texture2D>("Textures/soil_dirt");
@@ -79,10 +103,46 @@ public static class PlanetBaker
             mat.SetTexture("_MaskMap", maskRT);
             if (detailRT != null) mat.SetTexture("_DetailNormal", detailRT);
             if (soil != null) mat.SetTexture("_SoilSand", soil);
+            if (craterMat != null)
+            {
+                var craterRT = BakeCraterNormal(terrain, f, 1024, craterMat);
+                mat.SetTexture("_CraterNormalMap", craterRT);
+            }
             mats[f] = mat;
         }
         RenderTexture.active = prev;
         return mats;
+    }
+
+    /// <summary>
+    /// Bakea la NORMALE dei crateri di UNA faccia in una RenderTexture mippata (alta freq world-fixed).
+    /// La mesh-faccia (bassa risoluzione: serve solo il frame tangente liscio) viene disegnata in
+    /// spazio texture; il fragment calcola la normale del cratere per texel a piena risoluzione della
+    /// RT. Il MIPMAP poi la media in lontananza → niente sparkle. Clamp + trilinear + aniso.
+    /// </summary>
+    static RenderTexture BakeCraterNormal(PlanetTerrain terrain, int face, int size, Material craterMat)
+    {
+        var mesh = PlanetMeshBuilder.BuildFaceMesh(PlanetMeshBuilder.FaceNormals[face], terrain, 200);
+        var rt = new RenderTexture(size, size, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
+        {
+            name = "CraterNormalRT_" + face,
+            useMipMap = true,
+            autoGenerateMips = false,
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Trilinear,
+            anisoLevel = 4
+        };
+        rt.Create();
+
+        var cb = new CommandBuffer { name = "CraterNormalBake_" + face };
+        cb.SetRenderTarget(rt);
+        cb.ClearRenderTarget(true, true, new Color(0.5f, 0.5f, 1f, 1f));   // normale piatta di default
+        cb.DrawMesh(mesh, Matrix4x4.identity, craterMat, 0, 0);
+        Graphics.ExecuteCommandBuffer(cb);
+        cb.Release();
+        rt.GenerateMips();
+        Object.Destroy(mesh);
+        return rt;
     }
 
     /// <summary>
