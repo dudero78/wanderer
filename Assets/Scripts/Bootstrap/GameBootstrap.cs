@@ -9,8 +9,11 @@ using UnityEngine;
 /// </summary>
 public class GameBootstrap : MonoBehaviour
 {
-    [Header("Rendering del pianeta (mesh singola, no LOD)")]
-    [Tooltip("Risoluzione della mesh per faccia. La build full-res gira su thread (niente freeze).")]
+    [Header("Rendering dei corpi rocciosi")]
+    [Tooltip("ON = quadtree CDLOD (geometria view-dependent, crateri nitidi calpestabili, look Elite/SC). "
+           + "OFF = mesh singola a risoluzione fissa (fallback, niente LOD).")]
+    public bool useQuadtree = true;
+    [Tooltip("Solo se useQuadtree=OFF: risoluzione della mesh singola per faccia (build su thread).")]
     public int singleMeshRes = 320;
 
     void Start()
@@ -84,10 +87,9 @@ public class GameBootstrap : MonoBehaviour
         Debug.Log($"[load] materiali pianeta: {sw.ElapsedMilliseconds} ms");
         if (faceMats != null)
         {
-            var smp = planetGo.AddComponent<SingleMeshPlanet>();
             sw.Restart();
-            smp.Build(terrain, faceMats, singleMeshRes, 40);   // proxy res 40 istantaneo, poi full-res su thread
-            Debug.Log($"[load] build proxy + lancio thread full-res: {sw.ElapsedMilliseconds} ms");
+            AddSurface(planetGo, terrain, faceMats, useQuadtree, singleMeshRes, 40);
+            Debug.Log($"[load] superficie pianeta ({(useQuadtree ? "quadtree" : "mesh singola")}): {sw.ElapsedMilliseconds} ms");
         }
         else
         {
@@ -107,7 +109,7 @@ public class GameBootstrap : MonoBehaviour
         solar.Register(planet);
 
         // --- Cetra: piccola luna craterizzata in orbita attorno al pianeta (ricetta creata nell'editor) ---
-        BuildCetra(solar, planet);
+        BuildCetra(solar, planet, useQuadtree);
 
         // origine ancorata al pianeta: resta a ~(0,0,0), il resto dell'universo si muove
         solar.Anchor = planet;
@@ -278,7 +280,7 @@ public class GameBootstrap : MonoBehaviour
         return true;
     }
 
-    static void BuildCetra(SolarSystem solar, CelestialBody planet)
+    static void BuildCetra(SolarSystem solar, CelestialBody planet, bool useQuadtree)
     {
         var go = new GameObject("Cetra");
         var terrain = go.AddComponent<PlanetTerrain>();
@@ -299,13 +301,27 @@ public class GameBootstrap : MonoBehaviour
         // PRIMA gli asset bakeati offline di Cetra (sua cartella dedicata: "Wanderer/Bake planet assets"), poi runtime.
         var faceMats = PlanetBaker.TryLoadBakedMaterials(terrain, CetraBakedDir) ?? PlanetBaker.BakeFaceMaterials(terrain, 64);
         if (faceMats != null)
-        {
-            var smp = go.AddComponent<SingleMeshPlanet>();
-            smp.Build(terrain, faceMats, 256, 32);  // res mesh 256 (corpo piccolo: basta), proxy 32 istantaneo
-        }
+            AddSurface(go, terrain, faceMats, useQuadtree, 256, 32);   // mesh singola: res 256 (corpo piccolo), proxy 32
         else Debug.LogWarning("Cetra: bake non riuscito, niente superficie (corpo comunque presente per gravità/mappa).");
 
         solar.Register(body);
+    }
+
+    /// <summary>Aggiunge la superficie renderizzata a un corpo roccioso: quadtree CDLOD (geometria
+    /// view-dependent → crateri nitidi calpestabili) oppure mesh singola a risoluzione fissa (fallback).
+    /// Walker/gravità/collisione NON dipendono da questa scelta (leggono PlanetTerrain.SampleHeight).</summary>
+    static void AddSurface(GameObject go, PlanetTerrain terrain, Material[] faceMats, bool quadtree, int singleRes, int proxyRes)
+    {
+        if (quadtree)
+        {
+            var qt = go.AddComponent<PlanetQuadtree>();
+            qt.Init(terrain, faceMats, null);   // la camera la prende da Camera.main quando esiste
+        }
+        else
+        {
+            var smp = go.AddComponent<SingleMeshPlanet>();
+            smp.Build(terrain, faceMats, singleRes, proxyRes);
+        }
     }
 
     static void SetColor(GameObject go, Color c, bool emissive = false)
