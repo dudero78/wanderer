@@ -96,12 +96,17 @@ public class GameBootstrap : MonoBehaviour
         // scioglie alla radice cuciture/skirt/popping (difetti inerenti al chunked LOD). Il rilievo è
         // GEOMETRIA vera nella mesh; la maschera minerale + la normale dei crateri sono bakeate per
         // faccia. La build full-res gira su thread (SingleMeshPlanet) → niente freeze di caricamento.
-        var faceMats = PlanetBaker.BakeFaceMaterials(terrain, 256);
+        // bakeMeshRes basso: la mesh d'appoggio serve SOLO a coprire le UV per il bake (il dettaglio lo
+        // calcola il fragment per-pixel); alzarla campiona il terreno per vertice per niente → load lento.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var faceMats = PlanetBaker.BakeFaceMaterials(terrain, 64);
+        Debug.Log($"[load] bake materiali pianeta: {sw.ElapsedMilliseconds} ms");
         if (faceMats != null)
         {
             var smp = planetGo.AddComponent<SingleMeshPlanet>();
+            sw.Restart();
             smp.Build(terrain, faceMats, singleMeshRes, 40);   // proxy res 40 istantaneo, poi full-res su thread
-            Debug.Log("Pianeta: mesh singola (no LOD), build su thread.");
+            Debug.Log($"[load] build proxy + lancio thread full-res: {sw.ElapsedMilliseconds} ms");
         }
         else
         {

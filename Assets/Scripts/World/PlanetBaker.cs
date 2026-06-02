@@ -122,7 +122,9 @@ public static class PlanetBaker
     /// </summary>
     static RenderTexture BakeCraterNormal(PlanetTerrain terrain, int face, int size, Material craterMat)
     {
-        var mesh = PlanetMeshBuilder.BuildFaceMesh(PlanetMeshBuilder.FaceNormals[face], terrain, 200);
+        // res bassa: la mesh dà solo il FRAME TANGENTE liscio interpolato per-pixel; la normale del cratere
+        // la calcola il fragment a piena risoluzione → non serve campionare il terreno su tanti vertici.
+        var mesh = PlanetMeshBuilder.BuildFaceMesh(PlanetMeshBuilder.FaceNormals[face], terrain, 48);
         var rt = new RenderTexture(size, size, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
         {
             name = "CraterNormalRT_" + face,
