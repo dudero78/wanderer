@@ -15,14 +15,48 @@ Aggiornata al **2 giugno 2026**. Dettaglio tecnico nel `CLAUDE.md`.
   **volo libero** in Newtoniano (no aggancio gravità), spinta scalata alla gravità (decolli da
   qualunque corpo), velocità-universo preservata allo switch. `TimeScale=1`.
 - ✅ Primo viaggio completo pianeta→stella con atterraggio e ripartenza.
+- ✅ **#11 Indicatore di rotta — baseline** (`RouteIndicator`): anello a parentesi + chevron +
+  pip + freccia prograde + distanza/velocità a lato; freccia al bordo se fuori vista. Committato.
 
-## In corso
+## PROSSIMO: rifinire l'HUD di navigazione (Dario riparte da qui)
 
-- 🔄 **#11 Indicatore di rotta** sul corpo selezionato (reticolo HUD: anello + chevron +
-  distanza/velocità relativa + marker del vettore velocità; verde se sincronizzato; freccia al
-  bordo se fuori vista). Implementato, **in test** — da rifinire grafica e committare.
-  - Possibile problema da verificare: texture runtime via IMGUI su Metal (se il marker esce come
-    quadrato → passare a disegno con linee GL).
+La baseline funziona ma è migliorabile. Piano completo (dalla critica "da team", da rifare PULITO):
+
+1. **Marker del vettore velocità (prograde) stile cockpit**: NON un triangolo incollato all'anello,
+   ma un **cerchietto con tacche (⊕)** piazzato nel **punto di fuga** della velocità relativa
+   (`WorldToScreenPoint(camPos + relVel.normalized * K)`). Se si sovrappone al bersaglio → sei in
+   **rotta d'intercetto**. È lo strumento vero per pilotare verso un corpo.
+2. **Anello più nitido + alone tenue** (la baseline è timida). Per forme con gradiente serve la
+   **smoothstep scritta a mano** — `Mathf.SmoothStep` di Unity NON è la smoothstep di GLSL
+   (interpola l'output → riempie la texture: era il bug del "disco in un quadrato"). A mano:
+   `t = saturate((x-e0)/(e1-e0)); return t*t*(3-2t);` (lezione nel CLAUDE.md).
+3. **Marker che toccano l'anello** (chevron senza buco).
+4. **Stato SINCRONIZZATO**: quando la velocità relativa ≈ 0 → reticolo **verde** + "sincronizzato"
+   (sai che puoi puntare e andare dritto).
+5. **Testo leggibile su corpi chiari**: usare l'**ombra** del testo (nero sfalsato 1px), NON un
+   fondino/box scuro (copriva il reticolo).
+6. **Dissolvenza ravvicinata**: quando il corpo riempie lo schermo (raggio VERO, non clampato) il
+   reticolo svanisce — sei arrivato, non intralcia.
+7. **Velocità solo in volo**: a terra la velocità relativa al corpo selezionato è l'orbita del
+   pianeta (es. ~685 m/s da fermo) — corretta ma confonde a piedi → mostrarla solo quando airborne
+   (`HasJetpack && Altitude > 3`).
+8. **⚠️ REQUISITO (Dario): velocità CON SEGNO.** La velocità nel reticolo deve essere **negativa
+   quando ti ALLONTANI** dal corpo (distanza in aumento), positiva quando ti avvicini. Oggi mostra
+   il modulo (sempre positivo). = velocità di avvicinamento (componente radiale verso il corpo, col
+   segno). NB: nel `DebugHud` il "radiale" ha la convenzione OPPOSTA (− = ti avvicini); qui Dario
+   vuole esplicitamente − = ti allontani per il reticolo.
+
+Riferimento visivo: **Outer Wilds** — parentesi attorno al corpo, chevron in alto, distanza+velocità
+a lato, freccia tratteggiata prograde (screenshot Luna Quantica nella cronologia).
+
+Note tecniche: la velocità relativa al bersaglio è già calcolata bene in
+`RouteIndicator.RelativeVelocity` (sottrae la velocità-scena del bersaglio via `UniverseVelocityAt` ×
+`TimeScale`). Texture procedurali generate UNA volta all'avvio (~KB, non per frame → nessuna
+degradazione runtime; il bake-su-disco è il #13, per il load time). Su Metal+IMGUI le texture runtime
+vanno bene (il quadrato era `SmoothStep`, non Metal); se mai servisse, alternativa = linee GL.
+
+## Altri lavori in corso
+
 - 🔄 **#8 Mappa**: cosmetico residuo — mostrare i corpi reali (cratered) invece di dischi uniformi.
 - 🔄 **#6 Hand-off di gravità tra corpi**: funziona (gravità dal corpo più vicino + viaggio);
   resta da verificare ai limiti con più corpi.
