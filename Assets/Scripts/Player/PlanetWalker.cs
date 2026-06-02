@@ -42,7 +42,7 @@ public class PlanetWalker : MonoBehaviour
     public float brakeRampTime = 0.3f;    // secondi per salire a piena potenza tenendo X (anti-tap accidentale)
     public float brakeKnee = 40f;         // sotto questa velocità il freno entra nella coda (inizia prima)
     public float brakeEaseTau = 0.35f;    // costante di tempo dell'avvicinamento finale a 0 (più basso = più rapido): gli ultimi numeri scorrono SVELTI fino allo 0
-    public float brakeFloor = 6f;         // decel minima nella coda: chiude l'ultimo tratto in fretta (evita lo strisciamento vicino a 0)
+    public float brakeFloor = 20f;        // decel minima nella coda: governa gli ULTIMI numeri (3,2,1) → li chiude svelti, niente strisciamento vicino a 0
     public float softStopAccel = 700f;    // decelerazione dello STOP DOLCE (autopilota interrotto): più RAPIDA del freno X (brakeAccel)
     public float softStopEndSpeed = 0.6f; // sotto questa velocità relativa lo stop dolce molla e ridà il controllo
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
