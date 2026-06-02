@@ -30,7 +30,8 @@ public class MapMode : MonoBehaviour
     float t;
     Vector3 fromPos; Quaternion fromRot;
 
-    GUIStyle mapStyle;
+    GUIStyle mapStyle, hereStyle;
+    GameObject playerMarker;   // "tu sei qui": dove sta il giocatore in scena (su un corpo o in volo)
     readonly List<GameObject> markers = new List<GameObject>();
     readonly Dictionary<GameObject, CelestialBody> markerBody = new Dictionary<GameObject, CelestialBody>();
     readonly List<LineRenderer> orbits = new List<LineRenderer>();
@@ -108,6 +109,20 @@ public class MapMode : MonoBehaviour
                 orbitBody.Add(b);
             }
         }
+
+        // marker "TU SEI QUI": verde acceso, distinto dai corpi. Niente collider → non intercetta i
+        // click (non è selezionabile) e non copre i corpi dietro di sé.
+        playerMarker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        playerMarker.name = "Marker_Player";
+        var col2 = playerMarker.GetComponent<Collider>();
+        if (col2 != null) Destroy(col2);
+        if (markerShader != null)
+        {
+            var m = new Material(markerShader);
+            m.SetColor("_Color", new Color(0.35f, 1f, 0.45f));
+            playerMarker.GetComponent<MeshRenderer>().sharedMaterial = m;
+        }
+        playerMarker.transform.SetParent(transform, false);
     }
 
     // Centro del sistema = la stella (corpo senza orbita); fallback: media dei corpi.
@@ -228,6 +243,13 @@ public class MapMode : MonoBehaviour
     void UpdateVisuals()
     {
         Vector3 camPos = mapCam.transform.position;
+        if (playerMarker != null && walker != null)
+        {
+            playerMarker.transform.position = walker.transform.position;
+            // un filo più grande dei corpi: sta quasi sopra al marker del pianeta su cui ti trovi → deve spiccare
+            playerMarker.transform.localScale = Vector3.one *
+                (Vector3.Distance(camPos, walker.transform.position) * markerScreenSize * 1.3f);
+        }
         for (int i = 0; i < markers.Count; i++)
         {
             var mk = markers[i];
@@ -260,6 +282,7 @@ public class MapMode : MonoBehaviour
     {
         for (int i = 0; i < markers.Count; i++) markers[i].SetActive(on);
         for (int i = 0; i < orbits.Count; i++) orbits[i].enabled = on;
+        if (playerMarker != null) playerMarker.SetActive(on);
     }
 
     void OnGUI()
@@ -272,5 +295,16 @@ public class MapMode : MonoBehaviour
         GUI.Label(new Rect(20f * ui, Screen.height - 60f * ui, 700f * ui, 24f * ui),
             selected != null ? "Selezionato: " + selected.gameObject.name + "   ·   M / Esc per uscire"
                              : "Clicca un corpo per selezionarlo   ·   M / Esc per uscire", mapStyle);
+
+        // etichetta "TU SEI QUI" ancorata al marker del giocatore (solo se davanti alla camera)
+        if (playerMarker != null && mapCam != null)
+        {
+            if (hereStyle == null) hereStyle = new GUIStyle(GUI.skin.label)
+                { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0.45f, 1f, 0.55f) } };
+            hereStyle.fontSize = Mathf.RoundToInt(13f * ui);
+            Vector3 sp = mapCam.WorldToScreenPoint(playerMarker.transform.position);
+            if (sp.z > 0f)
+                GUI.Label(new Rect(sp.x - 100f * ui, Screen.height - sp.y - 34f * ui, 200f * ui, 20f * ui), "TU SEI QUI", hereStyle);
+        }
     }
 }
