@@ -34,6 +34,20 @@ public class CelestialBody : MonoBehaviour
             UniversePosition = Parent.UniversePosition + Orbit.GetRelativePosition(time);
     }
 
+    /// <summary>
+    /// Velocità-universo del corpo (m per secondo di SimTime), per differenza finita centrata
+    /// sull'orbita analitica. Ricorre al genitore: una luna somma la velocità del suo pianeta.
+    /// Un corpo fisso (la stella) ha velocità zero. Serve al cambio di sistema di riferimento:
+    /// per preservare il moto reale del giocatore quando l'origine passa da un corpo all'altro.
+    /// </summary>
+    public Vector3d UniverseVelocityAt(double time)
+    {
+        if (Orbit == null || Parent == null) return Vector3d.Zero;
+        const double dt = 0.01;
+        Vector3d rel = (Orbit.GetRelativePosition(time + dt) - Orbit.GetRelativePosition(time - dt)) / (2.0 * dt);
+        return Parent.UniverseVelocityAt(time) + rel;
+    }
+
     /// <summary>Proietta la posizione-universo nello spazio di rendering di Unity.</summary>
     public void SyncTransform()
     {

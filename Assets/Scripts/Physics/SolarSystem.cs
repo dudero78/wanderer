@@ -19,8 +19,13 @@ public class SolarSystem : MonoBehaviour
 
     public CelestialBody Destination;       // corpo selezionato sulla mappa: in volo l'origine ancora a lui
     public List<CelestialBody> Bodies = new List<CelestialBody>();
+
+    // Corpo di RIFERIMENTO: quello a cui è ancorata l'origine in questo istante. È FERMO in scena,
+    // quindi velocità (rb.linearVelocity) e quota del giocatore sono relative a LUI. La HUD lo legge:
+    // così i numeri parlano sempre del corpo con cui stai interagendo (sotto i piedi o in viaggio).
+    public CelestialBody Reference { get; private set; }
     CelestialBody currentAnchor;
-    const float SwitchAltitude = 5000f;     // sotto: ancora al corpo sotto i piedi; sopra: sei "in volo"
+    bool traveling;                         // isteresi zona-locale/viaggio: evita il flip-flop sul bordo
 
     void ShiftLoose(Vector3 s)
     {
@@ -65,26 +70,44 @@ public class SolarSystem : MonoBehaviour
             Vector3 pp = PlayerBody.position;
             var nearest = NearestBody(pp);
             float alt = nearest != null ? (nearest.transform.position - pp).magnitude - (float)nearest.Radius : 1e12f;
-            bool grounded = nearest != null && alt < SwitchAltitude;
 
-            // A TERRA / vicino a un corpo: ancora al corpo sotto i piedi (fermo in scena → camminata
-            // e atterraggio stabili). IN VOLO con una DESTINAZIONE selezionata: ancora alla destinazione
-            // → è FERMA in scena e centrata, e il freno X (match velocity) azzera la velocità RISPETTO A
-            // LEI (sincronizzi, come l'aggancio di Outer Wilds). In volo senza destinazione: al più vicino.
-            // Allo switch di corpo si trasla giocatore+oggetti per restare nello stesso punto-universo.
-            CelestialBody target = grounded ? nearest : (Destination != null ? Destination : nearest);
+            // ZONA LOCALE / VIAGGIO con ISTERESI. La soglia di "decollo" cresce col raggio del corpo
+            // (floor per gli asteroidi). Esci dalla zona locale (→ viaggio) sopra 'takeoff', ci rientri
+            // solo sotto 'takeoff*0.6': la banda morta evita il flip-flop di riferimento sul bordo —
+            // critico, perché ogni switch corregge la velocità e oscillare la farebbe sobbalzare.
+            float takeoff = nearest != null ? Mathf.Max(250f, (float)nearest.Radius * 0.5f) : 0f;
+            if (!traveling && alt > takeoff) traveling = true;
+            else if (traveling && alt < takeoff * 0.6f) traveling = false;
+
+            // ANCORAGGIO. In viaggio con una DESTINAZIONE → ancori a lei: è FERMA in scena (non sfugge
+            // mentre orbita) e raggiungibile. Altrimenti (zona locale, o nessuna destinazione) → al più
+            // vicino. Allo SWITCH di corpo (cambio di sistema di riferimento) fai due cose:
+            CelestialBody target = (traveling && Destination != null) ? Destination : nearest;
             if (target != null)
             {
                 if (currentAnchor != target)
                 {
+                    // (1) trasli giocatore+oggetti per restare nello stesso punto-universo → niente
+                    //     salto a schermo. (2) correggi la velocità del giocatore della differenza di
+                    //     velocità tra vecchio e nuovo corpo (× TimeScale: i corpi si muovono in scena
+                    //     a quel ritmo) → la sua velocità-UNIVERSO non cambia. Conseguenza voluta:
+                    //     appena decolli NON ti fermi rispetto alla destinazione, mantieni lo slancio
+                    //     orbitale e lei "scorre"; è il freno X (match velocity) a sincronizzarti e a
+                    //     fermarla. Cambiare ancora non altera mai il tuo moto reale, solo i numeri.
                     Vector3 shift = (FloatingOrigin.SceneOrigin - target.UniversePosition).ToVector3();
+                    if (currentAnchor != null && PlayerBody != null)
+                    {
+                        Vector3d dv = currentAnchor.UniverseVelocityAt(SimTime) - target.UniverseVelocityAt(SimTime);
+                        PlayerBody.linearVelocity += dv.ToVector3() * (float)TimeScale;
+                    }
                     ShiftLoose(shift);
                     currentAnchor = target;
                 }
                 FloatingOrigin.SceneOrigin = target.UniversePosition;
+                Reference = target;
             }
         }
-        else if (Anchor != null) FloatingOrigin.SceneOrigin = Anchor.UniversePosition;
+        else if (Anchor != null) { FloatingOrigin.SceneOrigin = Anchor.UniversePosition; Reference = Anchor; }
 
         // 3. proietta tutto nello spazio float di Unity
         for (int i = 0; i < Bodies.Count; i++)
