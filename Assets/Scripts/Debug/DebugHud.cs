@@ -18,6 +18,8 @@ public class DebugHud : MonoBehaviour
     Transform cam;
     GUIStyle style;
     GUIStyle banner;
+    string cachedText;
+    float nextRebuild;
 
     public void Init(Transform p, CelestialBody pl, CelestialBody st, SolarSystem s, PlanetWalker w, Flashlight fl, Transform suit, Transform cam)
     {
@@ -26,10 +28,39 @@ public class DebugHud : MonoBehaviour
 
     void OnGUI()
     {
+        // SOLO sul Repaint: senza questo guard OnGUI gira anche sul Layout (e altri eventi) → la stringa
+        // si ricostruisce 2-4 volte per frame, allocando. È un overlay di debug: ricostruirla a ~10Hz basta.
+        if (Event.current.type != EventType.Repaint) return;
         if (!player || planet == null) return;
         if (style == null)
             style = new GUIStyle(GUI.skin.label) { fontSize = 15, normal = { textColor = Color.white } };
 
+        if (cachedText == null || Time.unscaledTime >= nextRebuild)
+        {
+            cachedText = BuildText();
+            nextRebuild = Time.unscaledTime + 0.1f;
+        }
+        GUI.Label(new Rect(14, 12, 820, 240), cachedText, style);
+
+        // banner alla raccolta della tuta (valutato ogni repaint: è solo un confronto di tempo, niente alloc)
+        if (walker != null && walker.HasJetpack && Time.time - walker.EquipTime < 5f)
+        {
+            if (banner == null)
+                banner = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 26,
+                    fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = new Color(0.4f, 0.95f, 1f) }
+                };
+            GUI.Label(new Rect(0, Screen.height * 0.32f, Screen.width, 60),
+                "TUTA EQUIPAGGIATA — tieni premuto Space per volare", banner);
+        }
+    }
+
+    // Costruisce il testo dell'HUD. Chiamato a bassa cadenza (~10Hz), non per frame.
+    string BuildText()
+    {
         // Due riferimenti distinti, perché rispondono a due domande diverse:
         //  - GRAVITÀ (il corpo più vicino): per l'ALTITUDINE — "quanto sono alto sul suolo che potrei
         //    toccare". Finché sei nell'influenza di un pianeta resta lui.
@@ -84,7 +115,7 @@ public class DebugHud : MonoBehaviour
             destLine = $"Distanza ({solar.Destination.gameObject.name}) : {ds}\n";
         }
 
-        string t =
+        return
             $"Tempo simulazione  : {solar.SimTime:F0} s   (TimeScale {solar.TimeScale})\n" +
             $"Altitudine ({grav.gameObject.name}) : {altitude:F1} m\n" +
             destLine +
@@ -94,22 +125,5 @@ public class DebugHud : MonoBehaviour
             $"Stella |pos scena| : {starDist:F0}\n" +
             $"{suitLine}\n" +
             $"\n{controls}";
-
-        GUI.Label(new Rect(14, 12, 820, 240), t, style);
-
-        // banner alla raccolta della tuta
-        if (jetpack && Time.time - walker.EquipTime < 5f)
-        {
-            if (banner == null)
-                banner = new GUIStyle(GUI.skin.label)
-                {
-                    fontSize = 26,
-                    fontStyle = FontStyle.Bold,
-                    alignment = TextAnchor.MiddleCenter,
-                    normal = { textColor = new Color(0.4f, 0.95f, 1f) }
-                };
-            GUI.Label(new Rect(0, Screen.height * 0.32f, Screen.width, 60),
-                "TUTA EQUIPAGGIATA — tieni premuto Space per volare", banner);
-        }
     }
 }

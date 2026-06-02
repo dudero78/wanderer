@@ -73,7 +73,10 @@ public class PlanetWalker : MonoBehaviour
         rb = GetComponent<Rigidbody>();
         rb.useGravity = false;
         rb.freezeRotation = true;
-        rb.interpolation = RigidbodyInterpolation.Interpolate;
+        // NIENTE interpolazione: con la fisica a 60Hz e il rendering a 30 il moto resta fluido (la fisica
+        // gira a doppio), e i TELETRASPORTI del ri-ancoraggio dell'origine restano sempre puliti — la camera
+        // (figlia) non resta mai un frame indietro sul salto (era il "frame nero"/snap allontanandosi).
+        rb.interpolation = RigidbodyInterpolation.None;
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
         // rete di sicurezza: limita l'impulso di espulsione da una penetrazione,
         // così un contatto profondo non catapulta mai il giocatore nello spazio.
@@ -118,9 +121,11 @@ public class PlanetWalker : MonoBehaviour
         // restiamo in grado di rimetterlo in superficie (nessuna trappola).
         Vector3 up = r > 0.001f ? -toCenter / r : transform.up;
 
-        // altezza del suolo nella direzione attuale: segue le colline del terreno
+        // altezza del suolo nella direzione attuale: segue le colline del terreno. Si campiona SOLO vicino
+        // alla superficie: alto in volo i bump (decine di m) sono irrilevanti a km di quota, e la pipeline
+        // crateri (hash 3D + fBm) girerebbe a 60Hz per niente. Sopra soglia → raggio nominale.
         float surface = (float)planet.Radius;
-        if (planet.TryGetComponent<PlanetTerrain>(out var terr))
+        if (r < planet.Radius + 600.0 && planet.TryGetComponent<PlanetTerrain>(out var terr))
         {
             float s = terr.SampleHeight(up);
             if (!float.IsNaN(s) && !float.IsInfinity(s)) surface = s;
