@@ -55,6 +55,11 @@ Shader "Wanderer/PlanetBaked"
         // normale dei crateri bakeata per faccia + mippata: alta freq nitida, antialiased dal mip.
         [NoScaleOffset] _CraterNormalMap ("Crateri (normal bakeata)", 2D) = "bump" {}
         _CraterNormalApply ("Crateri: forza in resa", Range(0,2)) = 0.85
+        // dissolvenza della normale crateri con la DISTANZA: da lontano i crateri sono sub-pixel e la loro
+        // normale ad alta frequenza diventa "sgranato"/sparkle su pochi pixel. Oltre _CraterFadeFar la
+        // superficie torna liscia (normale geometrica della sfera) → disco pulito e ben illuminato.
+        _CraterFadeNear ("Crateri: inizio dissolvenza (m)", Float) = 2500
+        _CraterFadeFar  ("Crateri: fine dissolvenza (m)",   Float) = 9000
     }
 
     SubShader
@@ -72,7 +77,7 @@ Shader "Wanderer/PlanetBaked"
         float _BaseRadius, _Amplitude;
         float _GrainStr, _DetailScale, _MacroVar, _MacroScale, _SandDetail;
         float _MorphRange;
-        float _CraterNormalApply;
+        float _CraterNormalApply, _CraterFadeNear, _CraterFadeFar;
         sampler2D _MaskMap;
         sampler2D _DetailNormal;
         sampler2D _SoilSand;
@@ -183,7 +188,10 @@ Shader "Wanderer/PlanetBaked"
             // vera (mesh ad alta risoluzione, build su thread) — questa normale resterà solo per la
             // grana più fine del passo-vertice.
             float3 cn = tex2D(_CraterNormalMap, IN.texUV).xyz * 2.0 - 1.0;
-            nxy += cn.xy * _CraterNormalApply;
+            // dissolvenza con la distanza: da lontano i crateri sono sub-pixel → la loro normale fa solo
+            // "sgranato". Oltre _CraterFadeFar resta la normale liscia della sfera → disco pulito.
+            float craterFade = 1.0 - smoothstep(_CraterFadeNear, _CraterFadeFar, dist);
+            nxy += cn.xy * (_CraterNormalApply * craterFade);
 
             o.Normal = normalize(float3(nxy, 1.0));
 
