@@ -312,6 +312,7 @@ public class GameBootstrap : MonoBehaviour
     /// Walker/gravità/collisione NON dipendono da questa scelta (leggono PlanetTerrain.SampleHeight).</summary>
     static void AddSurface(GameObject go, PlanetTerrain terrain, Material[] faceMats, bool quadtree, int singleRes, int proxyRes)
     {
+        terrain.FaceMaterials = faceMats;   // li riusa il proxy del corpo reale in mappa (stesso aspetto, niente ri-bake)
         if (quadtree)
         {
             var qt = go.AddComponent<PlanetQuadtree>();

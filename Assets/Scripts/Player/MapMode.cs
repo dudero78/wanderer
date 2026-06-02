@@ -41,8 +41,12 @@ public class MapMode : MonoBehaviour
     float trailStep = 30f;             // distanza minima fra due punti registrati (scalata sul sistema in Init)
     float trailMaxJump = 1e9f;         // salto max plausibile fra due frame: oltre = ri-ancoraggio, si scarta
 
+    const int MapProxyRes = 40;   // risoluzione mesh del proxy "corpo reale" in mappa (basta: è piccolo)
     readonly List<GameObject> markers = new List<GameObject>();
     readonly Dictionary<GameObject, CelestialBody> markerBody = new Dictionary<GameObject, CelestialBody>();
+    // proxy del CORPO REALE (mesh craterizzata + materiali bakeati) per i corpi rocciosi: sostituisce il
+    // disco piatto. Il marker-sfera resta come bersaglio di click invisibile.
+    readonly Dictionary<CelestialBody, Transform> proxies = new Dictionary<CelestialBody, Transform>();
     readonly List<LineRenderer> orbits = new List<LineRenderer>();
     readonly List<CelestialBody> orbitBody = new List<CelestialBody>();
     CelestialBody selected;
@@ -100,6 +104,19 @@ public class MapMode : MonoBehaviour
             mk.transform.SetParent(transform, false);
             markers.Add(mk);
             markerBody[mk] = b;
+
+            // CORPO REALE: se ha una ricetta, costruisci un proxy a bassa res (mesh craterizzata + materiali
+            // bakeati) e rendi il marker un bersaglio di click INVISIBILE. La stella (niente terreno) resta disco.
+            var terr = b.GetComponent<PlanetTerrain>();
+            if (terr != null && terr.Recipe != null)
+            {
+                mk.GetComponent<MeshRenderer>().enabled = false;
+                var pgo = new GameObject("Proxy_" + b.gameObject.name);
+                pgo.transform.SetParent(transform, false);
+                var proxy = pgo.AddComponent<SingleMeshPlanet>();
+                proxy.Build(terr, terr.FaceMaterials, MapProxyRes, MapProxyRes);
+                proxies[b] = pgo.transform;
+            }
 
             // orbita (solo per i corpi che orbitano)
             if (b.Orbit != null && b.Parent != null && lineShader != null)
@@ -305,10 +322,22 @@ public class MapMode : MonoBehaviour
             var b = markerBody[mk];
             if (b == null) { mk.SetActive(false); continue; }
             mk.transform.position = b.transform.position;
-            float sz = Vector3.Distance(camPos, b.transform.position) * markerScreenSize;
-            if (b.Orbit == null) sz *= 1.6f;            // la stella un po' più grande
-            if (b == selected) sz *= 1.5f;              // evidenzia il selezionato
-            mk.transform.localScale = Vector3.one * sz;
+            float screen = Vector3.Distance(camPos, b.transform.position) * markerScreenSize;
+            if (proxies.TryGetValue(b, out var px))
+            {
+                // corpo reale: il proxy mostra la superficie, il marker resta SOLO bersaglio di click (invisibile)
+                float R = screen * 1.0f;                 // raggio apparente del pianeta in mappa
+                if (b == selected) R *= 1.2f;
+                px.position = b.transform.position;
+                px.localScale = Vector3.one * (R / Mathf.Max(1f, (float)b.Radius));   // mesh a raggio reale → scala a R
+                mk.transform.localScale = Vector3.one * (R * 2f);   // sfera-collider (raggio 0.5) → copre il proxy
+            }
+            else
+            {
+                float sz = screen * 1.6f;                // la stella: disco un po' più grande
+                if (b == selected) sz *= 1.5f;
+                mk.transform.localScale = Vector3.one * sz;
+            }
         }
 
         for (int i = 0; i < orbits.Count; i++)
@@ -330,6 +359,7 @@ public class MapMode : MonoBehaviour
     void ShowVisuals(bool on)
     {
         for (int i = 0; i < markers.Count; i++) markers[i].SetActive(on);
+        foreach (var px in proxies.Values) if (px != null) px.gameObject.SetActive(on);
         for (int i = 0; i < orbits.Count; i++) orbits[i].enabled = on;
         if (playerMarker != null) playerMarker.SetActive(on);
         if (trail != null) trail.enabled = on && trailPts.Count >= 2;

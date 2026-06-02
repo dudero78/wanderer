@@ -44,6 +44,11 @@ public class PlanetTerrain : MonoBehaviour
     // qui sopra restano per la scena legacy / l'inspector quando non c'è ricetta.
     public PlanetRecipe Recipe { get; private set; }
 
+    /// <summary>Materiali bakeati per faccia (6) usati dal renderer del corpo. Li impostano il bootstrap/editor
+    /// quando costruiscono la superficie; servono a chi vuole RI-renderizzare il corpo altrove (es. il proxy
+    /// del corpo reale nella mappa) con lo stesso aspetto, senza ri-bakeare.</summary>
+    public Material[] FaceMaterials { get; set; }
+
     /// <summary>Imposta la ricetta come fonte di verità e ricostruisce la pipeline. Lo usa l'editor (live) e
     /// il bootstrap. Aggiorna BaseRadius così bake e walker leggono il raggio giusto.</summary>
     public void ApplyRecipe(PlanetRecipe r)
