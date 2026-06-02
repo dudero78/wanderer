@@ -84,6 +84,11 @@ velocità orbitali e rendeva il match-velocity ingiocabile).
   **SINCRONIZZATO** (verde) quando la velocità relativa ~0. Freccia al bordo se fuori vista, si
   dissolve quando il corpo riempie lo schermo. Tutto scalato con la risoluzione. Texture procedurali una
   volta all'avvio. Drift residuo dopo il match = FISICA (gravità), si trimma a mano (→ autopilota #12).
+  **Gauge di frenata** (in basso al centro, solo in volo libero MANUALE newtoniano): barra che si riempie
+  verso la tacca "ORA" man mano che `d_stop = v²/(2·brakeAccel)` si avvicina alla distanza dalla superficie
+  — ambra "FRENA" vicino al punto, ROSSA "TROPPO VELOCE" quando l'hai superato (col freno X non ti fermi
+  più in tempo). Disegnata anche quando il reticolo svanisce (lì serve di più). Sotto autopilota è nascosta
+  (frena lui).
 - **Orbite a schermo** (`O`, `OrbitDisplay`): mostra/nasconde le orbite del sistema come linee anche in
   volo. L'ellisse (Kepler, fissa nel frame del genitore) è cacheata una volta e ogni frame solo traslata
   con la floating origin → niente solve orbitale per frame.

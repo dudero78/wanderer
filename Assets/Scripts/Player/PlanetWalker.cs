@@ -47,9 +47,9 @@ public class PlanetWalker : MonoBehaviour
 
     [Header("Autopilota (T): aggancia il corpo selezionato, allinea, accelera, frena a quota di sorvolo")]
     public KeyCode autopilotKey = KeyCode.T;  // toggle: T inserisce/disinserisce; vola hands-off verso la destinazione
-    public float autoCruiseSpeed = 1200f;  // tetto di sicurezza alla velocità di crociera; il VERO limite è il "frena in tempo"
-    public float autoAccel = 90f;          // accelerazione con cui PRENDE velocità nel tratto lungo (più alta = parte più decisa)
-    public float autoBrakeAccel = 160f;    // decelerazione per FRENARE / annullare la deriva (forte, reattiva); detta anche la distanza di frenata
+    public float autoCruiseSpeed = 5000f;  // tetto LARGO: il VERO limite è il "frena in tempo" (√(2·a·d)) → su tratte normali non lo tocca mai, l'autopilota si auto-dosa
+    public float autoAccel = 140f;         // accelerazione con cui PRENDE velocità nel tratto lungo (più alta = raggiunge prima la velocità di crociera)
+    public float autoBrakeAccel = 200f;    // decelerazione per FRENARE / annullare la deriva; detta la distanza di frenata e quindi la velocità di picco sulla tratta
     public float autoTurnTau = 0.7f;       // costante di tempo dell'allineamento del muso (più alto = più dolce/lento, ease-out)
     public float autoHoverRadii = 1f;      // quota d'arrivo = questo × raggio del corpo SOPRA la superficie (sorvolo sicuro)
     public float autoArriveSync = 1f;      // |velocità relativa| sotto cui, arrivati a quota, l'autopilota si disinserisce

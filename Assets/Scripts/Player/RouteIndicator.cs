@@ -18,7 +18,7 @@ public class RouteIndicator : MonoBehaviour
     PlanetWalker walker;
     SolarSystem solar;
 
-    Texture2D ringTex, chevronTex, discTex, progradeTex, retroTex;
+    Texture2D ringTex, chevronTex, discTex, progradeTex, retroTex, barTex;
     GUIStyle label;
 
     // Tavolozza: blu di riposo, verde quando sincronizzato o in intercetto.
@@ -26,6 +26,8 @@ public class RouteIndicator : MonoBehaviour
     static readonly Color White = new Color(0.9f, 0.96f, 1f, 1f);
     static readonly Color Green = new Color(0.42f, 1f, 0.55f, 1f);
     static readonly Color Cyan = new Color(0.5f, 0.95f, 1f, 1f);
+    static readonly Color Amber = new Color(1f, 0.72f, 0.2f, 1f);   // "frena ora": ti avvicini al punto di non ritorno
+    static readonly Color Red = new Color(1f, 0.36f, 0.3f, 1f);     // superato: non freni più in tempo
 
     const float SyncSpeed = 1.0f;        // |velocità relativa| sotto cui il reticolo è "sincronizzato"
     const float AirborneAlt = 3f;        // sopra questa quota mostri la velocità (a terra è l'orbita del pianeta)
@@ -88,6 +90,9 @@ public class RouteIndicator : MonoBehaviour
             float r = 2f * Mathf.Sqrt(dx * dx + dy * dy);
             return 1f - Smooth(0.05f, 0.07f, Mathf.Abs(r - 0.5f));
         });
+
+        // rettangolo pieno: barra/fondino della gauge di frenata (tinta via GUI.color in resa).
+        barTex = Make(8, 8, (u, v) => 1f);
     }
 
     void OnGUI()
@@ -110,6 +115,26 @@ public class RouteIndicator : MonoBehaviour
         float relSpeed = relVel.magnitude;
         bool airborne = walker != null && walker.HasJetpack && walker.Altitude > AirborneAlt;
         bool synced = airborne && relSpeed < SyncSpeed;
+
+        // GAUGE DI FRENATA (volo libero MANUALE): "ce la faccio a fermarmi prima del corpo?". A pilotaggio
+        // manuale (newtoniano, niente autopilota) la distanza per fermarsi da fermo dipende dalla velocità di
+        // avvicinamento e dalla decelerazione del freno X: d_stop = v²/(2·a). Se d_stop si avvicina alla distanza
+        // dalla superficie sei al PUNTO DI FRENATA; se la supera non freni più in tempo. Disegnata SEMPRE (anche
+        // quando il corpo riempie lo schermo e il reticolo svanisce): è proprio lì che serve. L'autopilota gestisce
+        // la frenata da sé, quindi sotto autopilota non la mostro.
+        if (airborne && walker != null && walker.IsNewtonian && !walker.Autopilot)
+        {
+            Vector3 toTb = (tp - camPos).normalized;
+            float closingB = Vector3.Dot(relVel, toTb);          // + = ti avvicini
+            float stopDist = dist - (float)target.Radius;        // distanza dalla SUPERFICIE del bersaglio
+            if (closingB > 1f && stopDist > 0f)
+            {
+                float aBrake = Mathf.Max(walker.brakeAccel, 1f);
+                float dStop = closingB * closingB / (2f * aBrake);
+                float u = dStop / stopDist;   // 1 = sei ESATTAMENTE al punto in cui devi frenare ora; >1 = troppo tardi
+                if (u > 0.5f) DrawBrakeGauge(u, Mathf.Max(1f, Screen.height / 1080f));
+            }
+        }
 
         // raggio VERO a schermo (per la dissolvenza ravvicinata) e raggio CLAMPATO (per il disegno leggibile).
         float focal = Screen.height / (2f * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad));
@@ -250,6 +275,29 @@ public class RouteIndicator : MonoBehaviour
         int n = Mathf.FloorToInt(len / gap);
         for (int i = 0; i <= n; i++)
             DrawTex(discTex, a + step * (i * gap), 3.5f * ui, 3.5f * ui, 0f, col, fade);
+    }
+
+    // Gauge di frenata in basso al centro: una barra che si riempie verso una tacca "ORA" (u=1). Sotto 0.85
+    // è informativa (ciano "PUNTO DI FRENATA"), poi ambra "FRENA", e quando supera 1 diventa rossa "TROPPO
+    // VELOCE": col freno X non ti fermi più prima della superficie. Resta finché la condizione persiste.
+    void DrawBrakeGauge(float u, float ui)
+    {
+        float w = 240f * ui, h = 9f * ui;
+        float x = (Screen.width - w) * 0.5f;
+        float y = Screen.height - 96f * ui;
+        Color c = u >= 1f ? Red : (u >= 0.85f ? Amber : Cyan);
+
+        Color pc = GUI.color;
+        GUI.color = new Color(0f, 0f, 0f, 0.45f);                                   // fondino
+        GUI.DrawTexture(new Rect(x - 2f * ui, y - 2f * ui, w + 4f * ui, h + 4f * ui), barTex);
+        GUI.color = c;                                                              // riempimento (clampato a fine barra)
+        GUI.DrawTexture(new Rect(x, y, w * Mathf.Clamp01(u), h), barTex);
+        GUI.color = White;                                                          // tacca "ORA" alla fine (u=1)
+        GUI.DrawTexture(new Rect(x + w - 1.5f * ui, y - 3f * ui, 3f * ui, h + 6f * ui), barTex);
+        GUI.color = pc;
+
+        string t = u >= 1f ? "TROPPO VELOCE — non freni in tempo" : (u >= 0.85f ? "FRENA" : "punto di frenata");
+        Shadowed(new Rect(x, y - 22f * ui, w, 20f * ui), t, c, 1f, TextAnchor.UpperCenter);
     }
 
     void DrawTex(Texture2D tex, Vector2 c, float w, float h, float ang, Color col, float fade = 1f)
