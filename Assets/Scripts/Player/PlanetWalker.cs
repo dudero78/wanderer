@@ -35,8 +35,8 @@ public class PlanetWalker : MonoBehaviour
     public float cruiseAltHigh = 120f;    // sopra questa quota la crociera è pienamente sbloccata
 
     [Header("Newtoniano")]
-    public float newtonThrust = 55f;      // accelerazione a pieno regime, NESSUN limite di velocità (delta-v reale): più alta = prende velocità più in fretta
-    public float thrustRampTime = 1.8f;   // secondi perché i motori salgano a piena spinta (inerzia, onset morbido)
+    public float newtonThrust = 120f;     // accelerazione a pieno regime, NESSUN limite di velocità (delta-v reale): spinta DECISA da astronave (OW). Scala con la gravità locale (max(.,1.6·g)) → vicino alla stella resta una lotta vera
+    public float thrustRampTime = 1.0f;   // secondi perché i motori salgano a piena spinta: onset BREVE → senti la gravità un istante, poi i motori "prendono" e ti scagliano
     public float brakeAccel = 250f;       // freno di assetto: picco di decelerazione (doma centinaia di m/s)
     public float brakeRampTime = 0.3f;    // secondi per salire a piena potenza tenendo X (anti-tap accidentale)
     public float brakeKnee = 40f;         // sotto questa velocità il freno entra nella coda dolce (inizia prima)
