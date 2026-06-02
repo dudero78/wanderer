@@ -45,18 +45,20 @@ public class RouteIndicator : MonoBehaviour
 
         // Anello a PARENTESI stile Outer Wilds: due archi sottili a SINISTRA e DESTRA, con ampi varchi sopra
         // e sotto. Banda con smoothstep a mano + alone tenue; le estremità degli archi sfumano nel varco.
-        ringTex = Make(256, 256, (u, v) =>
+        // 512px + MIPMAP + trilinear + supersampling 4× → linea nitida e pulita a ogni distanza (da lontano,
+        // rimpicciolita, i mipmap evitano l'aliasing che la faceva "sgranata"; da vicino regge l'ingrandimento).
+        ringTex = Make(512, 512, (u, v) =>
         {
             float dx = u - 0.5f, dy = v - 0.5f;
             float r = 2f * Mathf.Sqrt(dx * dx + dy * dy);   // 0 al centro, ~1 al bordo
             float d = Mathf.Abs(r - 0.80f);
-            float band = 1f - Smooth(0.014f, 0.026f, d);      // arco nitido e sottile
-            float halo = (1f - Smooth(0f, 0.14f, d)) * 0.08f; // alone appena percettibile
+            float band = 1f - Smooth(0.012f, 0.020f, d);      // arco nitido e sottile
+            float halo = (1f - Smooth(0f, 0.13f, d)) * 0.07f; // alone appena percettibile
             float a = Mathf.Max(band, halo);
             float ang = Mathf.Atan2(dy, dx) * Mathf.Rad2Deg;  // 0 = destra, ±180 = sinistra, ±90 = alto/basso
             float gap = Mathf.Abs(Mathf.Abs(ang) - 90f);      // distanza dalla verticale (90 sui lati, 0 su/giù)
             return a * Smooth(40f, 54f, gap);                 // archi ~88° sui lati, varchi ~92° su e giù
-        });
+        }, mip: true, ss: 4);
 
         // Marker in alto a "casetta" (pentagono che punta su), stile Outer Wilds: sta sopra il varco superiore.
         chevronTex = Make(64, 64, (u, v) =>
@@ -67,13 +69,13 @@ public class RouteIndicator : MonoBehaviour
             bool roof = InTri(P, apex, sl, sr);
             bool body = InTri(P, sl, bl, br) || InTri(P, sl, br, sr); // quad sl-bl-br-sr
             return (roof || body) ? 1f : 0f;
-        });
+        }, mip: true, ss: 4);
 
         discTex = Make(32, 32, (u, v) =>
         {
             float dx = u - 0.5f, dy = v - 0.5f;
             return 1f - Smooth(0.34f, 0.42f, 2f * Mathf.Sqrt(dx * dx + dy * dy));
-        });
+        }, mip: true, ss: 4);
 
         // Marker del vettore velocità (⊕): cerchietto + punto centrale + quattro tacche radiali esterne.
         progradeTex = Make(96, 96, (u, v) =>
@@ -86,7 +88,7 @@ public class RouteIndicator : MonoBehaviour
             float axis = Mathf.Min(Mathf.Abs(ang), Mathf.Min(Mathf.Abs(Mathf.Abs(ang) - 90f), Mathf.Abs(Mathf.Abs(ang) - 180f)));
             float tick = (1f - Smooth(5f, 9f, axis)) * Smooth(0.58f, 0.62f, r) * (1f - Smooth(0.92f, 0.97f, r));
             return Mathf.Max(circle, Mathf.Max(dot, tick));
-        });
+        }, mip: true, ss: 4);
 
         // Marker RETROGRADE: solo un cerchietto vuoto (l'opposto del prograde — "spingi di là per annullare").
         retroTex = Make(64, 64, (u, v) =>
@@ -94,7 +96,7 @@ public class RouteIndicator : MonoBehaviour
             float dx = u - 0.5f, dy = v - 0.5f;
             float r = 2f * Mathf.Sqrt(dx * dx + dy * dy);
             return 1f - Smooth(0.05f, 0.07f, Mathf.Abs(r - 0.5f));
-        });
+        }, mip: true, ss: 4);
 
         // rettangolo pieno: barra/fondino della gauge di frenata (tinta via GUI.color in resa).
         barTex = Make(8, 8, (u, v) => 1f);
@@ -212,10 +214,11 @@ public class RouteIndicator : MonoBehaviour
                     Shadowed(new Rect(gui.x - 70f * ui, gui.y + ringEdge + 6f * ui, 140f * ui, 20f * ui), "ALLINEATO", Green, fade, TextAnchor.UpperCenter);
             }
 
-            // testo accanto al corpo. L'offset dal centro è CAPPATO: da vicino l'anello è enorme e, ancorando
-            // il testo al suo bordo, i numeri uscivano dalla visuale → li teniamo vicino al CENTRO del corpo
-            // (sempre visibili e utili). In mappa mostra il NOME (la distanza dalla camera-mappa non significa nulla).
-            float tx = gui.x + Mathf.Min(ring * 0.5f + 12f * ui, 100f * ui), ty = gui.y - 16f * ui;
+            // testo accanto al corpo: appena FUORI dall'anello, clampato al bordo schermo SOLO quando serve
+            // (da vicino l'anello è enorme e altrimenti i numeri uscivano dalla visuale). Così finché c'è spazio
+            // fuori dal reticolo i numeri restano lì, e si avvicinano al corpo solo all'ultimo, non troppo presto.
+            // In mappa mostra il NOME (la distanza dalla camera-mappa non significa nulla).
+            float tx = Mathf.Min(gui.x + ring * 0.5f + 12f * ui, Screen.width - 150f * ui), ty = gui.y - 16f * ui;
             if (mapActive)
             {
                 Shadowed(new Rect(tx, ty, 220f * ui, 22f * ui), target.gameObject.name, White, fade, TextAnchor.UpperLeft);
@@ -370,27 +373,31 @@ public class RouteIndicator : MonoBehaviour
     static float Edge(Vector2 p, Vector2 a, Vector2 b) => (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y);
 
     // genera una texture bianca con alfa = campo float [0,1] (la forma porta già la sua AA via smoothstep);
-    // supersampling 2×2 per rifinire i bordi sottili. La tinta è applicata in resa via GUI.color.
+    // supersampling ss×ss per rifinire i bordi sottili. mip=true genera i mipmap + filtro trilineare → la forma
+    // resta NITIDA anche molto rimpicciolita a schermo (niente aliasing/granulosità da lontano, come l'anello).
+    // La tinta è applicata in resa via GUI.color.
     delegate float FieldFn(float u, float v);
-    static Texture2D Make(int w, int h, FieldFn f)
+    static Texture2D Make(int w, int h, FieldFn f, bool mip = false, int ss = 2)
     {
-        var t = new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+        var t = new Texture2D(w, h, TextureFormat.RGBA32, mip)
+        { wrapMode = TextureWrapMode.Clamp, filterMode = mip ? FilterMode.Trilinear : FilterMode.Bilinear };
         var px = new Color32[w * h];
+        float inv = 1f / (ss * ss);
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
                 float a = 0f;
-                for (int sy = 0; sy < 2; sy++)
-                    for (int sx = 0; sx < 2; sx++)
+                for (int sy = 0; sy < ss; sy++)
+                    for (int sx = 0; sx < ss; sx++)
                     {
-                        float u = (x + (sx + 0.5f) * 0.5f) / w;
-                        float v = (y + (sy + 0.5f) * 0.5f) / h;
+                        float u = (x + (sx + 0.5f) / ss) / w;
+                        float v = (y + (sy + 0.5f) / ss) / h;
                         a += Mathf.Clamp01(f(u, v));
                     }
-                px[y * w + x] = new Color32(255, 255, 255, (byte)(a * 0.25f * 255f));
+                px[y * w + x] = new Color32(255, 255, 255, (byte)(a * inv * 255f));
             }
         t.SetPixels32(px);
-        t.Apply();
+        t.Apply(mip);   // genera i mipmap se richiesto
         return t;
     }
 }

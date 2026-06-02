@@ -23,6 +23,7 @@ public class SettingsMenu : MonoBehaviour
     class Tab { public string name; public List<Knob> knobs = new List<Knob>(); }
 
     PlanetWalker walker;
+    Camera cam;
     readonly List<Tab> tabs = new List<Tab>();
     string[] tabNames;
     int activeTab;
@@ -30,9 +31,10 @@ public class SettingsMenu : MonoBehaviour
     Vector2 scroll;
     GUIStyle title, head, val, hint, tabStyle, toggleStyle;
 
-    public void Init(PlanetWalker w)
+    public void Init(PlanetWalker w, Camera c)
     {
         walker = w;
+        cam = c;
         // Build() PRIMA di toccare i PlayerPrefs: i campi del walker hanno ancora i default del codice (quelli
         // decisi insieme) → li catturo come "default originale" di ogni manopola. Il reset ci torna sempre.
         Build();
@@ -81,10 +83,12 @@ public class SettingsMenu : MonoBehaviour
         fl.knobs.Add(F("Rampa boost crociera (s)", "boostRampTime", 0.5f, 8f, () => w.boostRampTime, v => w.boostRampTime = v));
         tabs.Add(fl);
 
-        var cam = new Tab { name = "Camera" };
-        cam.knobs.Add(F("Sensibilità mouse", "mouseSensitivity", 0.5f, 6f, () => w.mouseSensitivity, v => w.mouseSensitivity = v));
-        cam.knobs.Add(F("Velocità a piedi", "moveSpeed", 2f, 30f, () => w.moveSpeed, v => w.moveSpeed = v));
-        tabs.Add(cam);
+        var camTab = new Tab { name = "Camera" };
+        camTab.knobs.Add(F("Sensibilità mouse", "mouseSensitivity", 0.5f, 6f, () => w.mouseSensitivity, v => w.mouseSensitivity = v));
+        camTab.knobs.Add(F("Velocità a piedi", "moveSpeed", 2f, 30f, () => w.moveSpeed, v => w.moveSpeed = v));
+        if (cam != null)
+            camTab.knobs.Add(F("Campo visivo (FOV)", "fov", 35f, 80f, () => cam.fieldOfView, v => cam.fieldOfView = v));
+        tabs.Add(camTab);
 
         tabNames = new string[tabs.Count];
         for (int i = 0; i < tabs.Count; i++) tabNames[i] = tabs[i].name;

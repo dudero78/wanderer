@@ -84,9 +84,12 @@ velocità orbitali e rendeva il match-velocity ingiocabile).
   **SINCRONIZZATO** (verde) quando la velocità relativa ~0. Freccia al bordo se fuori vista, si
   dissolve quando il corpo riempie lo schermo. Tutto scalato con la risoluzione. Texture procedurali una
   volta all'avvio. Drift residuo dopo il match = FISICA (gravità), si trimma a mano (→ autopilota #12).
-  I numeri (distanza/velocità) hanno l'offset dal centro **cappato** → da vicino restano sul corpo, non
-  escono dalla visuale. **Compare anche in MAPPA** sul corpo selezionato (usa la camera della mappa via
+  I numeri (distanza/velocità) stanno appena FUORI dall'anello e vengono clampati al bordo schermo SOLO
+  quando l'anello è enorme (vicino) → finché c'è spazio restano fuori dal reticolo, non si appiccicano al
+  centro troppo presto. **Compare anche in MAPPA** sul corpo selezionato (usa la camera attiva via
   `MapMode.ViewCamera`): anello + chevron + NOME del corpo → si vede subito quale è selezionato.
+  Le texture del reticolo sono generate **con mipmap + trilinear** (`Make(..., mip:true, ss:4)`) → linea
+  nitida e pulita a ogni distanza, niente granulosità da lontano (era una texture senza mip che aliasava).
   **Gauge di frenata** (in basso al centro, solo in volo libero MANUALE newtoniano): barra verso la tacca
   "ORA". Distanza necessaria calcolata ONESTAMENTE dai valori in gioco (non va più ritoccata): `d_react`
   (continui ad avvicinarti mentre reagisci + lo spool del freno: `closing·(brakeRampTime + ReactionTime)`)
@@ -129,7 +132,8 @@ Si disinserisce anche atterrando o con `N`. È la soluzione hands-off al drift r
 libera il cursore. È un banco di prova: gli slider editano i campi LIVE del `PlanetWalker` → effetto immediato.
 Tab attuali: **Autopilota** (stazionario, crociera, accel iniziale/max, fase gentile, rampa, freno, dolcezza
 allineamento, quota sorvolo raggi/g), **Volo** (spinta newtoniana, onset, freno X, rollio, crociera...),
-**Camera** (sensibilità mouse, velocità a piedi). Ogni manopola persiste in PlayerPrefs (chiave `wanderer.tune.*`);
+**Camera** (sensibilità mouse, velocità a piedi, **FOV** — abbassalo per ridurre la deformazione prospettica
+delle sfere ai bordi). Ogni manopola persiste in PlayerPrefs (chiave `wanderer.tune.*`);
 il toggle stazionario persiste via `GameSettings`. Estendere = una riga `F(...)`/`B(...)` nella tab giusta in
 `SettingsMenu.Build()`. Le preferenze "vere" del giocatore stanno in `GameSettings` (statiche + PlayerPrefs).
 **Default originali + "Ripristina default" per scheda**: `Build()` gira PRIMA di applicare i PlayerPrefs, quindi

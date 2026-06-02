@@ -193,6 +193,9 @@ public class GameBootstrap : MonoBehaviour
         var cam = camGo.AddComponent<Camera>();
         cam.nearClipPlane = 0.3f;
         cam.farClipPlane = 300000f;
+        // FOV contenuto (default Unity 60 → 52): a campo largo le sfere ai BORDI si deformano in ellissi
+        // (distorsione prospettica rettilineare); 52° la riduce molto. Regolabile dal menù à (scheda Camera).
+        cam.fieldOfView = 52f;
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = new Color(0.01f, 0.01f, 0.03f);
         // RenderScaler: rende a una frazione della risoluzione e riscala. Il profilo dice che la
@@ -267,7 +270,7 @@ public class GameBootstrap : MonoBehaviour
 
         // --- Schermata impostazioni (à): facilitazioni opzionali (es. autopilota stazionario) ---
         var settings = gameObject.AddComponent<SettingsMenu>();
-        settings.Init(walker);
+        settings.Init(walker, cam);
     }
 
     static void SetColor(GameObject go, Color c, bool emissive = false)
