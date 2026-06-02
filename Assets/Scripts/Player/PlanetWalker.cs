@@ -37,11 +37,12 @@ public class PlanetWalker : MonoBehaviour
     [Header("Newtoniano")]
     public float newtonThrust = 120f;     // accelerazione a pieno regime, NESSUN limite di velocità (delta-v reale): spinta DECISA da astronave (OW). Scala con la gravità locale (max(.,1.6·g)) → vicino alla stella resta una lotta vera
     public float thrustRampTime = 1.0f;   // secondi perché i motori salgano a piena spinta: onset BREVE → senti la gravità un istante, poi i motori "prendono" e ti scagliano
-    public float brakeAccel = 250f;       // freno di assetto: picco di decelerazione (doma centinaia di m/s)
+    public float brakeAccel = 250f;       // freno di assetto: picco di decelerazione nella fascia media (doma centinaia di m/s)
+    public float brakeTimeConstant = 2.5f;// ad ALTA velocità la decel cresce con la velocità (frena entro ~questi secondi): da migliaia di m/s frena molto più forte del picco costante
     public float brakeRampTime = 0.3f;    // secondi per salire a piena potenza tenendo X (anti-tap accidentale)
     public float brakeKnee = 40f;         // sotto questa velocità il freno entra nella coda dolce (inizia prima)
-    public float brakeEaseTau = 0.5f;     // costante di tempo dell'avvicinamento finale a 0 (più alto = più lento/visibile)
-    public float brakeFloor = 5f;         // decel minima nella coda: evita che striscia all'infinito vicino a 0
+    public float brakeEaseTau = 0.9f;     // costante di tempo dell'avvicinamento finale a 0 (più alto = più lento/visibile): gli ultimi numeri scendono PIANO
+    public float brakeFloor = 2.5f;       // decel minima nella coda: evita che striscia all'infinito vicino a 0 (bassa → fine dolce)
     public float softStopAccel = 700f;    // decelerazione dello STOP DOLCE (autopilota interrotto): più RAPIDA del freno X (brakeAccel)
     public float softStopEndSpeed = 0.6f; // sotto questa velocità relativa lo stop dolce molla e ridà il controllo
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
@@ -53,7 +54,8 @@ public class PlanetWalker : MonoBehaviour
     public float autoAccelMax = 1000f;     // accelerazione a regime: ci sale se resti sullo stesso bersaglio → i viaggi lunghi (es. fino al sole) prendono velocità in fretta
     public float autoAccelGentle = 3f;     // secondi di partenza gentile prima che la rampa di accelerazione cominci a salire
     public float autoAccelRampTime = 7f;   // secondi per passare (dopo la fase gentile) da autoAccel a autoAccelMax tenendo lo stesso target
-    public float autoBrakeAccel = 200f;    // decelerazione per FRENARE / annullare la deriva; detta la distanza di frenata e quindi la velocità di picco sulla tratta
+    public float autoBrakeAccel = 350f;    // decelerazione per FRENARE / annullare la deriva; detta la distanza di frenata e quindi la velocità di picco sulla tratta (più alta = viaggi più veloci)
+    public float autoMaxSpeed = 50000f;    // soffitto di sicurezza alla velocità dell'autopilota: ALTO, di norma non lo tocca (il vero limite è il "frena in tempo"); protegge se il sistema diventa enorme
     public float autoTurnTau = 0.7f;       // costante di tempo dell'allineamento del muso (più alto = più dolce/lento, ease-out)
     public float autoHoverRadii = 1f;      // quota d'arrivo (minima) = questo × raggio del corpo SOPRA la superficie
     public float autoHoverG = 6f;          // ...ma mai più dentro di dove la gravità LOCALE scende a questo (m/s²): su corpi pesanti ti fermi più in alto, dove g è dolce → tempo per manovrare
@@ -346,12 +348,16 @@ public class PlanetWalker : MonoBehaviour
                     float sp = vel.magnitude;
                     if (sp > 0.001f)
                     {
-                        // forte nel mezzo; sotto il ginocchio la decelerazione diventa PROPORZIONALE alla velocità
-                        // (decadimento esponenziale, τ = brakeEaseTau) → l'ultimo tratto rallenta e l'occhio coglie
-                        // il marker che entra al centro. Floor minimo per chiudere davvero a 0 in tempo finito.
-                        // Lo stop dolce usa softStopAccel (più alto di brakeAccel) → frenata più rapida della X.
+                        // Tre fasce: ALTA velocità → decel PROPORZIONALE alla velocità (sp/brakeTimeConstant):
+                        // da migliaia di m/s frena molto più forte del picco costante. FASCIA MEDIA → picco
+                        // costante (peakAccel). CODA (sotto il ginocchio) → di nuovo proporzionale ma con τ più
+                        // grande (brakeEaseTau): gli ultimi numeri scendono PIANO e l'occhio li segue. Floor
+                        // minimo per chiudere davvero a 0 in tempo finito. Lo stop dolce usa softStopAccel
+                        // (più alto di brakeAccel) come picco → frenata più rapida della X.
                         float peakAccel = SoftStopping ? softStopAccel : brakeAccel;
-                        float core = sp > brakeKnee ? peakAccel : sp / Mathf.Max(brakeEaseTau, 0.01f);
+                        float core = sp > brakeKnee
+                            ? Mathf.Max(peakAccel, sp / Mathf.Max(brakeTimeConstant, 0.01f))
+                            : sp / Mathf.Max(brakeEaseTau, 0.01f);
                         float decel = Mathf.Max(core, brakeFloor) * brakeSpool01;
                         float newSp = Mathf.Max(0f, sp - decel * Time.fixedDeltaTime);
                         rb.linearVelocity = vel * (newSp / sp);
@@ -464,16 +470,16 @@ public class PlanetWalker : MonoBehaviour
 
         // Velocità RADIALE desiderata BIDIREZIONALE: profilo "frena in tempo" √(2·a·|dtg|), col SEGNO di dtg.
         //  - fuori dal sorvolo (dtg>0): avvicìnati (+); dentro (dtg<0): allontànati (−) per RISALIRE → il sorvolo
-        //    è un EQUILIBRIO STABILE. NESSUN tetto di velocità: il profilo √(2·a·d) È già il limite — per
-        //    costruzione è la velocità massima da cui l'autopilota riesce ancora a fermarsi entro l'arrivo,
-        //    quindi sulle tratte lunghe va più veloce senza rischio di sfondare.
+        //    è un EQUILIBRIO STABILE. Il vero limite è il profilo √(2·a·d) — per costruzione la velocità massima
+        //    da cui l'autopilota riesce ancora a fermarsi entro l'arrivo (sulle tratte lunghe va più veloce senza
+        //    sfondare). Sopra c'è solo un SOFFITTO DI SICUREZZA alto (autoMaxSpeed), che di norma non si tocca.
         // La decel del PROFILO è CONSERVATIVA: freno MENO la gravità di superficie (il caso peggiore lungo la
         // discesa). Tuffandoti verso un corpo pesante la gravità erode la frenata reale (decel netta = freno − g):
         // se il profilo usasse il freno pieno freneresti troppo tardi e SFONDERESTI sulla superficie (era il bug
         // sul sole). Con aProfile = freno − g_superficie la frenata è sempre realizzabile (la decel reale ≥ aProfile).
         float gSurf = (float)target.SurfaceGravity;
         float aProfile = Mathf.Max(autoBrakeAccel - gSurf, autoBrakeAccel * 0.3f);
-        float mag = Mathf.Sqrt(2f * aProfile * Mathf.Abs(dtg));
+        float mag = Mathf.Min(autoMaxSpeed, Mathf.Sqrt(2f * aProfile * Mathf.Abs(dtg)));
         float vWant = (dtg >= 0f ? 1f : -1f) * mag;
         Vector3 desiredRel = toT * vWant;   // SOLO radiale verso/dal bersaglio; componente laterale desiderata = 0
 

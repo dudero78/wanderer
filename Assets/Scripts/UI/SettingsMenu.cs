@@ -69,7 +69,8 @@ public class SettingsMenu : MonoBehaviour
         ap.knobs.Add(F("Accelerazione massima", "autoAccelMax", 100f, 3000f, () => w.autoAccelMax, v => w.autoAccelMax = v));
         ap.knobs.Add(F("Fase gentile (s)", "autoAccelGentle", 0f, 12f, () => w.autoAccelGentle, v => w.autoAccelGentle = v));
         ap.knobs.Add(F("Tempo rampa accel. (s)", "autoAccelRampTime", 1f, 20f, () => w.autoAccelRampTime, v => w.autoAccelRampTime = v));
-        ap.knobs.Add(F("Decelerazione (freno)", "autoBrakeAccel", 50f, 500f, () => w.autoBrakeAccel, v => w.autoBrakeAccel = v));
+        ap.knobs.Add(F("Decelerazione (freno)", "autoBrakeAccel", 50f, 1000f, () => w.autoBrakeAccel, v => w.autoBrakeAccel = v));
+        ap.knobs.Add(F("Soffitto velocità (sicurezza)", "autoMaxSpeed", 5000f, 100000f, () => w.autoMaxSpeed, v => w.autoMaxSpeed = v));
         ap.knobs.Add(F("Dolcezza allineamento (τ)", "autoTurnTau", 0.1f, 3f, () => w.autoTurnTau, v => w.autoTurnTau = v));
         ap.knobs.Add(F("Quota sorvolo (raggi)", "autoHoverRadii", 0f, 5f, () => w.autoHoverRadii, v => w.autoHoverRadii = v));
         ap.knobs.Add(F("Quota sorvolo (g locale)", "autoHoverG", 1f, 30f, () => w.autoHoverG, v => w.autoHoverG = v));
@@ -78,7 +79,9 @@ public class SettingsMenu : MonoBehaviour
         var fl = new Tab { name = "Volo" };
         fl.knobs.Add(F("Spinta newtoniana", "newtonThrust", 10f, 200f, () => w.newtonThrust, v => w.newtonThrust = v));
         fl.knobs.Add(F("Onset motori (s)", "thrustRampTime", 0.1f, 5f, () => w.thrustRampTime, v => w.thrustRampTime = v));
-        fl.knobs.Add(F("Freno X (picco)", "brakeAccel", 50f, 600f, () => w.brakeAccel, v => w.brakeAccel = v));
+        fl.knobs.Add(F("Freno X (picco fascia media)", "brakeAccel", 50f, 600f, () => w.brakeAccel, v => w.brakeAccel = v));
+        fl.knobs.Add(F("Freno X alta velocità (s)", "brakeTimeConstant", 0.5f, 8f, () => w.brakeTimeConstant, v => w.brakeTimeConstant = v));
+        fl.knobs.Add(F("Freno X coda (τ)", "brakeEaseTau", 0.2f, 3f, () => w.brakeEaseTau, v => w.brakeEaseTau = v));
         fl.knobs.Add(F("Velocità rollio (°/s)", "rollSpeed", 10f, 200f, () => w.rollSpeed, v => w.rollSpeed = v));
         fl.knobs.Add(F("Spinta crociera", "cruiseThrust", 30f, 400f, () => w.cruiseThrust, v => w.cruiseThrust = v));
         fl.knobs.Add(F("Smorzamento crociera", "cruiseDamping", 0.1f, 2f, () => w.cruiseDamping, v => w.cruiseDamping = v));
