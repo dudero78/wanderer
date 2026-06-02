@@ -37,20 +37,21 @@ public class PlanetWalker : MonoBehaviour
     [Header("Newtoniano")]
     public float newtonThrust = 30f;      // accelerazione a pieno regime, nessun limite di velocità
     public float thrustRampTime = 1.2f;   // secondi perché i motori salgano a piena spinta (inerzia)
-    public float brakeAccel = 25f;        // freno di assetto: decelerazione verso velocità-pianeta zero
+    public float brakeAccel = 60f;        // freno di assetto: deve domare la velocità orbitale (~628 m/s) in ~10 s
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
 
     [System.NonSerialized] public bool HasJetpack;
     [System.NonSerialized] public bool ControlsActive = true;   // false = comandi congelati (es. modalità mappa)
     [System.NonSerialized] public float EquipTime = -999f;
-    [System.NonSerialized] public float Altitude;   // metri sopra la superficie (per la torcia)
+    [System.NonSerialized] public float Altitude;   // metri sopra la superficie del corpo di gravità
+    [System.NonSerialized] public CelestialBody GravityBody;   // corpo la cui gravità domina (il più vicino): riferimento dell'altitudine
 
     public FlightModel Model { get; private set; } = FlightModel.Cruise;
     public bool IsNewtonian => Model == FlightModel.Newtonian;
     public float Speed => rb != null ? rb.linearVelocity.magnitude : 0f;
+    public Vector3 Velocity => rb != null ? rb.linearVelocity : Vector3.zero;   // velocità relativa al corpo ancorato
     public float Boost01 => boost01;   // 0 = manovra, 1 = crociera piena (per l'HUD)
     public float ThrustSpool01 => thrustSpool01;   // regime motori newtoniani 0..1 (per l'HUD)
-    public float RadialSpeed { get; private set; }   // >0 ti allontani dal pianeta, <0 ti avvicini
     public bool Braking { get; private set; }         // freno di assetto attivo (per l'HUD)
 
     Rigidbody rb;
@@ -102,6 +103,7 @@ public class PlanetWalker : MonoBehaviour
     {
         var planet = Nearest();
         if (planet == null) return;
+        GravityBody = planet;
 
         Vector3 center = planet.transform.position;
         Vector3 toCenter = center - rb.position;
@@ -119,7 +121,6 @@ public class PlanetWalker : MonoBehaviour
         }
         float restHeight = surface + 1f;   // distanza centro-capsula a riposo
         Altitude = r - surface;             // quota sopra il suolo (per la torcia che scala in volo)
-        RadialSpeed = Vector3.Dot(rb.linearVelocity, up);   // segno dell'avvicinamento, per l'HUD
 
         // gravità verso il centro, limitata al valore di superficie: r non scende
         // mai sotto il raggio nel calcolo, quindi niente picco 1/r^2 vicino al centro.
@@ -127,10 +128,26 @@ public class PlanetWalker : MonoBehaviour
         float g = (float)(planet.Mu / ((double)rEff * rEff));
         rb.AddForce(-up * g, ForceMode.Acceleration);
 
-        // allineamento dei piedi (up radiale) + yaw del mouse, tutto in un'unica MoveRotation:
-        // così la rotazione è interpolata dalla fisica e non c'è stutter orizzontale.
-        Quaternion aligned = Quaternion.FromToRotation(transform.up, up) * transform.rotation;
-        Quaternion look = Quaternion.AngleAxis(yawDelta, up) * aligned;
+        // ORIENTAMENTO — due regimi.
+        // VOLO LIBERO (Newtoniano, staccato dal suolo): NIENTE aggancio alla gravità. L'orientamento
+        // non si riallinea più al pianeta: era PROPRIO quel riallineamento a ruotarti la vista mentre il
+        // pianeta orbita (la direzione "via dal centro" cambia di continuo), facendo "scivolare" il
+        // bersaglio fuori schermo anche da fermo. Qui ruoti solo col mouse: yaw attorno al TUO su, che
+        // resta fisso → la mira resta dove la metti.
+        // A TERRA / CROCIERA: i piedi restano agganciati alla gravità (su = via dal centro), come serve
+        // per camminare e per gli assi tangenti della crociera.
+        bool airborne = r > restHeight + 0.05f;
+        bool freeFlight = HasJetpack && Model == FlightModel.Newtonian && airborne;
+        Quaternion look;
+        if (freeFlight)
+        {
+            look = Quaternion.AngleAxis(yawDelta, transform.up) * transform.rotation;
+        }
+        else
+        {
+            Quaternion aligned = Quaternion.FromToRotation(transform.up, up) * transform.rotation;
+            look = Quaternion.AngleAxis(yawDelta, up) * aligned;
+        }
         yawDelta = 0f;
         rb.MoveRotation(look);
 
@@ -180,7 +197,13 @@ public class PlanetWalker : MonoBehaviour
                 thrustSpool01 = Mathf.MoveTowards(thrustSpool01, thrusting ? 1f : 0f,
                                                   Time.fixedDeltaTime / Mathf.Max(spoolRate, 0.01f));
 
-                rb.AddForce(nThrust * newtonThrust * thrustSpool01, ForceMode.Acceleration);
+                // Spinta SCALATA alla gravità locale: garantisce che da QUALUNQUE corpo su cui sei
+                // atterrato puoi ripartire (invariante "ciò su cui atterri, lo puoi lasciare"). Su un
+                // corpo leggero (pianeta, g≈9.8) resta newtonThrust; su uno pesante (la stella, g=100)
+                // sale a 1.6·g → ~0.6·g di spinta netta verso l'alto, decollo sempre possibile. In
+                // spazio profondo g≈0 quindi resta newtonThrust: nessun effetto dove non serve.
+                float liftThrust = Mathf.Max(newtonThrust, g * 1.6f);
+                rb.AddForce(nThrust * liftThrust * thrustSpool01, ForceMode.Acceleration);
                 boost01 = 0f;   // azzerato: tornando a Crociera si riparte da manovra
 
                 // Freno di assetto (MATCH VELOCITY): porta a zero la velocità rispetto al corpo
