@@ -63,62 +63,35 @@ public static class PlanetBaker
         var detail = Resources.Load<Texture2D>(BakedDir + "/Detail");
         var soil = Resources.Load<Texture2D>("Textures/soil_dirt");
 
-        // heightmap (Stage 2): se presenti, la superficie usa lo shader TASSELLATO che disloca la geometria
-        // dalla heightmap (crateri come geometria vera vicino alla camera). Se mancano → shader liscio (fallback).
-        var tessShader = Shader.Find("Wanderer/PlanetTessellated");
-        var heights = TryLoadHeightmaps();
-
         var mats = new Material[6];
         for (int f = 0; f < 6; f++)
         {
             var mask = Resources.Load<Texture2D>(BakedDir + "/Mask" + f);
             var crater = Resources.Load<Texture2D>(BakedDir + "/Crater" + f);
             if (mask == null || crater == null) return null;   // set incompleto → fallback al bake runtime
-            var height = heights != null ? heights[f] : null;
-            mats[f] = BuildMaterial(terrain, mask, crater, detail, soil, height, f, tessShader);
+            mats[f] = BuildMaterial(terrain, mask, crater, detail, soil);
         }
-        Debug.Log("[load] superficie pianeta da asset bakeati" + (heights != null && tessShader != null ? " (tassellata, dislocata da heightmap)" : ""));
+        Debug.Log("[load] superficie pianeta da asset bakeati (Resources/" + BakedDir + ")");
         return mats;
-    }
-
-    /// <summary>Carica le 6 heightmap bakeate (Stage 2). null se mancano (→ superficie liscia, fallback).</summary>
-    public static Texture2D[] TryLoadHeightmaps()
-    {
-        var hs = new Texture2D[6];
-        for (int f = 0; f < 6; f++)
-        {
-            hs[f] = Resources.Load<Texture2D>(BakedDir + "/Height" + f);
-            if (hs[f] == null) return null;
-        }
-        return hs;
     }
 
     // ---- MATERIALE ----------------------------------------------------------------------------------
 
-    /// <summary>Materiale di superficie di una faccia. Se heightTex + tessShader ci sono → shader tassellato
-    /// che disloca la geometria dalla heightmap (servono gli assi della faccia per ricostruire le direzioni
-    /// dei vicini e calcolare la normale geometrica esatta). Altrimenti shader liscio (PlanetBaked).</summary>
-    static Material BuildMaterial(PlanetTerrain terrain, Texture maskTex, Texture craterTex, Texture detailTex, Texture soil,
-                                  Texture heightTex = null, int face = 0, Shader tessShader = null)
+    /// <summary>Materiale di superficie di una faccia, con le texture (RT a runtime o Texture2D da disco).</summary>
+    static Material BuildMaterial(PlanetTerrain terrain, Texture maskTex, Texture craterTex, Texture detailTex, Texture soil)
     {
-        bool tess = heightTex != null && tessShader != null;
-        var mat = new Material(tess ? tessShader : Shader.Find("Wanderer/PlanetBaked"));
+        var mat = new Material(Shader.Find("Wanderer/PlanetBaked"));
         mat.SetFloat("_BaseRadius", terrain.BaseRadius);
         mat.SetFloat("_Amplitude", terrain.Amplitude);
         if (maskTex != null) mat.SetTexture("_MaskMap", maskTex);
         if (detailTex != null) mat.SetTexture("_DetailNormal", detailTex);
         if (soil != null) mat.SetTexture("_SoilSand", soil);
         if (craterTex != null) mat.SetTexture("_CraterNormalMap", craterTex);
-        if (tess)
-        {
-            mat.SetTexture("_HeightMap", heightTex);
-            // assi della faccia: ricostruiscono ParamToDir nel vertex/disp per i vicini → normale geometrica esatta.
-            Vector3 up = PlanetMeshBuilder.FaceNormals[face];
-            PlanetMeshBuilder.FaceAxes(up, out var axisA, out var axisB);
-            mat.SetVector("_FaceUp", up);
-            mat.SetVector("_FaceAxisA", axisA);
-            mat.SetVector("_FaceAxisB", axisB);
-        }
+
+        // ALBEDO da MAPPA EQUIRECT REALE (validazione pipeline mappe→render): se c'è la texture, l'albedo
+        // viene dal dato reale (campionato per direzione nello shader), non dal procedurale grigio.
+        var albedo = Resources.Load<Texture2D>("Textures/phobos_albedo");
+        if (albedo != null) { mat.SetTexture("_AlbedoMap", albedo); mat.SetFloat("_AlbedoMapStr", 1f); }
         return mat;
     }
 

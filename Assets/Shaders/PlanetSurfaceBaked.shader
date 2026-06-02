@@ -60,6 +60,12 @@ Shader "Wanderer/PlanetBaked"
         // superficie torna liscia (normale geometrica della sfera) → disco pulito e ben illuminato.
         _CraterFadeNear ("Crateri: inizio dissolvenza (m)", Float) = 2500
         _CraterFadeFar  ("Crateri: fine dissolvenza (m)",   Float) = 9000
+
+        // ALBEDO da MAPPA EQUIRECT (dati reali / mappa autorata): se _AlbedoMapStr>0, l'albedo viene letto da
+        // questa texture campionata per DIREZIONE (lon/lat) invece che dal procedurale. È la "fonte di verità"
+        // del colore (validazione pipeline mappe→render). _AlbedoMapStr=1 = solo mappa.
+        [NoScaleOffset] _AlbedoMap ("Albedo equirect (mappa reale)", 2D) = "gray" {}
+        _AlbedoMapStr ("Albedo map: forza", Range(0,1)) = 0
     }
 
     SubShader
@@ -82,6 +88,8 @@ Shader "Wanderer/PlanetBaked"
         sampler2D _DetailNormal;
         sampler2D _SoilSand;
         sampler2D _CraterNormalMap;
+        sampler2D _AlbedoMap;
+        float _AlbedoMapStr;
 
         // DETTAGLIO WORLD-FIXED: la UV è ancorata alla superficie del pianeta (texUV globale della
         // faccia), quindi grani e sassi NON scivolano mai. UNA scala fissa, mipmappata + aniso:
@@ -170,6 +178,16 @@ Shader "Wanderer/PlanetBaked"
             // cappucci appena più chiari sulle creste delle dune (tenui).
             float t = saturate((h - (_BaseRadius - _Amplitude)) / (2.0 * _Amplitude));
             alb = lerp(alb, _PeakColor.rgb, smoothstep(0.74, 0.97, t) * _PeakStr);
+
+            // ALBEDO da MAPPA EQUIRECT (dati reali): campiona per DIREZIONE (lon/lat) → fonte di verità del
+            // colore. Mappa la sfera dei punti: lon = atan2(z,x), lat = asin(y). Sostituisce il procedurale.
+            if (_AlbedoMapStr > 0.0)
+            {
+                float3 d = normalize(P);
+                float2 euv = float2(atan2(d.z, d.x) * (0.5 / UNITY_PI) + 0.5,
+                                    asin(clamp(d.y, -1.0, 1.0)) * (1.0 / UNITY_PI) + 0.5);
+                alb = lerp(alb, tex2D(_AlbedoMap, euv).rgb, _AlbedoMapStr);
+            }
 
             // --- normale: un SOFFIO di micro-grana, solo da naso a terra (< ~13 m). Sulla sabbia la
             // normale ad alta frequenza è la prima causa di sparkle/moiré sotto luce, quindi è quasi
