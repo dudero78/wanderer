@@ -41,6 +41,7 @@ public class PlanetWalker : MonoBehaviour
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
 
     [System.NonSerialized] public bool HasJetpack;
+    [System.NonSerialized] public bool ControlsActive = true;   // false = comandi congelati (es. modalità mappa)
     [System.NonSerialized] public float EquipTime = -999f;
     [System.NonSerialized] public float Altitude;   // metri sopra la superficie (per la torcia)
 
@@ -80,6 +81,8 @@ public class PlanetWalker : MonoBehaviour
 
     void Update()
     {
+        if (!ControlsActive) return;   // congelato (es. modalità mappa): niente sguardo né tasti
+
         // sguardo: yaw sul corpo, pitch sulla camera
         float mx = Input.GetAxis("Mouse X") * mouseSensitivity;
         float my = Input.GetAxis("Mouse Y") * mouseSensitivity;
@@ -135,10 +138,12 @@ public class PlanetWalker : MonoBehaviour
         Vector3 fwd = Vector3.ProjectOnPlane(look * Vector3.forward, up).normalized;
         Vector3 right = Vector3.ProjectOnPlane(look * Vector3.right, up).normalized;
 
-        float h = Input.GetAxisRaw("Horizontal");
-        float v = Input.GetAxisRaw("Vertical");
-        bool thrustUp = Input.GetButton("Jump");           // Space: sale
-        bool thrustDown = Input.GetKey(KeyCode.LeftShift); // Shift: scende
+        // input di movimento (azzerati se i comandi sono congelati: la gravità e il vincolo di
+        // suolo qui sotto restano attivi, quindi in mappa il giocatore resta fermo a terra).
+        float h = ControlsActive ? Input.GetAxisRaw("Horizontal") : 0f;
+        float v = ControlsActive ? Input.GetAxisRaw("Vertical") : 0f;
+        bool thrustUp = ControlsActive && Input.GetButton("Jump");           // Space: sale
+        bool thrustDown = ControlsActive && Input.GetKey(KeyCode.LeftShift); // Shift: scende
 
         bool grounded = r <= restHeight + 0.05f;
         bool flying = HasJetpack && (!grounded || thrustUp);
@@ -178,10 +183,11 @@ public class PlanetWalker : MonoBehaviour
                 rb.AddForce(nThrust * newtonThrust * thrustSpool01, ForceMode.Acceleration);
                 boost01 = 0f;   // azzerato: tornando a Crociera si riparte da manovra
 
-                // Freno di assetto (match velocity): controspinta automatica che porta a zero
-                // la velocità rispetto al pianeta — siamo nel frame ancorato al pianeta, quindi
-                // rb.linearVelocity È già quella relativa. Tienilo premuto vicino al pianeta per
-                // uscire dall'orbita: annulli la velocità tangenziale e la gravità ti fa scendere.
+                // Freno di assetto (MATCH VELOCITY): porta a zero la velocità rispetto al corpo
+                // ANCORATO. L'origine è ancorata al corpo sotto i piedi (a terra) o alla DESTINAZIONE
+                // selezionata (in volo), quindi rb.linearVelocity È già la velocità relativa a quel
+                // corpo. Tienilo premuto per "sincronizzarti" con la destinazione (resta centrata) o
+                // per uscire dall'orbita di un pianeta (annulli la tangenziale e la gravità ti fa scendere).
                 Braking = Input.GetKey(brakeKey);
                 if (Braking)
                 {
