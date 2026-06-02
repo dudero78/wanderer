@@ -258,6 +258,17 @@ public class GameBootstrap : MonoBehaviour
     {
         var r = go.GetComponent<Renderer>();
         if (!r) return;
+
+        if (emissive)
+        {
+            // oggetti "che brillano" (stella, tuta-beacon): disco pieno e luminoso, NON ombreggiato dalla
+            // luce — un sole non va messo in ombra. Unlit/Color evita anche lo stripping della variante
+            // _EMISSION dello Standard in build (la attiveremmo a runtime → la build la toglie → sfera scura).
+            var us = Shader.Find("Unlit/Color");
+            if (us != null) { r.material = new Material(us) { color = c }; return; }
+        }
+
+        // oggetti normali (player): Standard, illuminato dal sole.
         var sh = Shader.Find("Standard");
         if (sh == null)
         {
@@ -266,12 +277,6 @@ public class GameBootstrap : MonoBehaviour
             Debug.LogError("Shader 'Standard' non trovato nella build: aggiungilo agli Always Included Shaders.");
             return;
         }
-        var m = new Material(sh) { color = c };
-        if (emissive)
-        {
-            m.EnableKeyword("_EMISSION");
-            m.SetColor("_EmissionColor", c * 1.5f);
-        }
-        r.material = m;
+        r.material = new Material(sh) { color = c };
     }
 }
