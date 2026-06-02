@@ -267,13 +267,5 @@ public class MapMode : MonoBehaviour
             GUI.Label(new Rect(20, Screen.height - 60, 640, 24),
                 selected != null ? "Selezionato: " + selected.gameObject.name + "   ·   M / Esc per uscire"
                                  : "Clicca un corpo per selezionarlo   ·   M / Esc per uscire");
-
-        // sempre (anche fuori mappa): corpo selezionato + distanza, per la navigazione
-        if (selected != null && playerCamT != null)
-        {
-            float d = Vector3.Distance(selected.transform.position, playerCamT.position);
-            string ds = d > 1000f ? (d / 1000f).ToString("F1") + " km" : d.ToString("F0") + " m";
-            GUI.Label(new Rect(20, 235, 640, 24), "◎ Destinazione: " + selected.gameObject.name + "   ·   " + ds);
-        }
     }
 }

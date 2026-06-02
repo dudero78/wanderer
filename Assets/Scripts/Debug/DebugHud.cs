@@ -30,11 +30,18 @@ public class DebugHud : MonoBehaviour
         if (style == null)
             style = new GUIStyle(GUI.skin.label) { fontSize = 15, normal = { textColor = Color.white } };
 
-        Vector3 toCenter = player.position - planet.transform.position;
-        float r = toCenter.magnitude;
-        float surface = (float)planet.Radius;
-        if (r > 0.001f && planet.TryGetComponent<PlanetTerrain>(out var terr))
-            surface = terr.SampleHeight(toCenter / r);
+        // Due riferimenti distinti, perché rispondono a due domande diverse:
+        //  - GRAVITÀ (il corpo più vicino): per l'ALTITUDINE — "quanto sono alto sul suolo che potrei
+        //    toccare". Finché sei nell'influenza di un pianeta resta lui.
+        //  - ANCORATO (fermo in scena, = destinazione in viaggio): per VELOCITÀ e RADIALE — "quanto
+        //    velocemente mi avvicino al corpo verso cui vado".
+        var grav = walker != null && walker.GravityBody != null ? walker.GravityBody : planet;
+        var refBody = solar != null && solar.Reference != null ? solar.Reference : grav;
+        float altitude = walker != null ? walker.Altitude : 0f;
+
+        Vector3 toRef = player.position - refBody.transform.position;
+        float rRef = toRef.magnitude;
+        Vector3 up = rRef > 0.001f ? toRef / rRef : Vector3.up;   // verso "fuori" dal riferimento ancorato
         double sceneOrigin = FloatingOrigin.SceneOrigin.magnitude;
         float starDist = star != null ? star.transform.position.magnitude : 0f;
 
@@ -43,8 +50,9 @@ public class DebugHud : MonoBehaviour
             ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende · N cambia volo · X freno (newtoniano).  F torcia · Mouse guarda · Esc cursore"
             : "WASD muovi  ·  Space salta  ·  Mouse guarda  ·  Esc libera il cursore";
 
-        float rad = walker != null ? walker.RadialSpeed : 0f;
+        // velocità/radiale relative al RIFERIMENTO: "ti avvicini" parla del corpo verso cui viaggi.
         float spd = walker != null ? walker.Speed : 0f;
+        float rad = walker != null ? Vector3.Dot(walker.Velocity, up) : 0f;   // >0 ti allontani dal riferimento
         float tan = Mathf.Sqrt(Mathf.Max(0f, spd * spd - rad * rad));   // velocità di traverso = orbitale
         string radWord = rad > 0.5f ? "ti allontani" : rad < -0.5f ? "ti AVVICINI" : "stazionario";
         string model = walker != null && walker.IsNewtonian ? $"NEWTONIANO (spinta {walker.ThrustSpool01 * 100f:F0}%)" : $"Crociera ({(walker != null ? walker.Boost01 * 100f : 0f):F0}%)";
@@ -66,9 +74,20 @@ public class DebugHud : MonoBehaviour
         }
         else suitLine = "TUTA: raccolta";
 
+        // distanza dal corpo SELEZIONATO sulla mappa (può essere uno qualunque del sistema): riga a sé,
+        // diversa dall'altitudine (che è il corpo di gravità sotto di te).
+        string destLine = "";
+        if (solar != null && solar.Destination != null)
+        {
+            float dd = (solar.Destination.transform.position - player.position).magnitude;
+            string ds = dd > 1000f ? (dd / 1000f).ToString("F1") + " km" : dd.ToString("F0") + " m";
+            destLine = $"Distanza ({solar.Destination.gameObject.name}) : {ds}\n";
+        }
+
         string t =
             $"Tempo simulazione  : {solar.SimTime:F0} s   (TimeScale {solar.TimeScale})\n" +
-            $"Altitudine         : {r - surface:F1} m\n" +
+            $"Altitudine ({grav.gameObject.name}) : {altitude:F1} m\n" +
+            destLine +
             flightLine +
             $"Player |pos scena| : {player.position.magnitude:F1}   <- resta piccolo: precisione ok\n" +
             $"SceneOrigin |pos|  : {sceneOrigin:F0}   <- distanza reale nell'universo: cresce\n" +
