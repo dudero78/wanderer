@@ -26,10 +26,24 @@ public class SolarSystem : MonoBehaviour
     public CelestialBody Reference { get; private set; }
     CelestialBody currentAnchor;
     bool traveling;                         // isteresi zona-locale/viaggio: evita il flip-flop sul bordo
+    int restoreInterpFrame = -1;            // frame in cui ripristinare l'interpolazione dopo un teletrasporto
 
     void ShiftLoose(Vector3 s)
     {
-        if (PlayerBody != null) PlayerBody.position += s;
+        if (PlayerBody != null)
+        {
+            PlayerBody.position += s;
+            // Il ri-ancoraggio è un TELETRASPORTO grande del giocatore. I corpi spostano il transform
+            // subito (SyncTransform), ma con l'interpolazione attiva la camera (figlia, interpolata) resta
+            // indietro di un frame → "scatto" mentre guardi la destinazione. Spegniamo l'interpolazione su
+            // questo frame (transform = posizione fisica, allineato ai corpi) e la riaccendiamo al prossimo.
+            PlayerBody.interpolation = RigidbodyInterpolation.None;
+            Physics.SyncTransforms();
+            // riaccendi qualche frame DOPO: serve che il buffer di interpolazione si rinfreschi con pose
+            // POST-teletrasporto, altrimenti al ripristino interpola dal vecchio punto (origine) al nuovo
+            // (decine di km) → smear a tutto schermo = "frame nero".
+            restoreInterpFrame = Time.frameCount + 3;
+        }
         for (int i = 0; i < Loose.Count; i++)
             if (Loose[i] != null) Loose[i].position += s;
     }
@@ -53,6 +67,13 @@ public class SolarSystem : MonoBehaviour
 
     public void Step()
     {
+        // riaccendi l'interpolazione il frame DOPO un teletrasporto di ri-ancoraggio (vedi ShiftLoose).
+        if (restoreInterpFrame >= 0 && Time.frameCount >= restoreInterpFrame)
+        {
+            if (PlayerBody != null) PlayerBody.interpolation = RigidbodyInterpolation.Interpolate;
+            restoreInterpFrame = -1;
+        }
+
         // 1. aggiorna le posizioni-universo (double, esatte)
         for (int i = 0; i < Bodies.Count; i++)
         {

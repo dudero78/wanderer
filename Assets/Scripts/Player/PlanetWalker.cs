@@ -37,8 +37,9 @@ public class PlanetWalker : MonoBehaviour
     [Header("Newtoniano")]
     public float newtonThrust = 30f;      // accelerazione a pieno regime, nessun limite di velocità
     public float thrustRampTime = 1.2f;   // secondi perché i motori salgano a piena spinta (inerzia)
-    public float brakeAccel = 60f;        // freno di assetto: deve domare la velocità orbitale (~628 m/s) in ~10 s
+    public float brakeAccel = 250f;       // freno di assetto: doma centinaia di m/s in un paio di secondi
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
+    public float rollSpeed = 75f;         // gradi/s di rollio con Q/E in volo libero
 
     [System.NonSerialized] public bool HasJetpack;
     [System.NonSerialized] public bool ControlsActive = true;   // false = comandi congelati (es. modalità mappa)
@@ -57,6 +58,7 @@ public class PlanetWalker : MonoBehaviour
     Rigidbody rb;
     float pitch;
     float yawDelta;   // yaw del mouse accumulato in Update, applicato in FixedUpdate
+    float rollDelta;  // rollio Q/E accumulato in Update, applicato in FixedUpdate (solo volo libero)
     float boost01;    // rampa di potenza della crociera, 0..1
     float thrustSpool01;   // regime dei motori newtoniani, 0..1: prendono gradualmente
 
@@ -97,6 +99,10 @@ public class PlanetWalker : MonoBehaviour
         // N commuta il modello di volo (solo con la tuta: senza non si vola)
         if (HasJetpack && Input.GetKeyDown(KeyCode.N))
             Model = Model == FlightModel.Cruise ? FlightModel.Newtonian : FlightModel.Cruise;
+
+        // rollio in volo libero (Q/E): accumulato qui, applicato e azzerato in FixedUpdate.
+        float roll = (Input.GetKey(KeyCode.E) ? 1f : 0f) - (Input.GetKey(KeyCode.Q) ? 1f : 0f);
+        rollDelta += roll * rollSpeed * Time.deltaTime;
     }
 
     void FixedUpdate()
@@ -142,6 +148,13 @@ public class PlanetWalker : MonoBehaviour
         if (freeFlight)
         {
             look = Quaternion.AngleAxis(yawDelta, transform.up) * transform.rotation;
+            // rollio attorno all'asse di SGUARDO (forward con il pitch): inclina anche il "su" del
+            // giocatore, così i successivi yaw/pitch ruotano con te → feel da astronave (6DOF parziale).
+            if (Mathf.Abs(rollDelta) > 0.0001f)
+            {
+                Vector3 viewFwd = (look * Quaternion.Euler(pitch, 0f, 0f)) * Vector3.forward;
+                look = Quaternion.AngleAxis(rollDelta, viewFwd) * look;
+            }
         }
         else
         {
@@ -149,6 +162,7 @@ public class PlanetWalker : MonoBehaviour
             look = Quaternion.AngleAxis(yawDelta, up) * aligned;
         }
         yawDelta = 0f;
+        rollDelta = 0f;   // consumato (a terra/crociera il rollio si scarta: l'aggancio gravità raddrizza)
         rb.MoveRotation(look);
 
         // assi locali sul piano del terreno, dalla rotazione appena calcolata
@@ -218,7 +232,11 @@ public class PlanetWalker : MonoBehaviour
                     float sp = vel.magnitude;
                     if (sp > 0.001f)
                     {
-                        float newSp = Mathf.Max(0f, sp - brakeAccel * Time.fixedDeltaTime);
+                        // forte alle alte velocità, ma sotto il "ginocchio" il freno cala in proporzione →
+                        // l'arrivo a 0 è morbido (niente stop secco). Pavimento di 6 m/s² così tocca comunque 0.
+                        const float knee = 25f;
+                        float decel = sp > knee ? brakeAccel : Mathf.Max(brakeAccel * (sp / knee), 6f);
+                        float newSp = Mathf.Max(0f, sp - decel * Time.fixedDeltaTime);
                         rb.linearVelocity = vel * (newSp / sp);
                     }
                 }
