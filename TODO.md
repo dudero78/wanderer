@@ -15,45 +15,29 @@ Aggiornata al **2 giugno 2026**. Dettaglio tecnico nel `CLAUDE.md`.
   **volo libero** in Newtoniano (no aggancio gravità), spinta scalata alla gravità (decolli da
   qualunque corpo), velocità-universo preservata allo switch. `TimeScale=1`.
 - ✅ Primo viaggio completo pianeta→stella con atterraggio e ripartenza.
-- ✅ **#11 Indicatore di rotta — baseline** (`RouteIndicator`): anello a parentesi + chevron +
-  pip + freccia prograde + distanza/velocità a lato; freccia al bordo se fuori vista. Committato.
+- ✅ **#11 Indicatore di rotta — RIFINITO** (`RouteIndicator`): anello a parentesi nitido (smoothstep
+  a mano) + alone, varchi ampi, pip ciano, chevron a casetta; anello a ~1.35× il disco (poco fuori);
+  testo con ombra; dissolvenza ravvicinata sul raggio VERO; velocità solo in volo; **velocità di
+  avvicinamento COL SEGNO** (− = ti allontani); stato **SINCRONIZZATO** (verde) a velocità relativa ~0.
+  **Marker velocità a 2 (prograde ⊕ pieno + retrograde vuoto)** mappati sulla **velocità LATERALE**
+  (perpendicolare alla rotta) × pixel/(m/s) — NON la direzione cruda (instabile vicino a 0): vicino
+  allo zero restano al centro, niente sbando, controllo fine. Tratteggio di collegamento su entrambi.
+  Verde "ALLINEATO" quando deriva laterale ~0 e ti avvicini.
+- ✅ **Controlli di volo**: freno X (match velocity) forte e graduale vicino a 0; **rollio Q/E** in volo
+  libero; spinta newtoniana più dolce (22 m/s², spool 1.8s) per assetto fine. Crociera invariata.
+- ✅ **Re-ancoraggio origine senza scatto/frame nero**: al teletrasporto di switch-riferimento
+  l'interpolazione del Rigidbody si spegne e si riaccende a buffer rinfrescato (`SolarSystem`).
 
-## PROSSIMO: rifinire l'HUD di navigazione (Dario riparte da qui)
+Lezione (volo newtoniano puro, scelta di Dario): dopo il match-velocity un drift residuo CRESCE piano
+mentre spingi — è FISICA (gravità del corpo vicino + accumulo se miri storto), non un bug. Si trimma
+con prograde/retrograde. Azzerarlo del tutto = lavoro dell'**autopilota** (#12), non toccare la fisica.
 
-La baseline funziona ma è migliorabile. Piano completo (dalla critica "da team", da rifare PULITO):
+## PROSSIMO: #12 Autopilota (Dario riparte da qui)
 
-1. **Marker del vettore velocità (prograde) stile cockpit**: NON un triangolo incollato all'anello,
-   ma un **cerchietto con tacche (⊕)** piazzato nel **punto di fuga** della velocità relativa
-   (`WorldToScreenPoint(camPos + relVel.normalized * K)`). Se si sovrappone al bersaglio → sei in
-   **rotta d'intercetto**. È lo strumento vero per pilotare verso un corpo.
-2. **Anello più nitido + alone tenue** (la baseline è timida). Per forme con gradiente serve la
-   **smoothstep scritta a mano** — `Mathf.SmoothStep` di Unity NON è la smoothstep di GLSL
-   (interpola l'output → riempie la texture: era il bug del "disco in un quadrato"). A mano:
-   `t = saturate((x-e0)/(e1-e0)); return t*t*(3-2t);` (lezione nel CLAUDE.md).
-3. **Marker che toccano l'anello** (chevron senza buco).
-4. **Stato SINCRONIZZATO**: quando la velocità relativa ≈ 0 → reticolo **verde** + "sincronizzato"
-   (sai che puoi puntare e andare dritto).
-5. **Testo leggibile su corpi chiari**: usare l'**ombra** del testo (nero sfalsato 1px), NON un
-   fondino/box scuro (copriva il reticolo).
-6. **Dissolvenza ravvicinata**: quando il corpo riempie lo schermo (raggio VERO, non clampato) il
-   reticolo svanisce — sei arrivato, non intralcia.
-7. **Velocità solo in volo**: a terra la velocità relativa al corpo selezionato è l'orbita del
-   pianeta (es. ~685 m/s da fermo) — corretta ma confonde a piedi → mostrarla solo quando airborne
-   (`HasJetpack && Altitude > 3`).
-8. **⚠️ REQUISITO (Dario): velocità CON SEGNO.** La velocità nel reticolo deve essere **negativa
-   quando ti ALLONTANI** dal corpo (distanza in aumento), positiva quando ti avvicini. Oggi mostra
-   il modulo (sempre positivo). = velocità di avvicinamento (componente radiale verso il corpo, col
-   segno). NB: nel `DebugHud` il "radiale" ha la convenzione OPPOSTA (− = ti avvicini); qui Dario
-   vuole esplicitamente − = ti allontani per il reticolo.
-
-Riferimento visivo: **Outer Wilds** — parentesi attorno al corpo, chevron in alto, distanza+velocità
-a lato, freccia tratteggiata prograde (screenshot Luna Quantica nella cronologia).
-
-Note tecniche: la velocità relativa al bersaglio è già calcolata bene in
-`RouteIndicator.RelativeVelocity` (sottrae la velocità-scena del bersaglio via `UniverseVelocityAt` ×
-`TimeScale`). Texture procedurali generate UNA volta all'avvio (~KB, non per frame → nessuna
-degradazione runtime; il bake-su-disco è il #13, per il load time). Su Metal+IMGUI le texture runtime
-vanno bene (il quadrato era `SmoothStep`, non Metal); se mai servisse, alternativa = linee GL.
+Stile Outer Wilds: tieni un tasto → la nave si allinea al bersaglio, fa match-velocity, accelera e
+**frena all'arrivo**. È la soluzione "hands-off" al drift residuo del newtoniano. Ordine nel piano:
+indicatore (fatto) → autopilota → teletrasporto. Mattoni già pronti: `RelativeVelocity`, freno X
+graduale, velocità laterale/closing già calcolate nel `RouteIndicator`.
 
 ## Altri lavori in corso
 
