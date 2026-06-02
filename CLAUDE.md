@@ -125,6 +125,11 @@ dall'ancora).
 - **Profilo di frenata conservativo**: la decel del profilo è `freno − g_superficie` (non il freno pieno).
   Tuffandoti verso un corpo pesante la gravità erode la frenata reale (decel netta = freno − g); col freno
   pieno freneresti troppo tardi e SFONDERESTI (era il bug sul sole). Autorità effettiva ≥ profilo ovunque.
+- **Camera libera dopo l'allineamento** (`autoAligned`): l'autopilota punta il muso al target solo all'INIZIO
+  (slerp); appena allineato (~3°) sblocca il mouse → guardi dove vuoi mentre lui continua a volare. La ROTTA
+  NON dipende dalla vista (spinge lungo la direzione-mondo verso il target, Δv su `rb.linearVelocity`), quindi
+  girarti non la cambia. Spegnere/riaccendere (T) o cambiare destinazione ri-allinea. (Stessa logica della
+  tuta in newtoniano: il moto è inerziale, girarti non lo altera — cambia solo se SPINGI.)
 - **Arrivo (dipende dall'impostazione `à` → "Autopilota stazionario", default OFF):** OFF = arrivi a
   distanza di sicurezza e l'autopilota DISINSERISCE (manovri tu, hai tempo perché `g` lì è dolce). ON =
   tiene la STAZIONE (`AutoHolding`, hover contro gravità) finché non dai un comando (WASD/Space/Shift/X).

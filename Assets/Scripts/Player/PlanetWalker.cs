@@ -83,6 +83,7 @@ public class PlanetWalker : MonoBehaviour
     float brakeSpool01;    // rampa di potenza del freno X, 0..1: parte dolce → sale rapidissimo (anti-tap)
     float autoTransitTime;          // secondi di volo autopilota sullo STESSO bersaglio: alza l'accelerazione sui viaggi lunghi
     CelestialBody autoLastTarget;   // bersaglio dell'autopilota al frame scorso: se cambia, azzera la rampa di accelerazione
+    bool autoAligned;               // l'autopilota ha completato l'allineamento iniziale del muso → camera LIBERA (la rotta non dipende dalla vista)
 
     public void EquipJetpack()
     {
@@ -119,7 +120,7 @@ public class PlanetWalker : MonoBehaviour
             var dest = SolarSystem.Instance != null ? SolarSystem.Instance.Destination : null;
             Autopilot = !Autopilot && dest != null;
             AutoHolding = false;
-            if (Autopilot) { Model = FlightModel.Newtonian; autoTransitTime = 0f; autoLastTarget = null; }
+            if (Autopilot) { Model = FlightModel.Newtonian; autoTransitTime = 0f; autoLastTarget = null; autoAligned = false; }
         }
 
         // ARRIVATO → l'autopilota TIENE LA STAZIONE (hover) finché non dai un comando: a quel punto molla e
@@ -132,9 +133,10 @@ public class PlanetWalker : MonoBehaviour
             AutoHolding = false;
         }
 
-        // sguardo: yaw sul corpo, pitch sulla camera. CONGELATO sotto autopilota (hands-off): è il computer
-        // a orientare il muso, il mouse non deve combattere l'allineamento.
-        if (!Autopilot)
+        // sguardo: yaw sul corpo, pitch sulla camera. CONGELATO solo durante l'allineamento iniziale
+        // dell'autopilota (il computer punta il muso al target); appena allineato la camera torna LIBERA —
+        // guardarti intorno non tocca la rotta (l'autopilota spinge verso il target, non lungo la vista).
+        if (!Autopilot || autoAligned)
         {
             float mx = Input.GetAxis("Mouse X") * mouseSensitivity;
             float my = Input.GetAxis("Mouse Y") * mouseSensitivity;
@@ -209,17 +211,22 @@ public class PlanetWalker : MonoBehaviour
         bool autoActive = Autopilot && HasJetpack && airborne && dest != null;
 
         Quaternion look;
-        if (autoActive)
+        if (autoActive && !autoAligned)
         {
-            // orienta il muso verso il bersaglio con ease-out esponenziale (slerp di una frazione per frame):
-            // rallenta avvicinandosi all'assetto giusto → niente scatto a fine corsa, feel da astronave. Raddrizza
-            // anche la camera (pitch → 0) → il corpo finisce dolcemente al centro dello schermo.
+            // ALLINEAMENTO INIZIALE: orienta il muso verso il bersaglio con ease-out esponenziale (slerp di una
+            // frazione per frame): rallenta avvicinandosi all'assetto → niente scatto, feel da astronave. Raddrizza
+            // anche la camera (pitch → 0) → il corpo finisce dolcemente al centro. Appena allineato (muso ~sul
+            // target) marca autoAligned: da lì la camera torna LIBERA al giocatore e l'orientamento non è più
+            // guidato. La ROTTA dell'autopilota non dipende dalla camera (spinge lungo la direzione-mondo verso il
+            // target), quindi guardarti intorno non la cambia. Spegni/riaccendi o cambi meta → si ri-allinea.
             float kTurn = 1f - Mathf.Exp(-Time.fixedDeltaTime / Mathf.Max(autoTurnTau, 0.01f));
             Vector3 toDest = dest.transform.position - rb.position;
             if (toDest.sqrMagnitude > 1e-4f)
             {
                 Quaternion want = Quaternion.LookRotation(toDest.normalized, up);
                 look = Quaternion.Slerp(transform.rotation, want, kTurn);
+                Vector3 viewFwd = (look * Quaternion.Euler(pitch, 0f, 0f)) * Vector3.forward;
+                if (Vector3.Angle(viewFwd, toDest) < 3f) autoAligned = true;   // muso sul target → camera libera
             }
             else look = transform.rotation;
             pitch = Mathf.Lerp(pitch, 0f, kTurn);
@@ -415,7 +422,7 @@ public class PlanetWalker : MonoBehaviour
         // vicino un corpo interessante), poi sale da autoAccel a autoAccelMax in autoAccelRampTime → finché
         // resti sullo STESSO bersaglio l'autopilota "capisce" che è un viaggio lungo e spinge sempre più forte.
         // Cambiare destinazione (o disinserire) azzera la rampa: la prossima tratta riparte di nuovo gentile.
-        if (target != autoLastTarget) { autoTransitTime = 0f; autoLastTarget = target; }
+        if (target != autoLastTarget) { autoTransitTime = 0f; autoLastTarget = target; autoAligned = false; }
         autoTransitTime += Time.fixedDeltaTime;
         float accelRamp = Mathf.Clamp01((autoTransitTime - autoAccelGentle) / Mathf.Max(autoAccelRampTime, 0.01f));
         float effAccel = Mathf.Lerp(autoAccel, autoAccelMax, accelRamp);
