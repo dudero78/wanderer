@@ -97,13 +97,15 @@ Comandi volo: `WASD` spinta · `Space`/`Shift` su/giù · `Q/E` rollio (volo lib
 · `X` match-velocity · `T` autopilota · `F` torcia · `M` mappa · `O` orbite.
 
 **Autopilota (`T`, toggle)**: hands-off completo verso il corpo selezionato. Si inserisce solo con la tuta e
-con una destinazione scelta sulla mappa; passa a Newtoniano. Orienta il muso al bersaglio, pilota l'INTERO
-vettore velocità relativa (componente verso il corpo = velocità desiderata, laterale = 0), e si ferma
-SINCRONIZZATO a **quota di sorvolo** (~1 raggio sopra la superficie). Profilo "frena in tempo"
-(`v = √(2·a·d)`, capato a `autoCruiseSpeed`): la velocità d'avvicinamento è sempre tale da poter azzerare
-entro il punto d'arrivo. Il Δv si applica a `rb.linearVelocity` (identico in ogni riferimento inerziale →
-indipendente dall'ancora). Si disinserisce da solo all'arrivo, atterrando, o se premi `N`. È la soluzione
-hands-off al drift residuo del newtoniano.
+con una destinazione scelta sulla mappa; passa a Newtoniano. Orienta il muso al bersaglio, pilota la velocità
+RADIALE verso/dal corpo con profilo "frena in tempo" **bidirezionale** `vWant = sign(dtg)·√(2·a·|dtg|)`
+(capato a `autoCruiseSpeed`, tetto largo → di norma comanda il √): fuori dal sorvolo si avvicina, dentro
+risale → la **quota di sorvolo** (`autoHoverRadii` raggi sopra la superficie) è un EQUILIBRIO STABILE.
+Componente laterale desiderata = 0 (annulla la deriva). Il Δv si applica a `rb.linearVelocity` (identico in
+ogni riferimento inerziale → indipendente dall'ancora). Autorità ≥ `1.6·g` in accelerazione E frenata → regge
+la gravità anche vicino alla stella. **Arrivato, NON si disinserisce: tiene la STAZIONE** (`AutoHolding`,
+hover contro la gravità) finché non dai un comando (WASD/Space/Shift/X) → allora molla. Mai una caduta libera
+a sorpresa. Si disinserisce anche atterrando o con `N`. È la soluzione hands-off al drift residuo del newtoniano.
 
 ## Scala (decisa)
 

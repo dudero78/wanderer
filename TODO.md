@@ -47,14 +47,14 @@ mentre spingi — è FISICA (gravità del corpo vicino + accumulo se miri storto
 con prograde/retrograde. Azzerarlo del tutto = lavoro dell'**autopilota** (#12), non toccare la fisica.
 
 - ✅ **#12 Autopilota** (`T`, toggle) — hands-off completo verso il corpo selezionato (`PlanetWalker`).
-  Orienta il muso al bersaglio (slerp con ease-out, `autoTurnTau`), pilota l'INTERO vettore velocità relativa
-  (verso il corpo = velocità desiderata, laterale = 0 → annulla anche la deriva), e si ferma SINCRONIZZATO
-  a **quota di sorvolo** (~1 raggio sopra la superficie, `autoHoverRadii`). Profilo "frena in tempo"
-  `v = √(2·a·d)` capato a `autoCruiseSpeed`: la velocità d'avvicinamento è sempre tale da poter azzerare
-  entro il punto d'arrivo. Accel morbida per prendere velocità (`autoAccel`), forte per frenare/raddrizzare
-  (`autoBrakeAccel`, ≥1.6·g → regge anche la stella). Il Δv si applica a `rb.linearVelocity` (identico in
-  ogni riferimento inerziale → indipendente dall'ancora). Si disinserisce all'arrivo, atterrando, o con `N`.
-  Riusa `RelativeVelocityTo` (stessa contabilità del `RouteIndicator`). **DA PROVARE in Play da Dario.**
+  Orienta il muso al bersaglio (slerp con ease-out, `autoTurnTau`), pilota la velocità RADIALE con profilo
+  "frena in tempo" BIDIREZIONALE `sign(dtg)·√(2·a·|dtg|)` (capato a `autoCruiseSpeed`, tetto largo → comanda
+  il √, auto-dosato sulla tratta) + laterale desiderata = 0 → la **quota di sorvolo** (`autoHoverRadii` raggi
+  sopra la superficie) è un EQUILIBRIO STABILE. Accel morbida (`autoAccel`), freno forte (`autoBrakeAccel`),
+  autorità ≥1.6·g in entrambe → regge anche la stella. Il Δv si applica a `rb.linearVelocity` (identico in ogni
+  riferimento inerziale). **Arrivato TIENE LA STAZIONE** (`AutoHolding`, hover contro gravità) finché non dai
+  un comando → niente caduta libera a sorpresa. Si disinserisce anche atterrando o con `N`. **Gauge di frenata**
+  HUD in volo libero manuale. Riusa `RelativeVelocityTo` (contabilità del `RouteIndicator`).
 
 ## PROSSIMO: #10 Teletrasporto / #7 più pianeti (Dario riparte da qui)
 

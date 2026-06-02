@@ -47,19 +47,28 @@ public class DebugHud : MonoBehaviour
         }
         GUI.Label(new Rect(14f * ui, 12f * ui, 820f * ui, 240f * ui), cachedText, style);
 
+        if (banner == null)
+            banner = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.4f, 0.95f, 1f) }
+            };
+
         // banner alla raccolta della tuta (valutato ogni repaint: è solo un confronto di tempo, niente alloc)
         if (walker != null && walker.HasJetpack && Time.time - walker.EquipTime < 5f)
         {
-            if (banner == null)
-                banner = new GUIStyle(GUI.skin.label)
-                {
-                    fontStyle = FontStyle.Bold,
-                    alignment = TextAnchor.MiddleCenter,
-                    normal = { textColor = new Color(0.4f, 0.95f, 1f) }
-                };
             banner.fontSize = Mathf.RoundToInt(26f * ui);
             GUI.Label(new Rect(0, Screen.height * 0.32f, Screen.width, 60f * ui),
                 "TUTA EQUIPAGGIATA — tieni premuto Space per volare", banner);
+        }
+
+        // arrivato a destinazione: l'autopilota tiene la stazione, avvisa che un comando riprende il controllo.
+        if (walker != null && walker.AutoHolding)
+        {
+            banner.fontSize = Mathf.RoundToInt(22f * ui);
+            GUI.Label(new Rect(0, Screen.height * 0.30f, Screen.width, 50f * ui),
+                "ARRIVATO — in stazione · un comando qualsiasi per riprendere il controllo", banner);
         }
     }
 
@@ -93,7 +102,7 @@ public class DebugHud : MonoBehaviour
         string radWord = rad > 0.5f ? "ti allontani" : rad < -0.5f ? "ti AVVICINI" : "stazionario";
         string model = walker != null && walker.IsNewtonian ? $"NEWTONIANO (spinta {walker.ThrustSpool01 * 100f:F0}%)" : $"Crociera ({(walker != null ? walker.Boost01 * 100f : 0f):F0}%)";
         string brake = walker != null && walker.Braking ? "   ·   FRENO" : "";
-        string auto = walker != null && walker.Autopilot ? "   ·   AUTOPILOTA" : "";
+        string auto = walker != null && walker.Autopilot ? (walker.AutoHolding ? "   ·   AUTOPILOTA (IN STAZIONE)" : "   ·   AUTOPILOTA") : "";
         string torch = flash != null && flash.IsOn ? "ACCESA" : "spenta";
         string flightLine = jetpack
             ? $"Velocità           : {spd:F0} m/s   ·   radiale {rad:+0;-0} ({radWord})   ·   tangenz. {tan:F0} (orbita)   ·   Volo: {model}{brake}{auto}\n" +

@@ -68,6 +68,7 @@ public class PlanetWalker : MonoBehaviour
     public float ThrustSpool01 => thrustSpool01;   // regime motori newtoniani 0..1 (per l'HUD)
     public bool Braking { get; private set; }         // freno di assetto attivo (per l'HUD)
     public bool Autopilot { get; private set; }        // autopilota inserito (toggle T): vola da solo verso la destinazione
+    public bool AutoHolding { get; private set; }       // arrivato: tiene la stazione (hover) finché non dai un comando
 
     Rigidbody rb;
     float pitch;
@@ -111,7 +112,18 @@ public class PlanetWalker : MonoBehaviour
         {
             var dest = SolarSystem.Instance != null ? SolarSystem.Instance.Destination : null;
             Autopilot = !Autopilot && dest != null;
+            AutoHolding = false;
             if (Autopilot) Model = FlightModel.Newtonian;
+        }
+
+        // ARRIVATO → l'autopilota TIENE LA STAZIONE (hover) finché non dai un comando: a quel punto molla e
+        // riprendi il controllo. Così non ti scarica mai in caduta libera. Vale solo da fermo in stazione
+        // (durante il viaggio i comandi restano congelati: hands-off). Qualunque spinta/freno/movimento libera.
+        if (AutoHolding && (Mathf.Abs(Input.GetAxisRaw("Horizontal")) > 0.01f || Mathf.Abs(Input.GetAxisRaw("Vertical")) > 0.01f
+            || Input.GetButton("Jump") || Input.GetKey(KeyCode.LeftShift) || Input.GetKey(brakeKey)))
+        {
+            Autopilot = false;
+            AutoHolding = false;
         }
 
         // sguardo: yaw sul corpo, pitch sulla camera. CONGELATO sotto autopilota (hands-off): è il computer
@@ -134,6 +146,7 @@ public class PlanetWalker : MonoBehaviour
         {
             Model = Model == FlightModel.Cruise ? FlightModel.Newtonian : FlightModel.Cruise;
             Autopilot = false;
+            AutoHolding = false;
         }
 
         // rollio in volo libero (Q/E): accumulato qui, applicato e azzerato in FixedUpdate.
@@ -186,7 +199,7 @@ public class PlanetWalker : MonoBehaviour
         // AUTOPILOTA attivo solo in volo e con una destinazione selezionata. A terra non c'è nulla da agganciare:
         // se atterri (o perdi la destinazione) si disinserisce da solo.
         var dest = SolarSystem.Instance != null ? SolarSystem.Instance.Destination : null;
-        if (Autopilot && (!airborne || dest == null)) Autopilot = false;
+        if (Autopilot && (!airborne || dest == null)) { Autopilot = false; AutoHolding = false; }
         bool autoActive = Autopilot && HasJetpack && airborne && dest != null;
 
         Quaternion look;
@@ -385,33 +398,42 @@ public class PlanetWalker : MonoBehaviour
     {
         Vector3 toDest = target.transform.position - rb.position;
         float dist = toDest.magnitude;
-        if (dist < 0.001f) { Autopilot = false; return; }
+        if (dist < 0.001f) { Autopilot = false; AutoHolding = false; return; }
         Vector3 toT = toDest / dist;
 
         // punto d'arrivo: autoHoverRadii raggi SOPRA la superficie → distanza dal centro = (1 + hover)·raggio.
         float standoff = (float)target.Radius * (1f + Mathf.Max(0f, autoHoverRadii));
-        float dtg = dist - standoff;   // distanza ancora da percorrere (può essere <0 se sei già più dentro)
+        float dtg = dist - standoff;   // distanza dal punto di sorvolo: >0 fuori (avvicìnati), <0 dentro (allontànati)
 
         Vector3 relVel = RelativeVelocityTo(target);
         float closing = Vector3.Dot(relVel, toT);   // + = ti avvicini
 
-        // velocità di avvicinamento desiderata: √(2·a·d), così da poter frenare a 0 entro il punto d'arrivo;
-        // capata alla crociera. La decel di riferimento è ≥ 1.6·g per restare valida anche vicino a corpi pesanti.
+        // Velocità RADIALE desiderata BIDIREZIONALE: profilo "frena in tempo" √(2·a·|dtg|), col SEGNO di dtg.
+        //  - fuori dal sorvolo (dtg>0): avvicìnati (+), capato alla crociera (di norma il vero limite è il √).
+        //  - dentro al sorvolo (dtg<0): allontànati (−) per RISALIRE alla quota.
+        // → la quota di sorvolo è un EQUILIBRIO STABILE: l'autopilota ci si assesta e ci RESTA contro la gravità
+        //   (station-keeping), invece di azzerare solo la velocità e affondare piano. La decel di riferimento è
+        //   ≥ 1.6·g, così regge anche vicino a un corpo pesante.
         float aBrake = Mathf.Max(autoBrakeAccel, g * 1.6f);
-        float vWant = Mathf.Min(autoCruiseSpeed, Mathf.Sqrt(2f * aBrake * Mathf.Max(dtg, 0f)));
-        Vector3 desiredRel = toT * vWant;   // verso il bersaglio a vWant, ZERO deriva laterale
+        float mag = Mathf.Min(autoCruiseSpeed, Mathf.Sqrt(2f * aBrake * Mathf.Abs(dtg)));
+        float vWant = (dtg >= 0f ? 1f : -1f) * mag;
+        Vector3 desiredRel = toT * vWant;   // SOLO radiale verso/dal bersaglio; componente laterale desiderata = 0
 
-        // quanto possiamo cambiare la velocità in questo frame: morbido per PRENDERE quota di velocità,
-        // forte per FRENARE/raddrizzare (come il freno X tarato a mano) → arrivo deciso ma non a strappo.
-        // In ENTRAMBE le fasi l'autorità è ALMENO 1.6·g (come la spinta manuale): vicino a un corpo pesante
-        // (la stella, g≈100) l'autopilota deve poter risalire e tenere il sorvolo, non farsi tirare dentro.
+        // quanto possiamo cambiare la velocità in questo frame: morbido per PRENDERE velocità, forte per
+        // FRENARE/raddrizzare (come il freno X tarato a mano). Autorità ≥ 1.6·g in ENTRAMBE le fasi → vicino a
+        // un corpo pesante l'autopilota risale e tiene il sorvolo, non si fa tirare dentro.
         float accelCap = (closing < vWant ? Mathf.Max(autoAccel, g * 1.6f) : aBrake);
         Vector3 newRel = Vector3.MoveTowards(relVel, desiredRel, accelCap * Time.fixedDeltaTime);
         rb.linearVelocity += newRel - relVel;   // Δv: identico in ogni riferimento inerziale
-        Braking = closing > vWant + 1f;          // per l'HUD: l'autopilota sta decelerando
 
-        // arrivato: a quota di sorvolo e quasi fermo rispetto al corpo → disinserisci, resti in hover sincronizzato.
-        if (dtg < standoff * 0.05f && relVel.magnitude < autoArriveSync) Autopilot = false;
+        // ARRIVATO: a quota di sorvolo e quasi fermo → entra in STAZIONE (latch). NON disinserisce: tiene l'hover
+        // (il controllo qui sopra lo fa già) finché non dai un comando (gestito in Update) → niente caduta libera.
+        // Isteresi: se torni nettamente in transito (nuova meta scelta dalla mappa) esci dalla stazione → il
+        // viaggio resta hands-off e i comandi non disinseriscono per sbaglio.
+        float arriveBand = Mathf.Max(standoff * 0.08f, 5f);
+        if (Mathf.Abs(dtg) < arriveBand && relVel.magnitude < autoArriveSync * 2f) AutoHolding = true;
+        else if (Mathf.Abs(dtg) > arriveBand * 3f) AutoHolding = false;
+        Braking = !AutoHolding && closing > vWant + 1f;   // per l'HUD: in avvicinamento sta decelerando
     }
 
     // Velocità del giocatore RELATIVA a un corpo (stessa contabilità del RouteIndicator): rb.linearVelocity è
