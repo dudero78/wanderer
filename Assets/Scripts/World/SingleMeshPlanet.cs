@@ -25,12 +25,14 @@ public class SingleMeshPlanet : MonoBehaviour
         public bool applied;
     }
     Face[] faces;
+    MeshFilter[] filters;   // persistenti: l'editor ci ricostruisce sopra l'anteprima (RebuildSync)
 
     /// <summary>Costruisce il pianeta. La pipeline dei layer dev'essere già pronta (terrain.RebuildLayers
     /// chiamato sul main thread): i thread leggono soltanto.</summary>
     public void Build(PlanetTerrain terrain, Material[] faceMats, int fullRes, int proxyRes)
     {
         faces = new Face[6];
+        filters = new MeshFilter[6];
         for (int f = 0; f < 6; f++)
         {
             Vector3 up = PlanetMeshBuilder.FaceNormals[f];
@@ -44,11 +46,29 @@ public class SingleMeshPlanet : MonoBehaviour
             mf.sharedMesh = PlanetMeshBuilder.BuildFaceMesh(up, terrain, proxyRes);
 
             var face = new Face { filter = mf };
+            filters[f] = mf;
             // full-res su thread: calcola SOLO i dati (niente API Unity)
             face.task = Task.Run(() =>
                 PlanetMeshBuilder.ComputeFaceData(up, terrain, fullRes,
                     out face.verts, out face.normals, out face.tangents, out face.uvs, out face.tris));
             faces[f] = face;
+        }
+    }
+
+    /// <summary>Ricostruzione SINCRONA delle 6 facce a una risoluzione data (per l'anteprima LIVE dell'editor:
+    /// cambi una manopola della ricetta → vedi subito). Annulla l'eventuale build su thread in corso così non
+    /// sovrascrive dati vecchi. terrain.RebuildLayers dev'essere già chiamato (ApplyRecipe lo fa).</summary>
+    public void RebuildSync(PlanetTerrain terrain, int res)
+    {
+        if (filters == null) return;
+        faces = null;   // ferma eventuali swap pendenti dal build iniziale
+        for (int f = 0; f < 6; f++)
+        {
+            if (filters[f] == null) continue;
+            var mesh = PlanetMeshBuilder.BuildFaceMesh(PlanetMeshBuilder.FaceNormals[f], terrain, res);
+            var old = filters[f].sharedMesh;
+            filters[f].sharedMesh = mesh;
+            if (old != null) Destroy(old);
         }
     }
 

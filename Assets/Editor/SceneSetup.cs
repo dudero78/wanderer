@@ -22,4 +22,18 @@ public static class SceneSetup
 
         Debug.Log("Scena demo creata in Assets/Scenes/Demo.unity — premi Play.");
     }
+
+    [MenuItem("Wanderer/Apri editor pianeti")]
+    public static void CreatePlanetEditorScene()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var go = new GameObject("PlanetEditorBootstrap");
+        go.AddComponent<PlanetEditorBootstrap>();
+
+        System.IO.Directory.CreateDirectory("Assets/Scenes");
+        EditorSceneManager.SaveScene(scene, "Assets/Scenes/PlanetEditor.unity");
+
+        Debug.Log("Editor pianeti creato in Assets/Scenes/PlanetEditor.unity — premi Play.");
+    }
 }

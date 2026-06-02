@@ -36,6 +36,16 @@ public class PlanetRecipe
     public float mariaScale = 2.2f;
     public float mariaStrength = 0.7f;
 
+    /// <summary>Sfera quasi liscia, nessun processo: il punto di PARTENZA dell'editor (poi aggiungi tutto).</summary>
+    public static PlanetRecipe SmoothSphere()
+    {
+        return new PlanetRecipe
+        {
+            name = "Nuovo corpo", baseRadius = 500f, surfaceGravity = 9.81f,
+            amplitude = 4f, frequency = 1.6f, octaves = 4, gain = 0.5f, seed = 1
+        };
+    }
+
     /// <summary>Ricetta del "pianeta demo" attuale (tipo Phobos). Punto di partenza dell'editor.</summary>
     public static PlanetRecipe Demo()
     {
