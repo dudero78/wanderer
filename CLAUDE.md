@@ -76,11 +76,20 @@ velocità orbitali e rendeva il match-velocity ingiocabile).
 
 - **Mappa (`M`)**: zoom-out sul sistema con le orbite; clicca un corpo per **selezionarlo**
   come destinazione (`MapMode`, camera dedicata, comandi del walker congelati).
-- **Indicatore di rotta** (`RouteIndicator`): reticolo HUD sul corpo selezionato — anello +
-  chevron + distanza/velocità relativa + **marker del vettore velocità** (sovrapposto al
-  bersaglio = rotta d'intercetto); verde quando **sincronizzato**; freccia al bordo se fuori
-  vista; si dissolve quando il corpo riempie lo schermo. Texture procedurali generate una volta
-  all'avvio (→ da bakeare su disco, vedi TODO).
+- **Indicatore di rotta** (`RouteIndicator`): reticolo HUD sul corpo selezionato — anello a parentesi
+  + chevron + distanza + **velocità di avvicinamento COL SEGNO** (− = ti allontani). **Due marker**:
+  prograde (⊕ pieno) e retrograde (cerchietto vuoto), col tratteggio di collegamento; l'offset è la
+  **velocità LATERALE** (perpendicolare alla rotta) × pixel/(m/s), NON la direzione cruda — vicino a 0
+  resta al centro, niente sbando. **ALLINEATO** (verde) quando deriva laterale ~0 e ti avvicini;
+  **SINCRONIZZATO** (verde) quando la velocità relativa ~0. Freccia al bordo se fuori vista, si
+  dissolve quando il corpo riempie lo schermo. Tutto scalato con la risoluzione. Texture procedurali una
+  volta all'avvio. Drift residuo dopo il match = FISICA (gravità), si trimma a mano (→ autopilota #12).
+- **Orbite a schermo** (`O`, `OrbitDisplay`): mostra/nasconde le orbite del sistema come linee anche in
+  volo. L'ellisse (Kepler, fissa nel frame del genitore) è cacheata una volta e ogni frame solo traslata
+  con la floating origin → niente solve orbitale per frame.
+
+Comandi volo: `WASD` spinta · `Space`/`Shift` su/giù · `Q/E` rollio (volo libero) · `N` Crociera/Newtoniano
+· `X` match-velocity · `F` torcia · `M` mappa · `O` orbite.
 
 ## Scala (decisa)
 
@@ -127,6 +136,7 @@ Player/    PlanetWalker   — camminata su sfera + volo jetpack (volo libero in 
            Flashlight     — torcia che scala con la quota
            MapMode        — mappa (M): zoom-out + orbite + selezione corpo destinazione
            RouteIndicator — reticolo di rotta sul corpo selezionato (HUD, texture procedurali)
+           OrbitDisplay   — orbite del sistema a schermo (O), anche in volo (ellisse cacheata)
 Items/     SuitPickup
 Bootstrap/ GameBootstrap  — costruisce la scena (tutti i parametri sono qui)
 Debug/     DebugHud
@@ -204,6 +214,23 @@ vicino all'origine di Unity → la precisione non degrada mai.
   è a 1.0 (piena risoluzione): la GPU se lo permette; è la prima leva da riabbassare (0.85) SE
   un domani la carichiamo di effetti. `TimeScale 3` (acceleratore orbite di debug) triplica la
   fisica: in gioco normale è 1.
+- **BUILD STANDALONE ≠ editor (causa di bug invisibili nell'editor).** La scena è costruita da
+  `GameBootstrap` ma DEVE essere nei **Build Settings** (`EditorBuildSettings.asset`), altrimenti la
+  build apre una scena vuota → nera. Gli shader usati SOLO via `Shader.Find` (tutti i materiali sono
+  creati a runtime) vengono **strippati** dalla build: vanno messi negli **Always Included Shaders**
+  (`GraphicsSettings.asset`) — i custom `Wanderer/*` E i built-in usati (`Standard`, `Unlit/Color`;
+  `Sprites/Default` c'era già). Anche le **varianti keyword** si strippano: `Standard` + `_EMISSION`
+  attivato a runtime → in build niente bagliore (sfera scura) → per la stella/tuta usa `Unlit/Color`
+  (disco pieno, niente variante). Mai `new Material(Shader.Find(...))` senza guardia: se null lancia e
+  aborta `Start` → nero totale (ora c'è la guardia: logga e continua). HUD IMGUI a **pixel fissi** →
+  minuscolo su schermi Retina/4K: scala i font/marker con `Screen.height` (rif. 1080p).
+- **Misura la performance/il calore SU UNA BUILD, non nell'editor.** L'editor (EditorLoop + Profiler in
+  Live) gonfia CPU e calore e non dorme tra i frame. Col profilo della build: GPU ~4.5ms, scena banale,
+  capped a 30fps → il gioco è leggero; l'apparente calore nell'editor era l'editor. Vedi anche la leva
+  fps in PerformanceGovernor e l'architettura performance-first nella memoria.
+- **Load time = bake GPU all'avvio (~1.9s), non le mesh.** Le mesh d'appoggio del bake servono solo a
+  coprire le UV / dare il frame tangente: tienile a bassa risoluzione (il dettaglio lo fa il fragment
+  per-pixel sulle RT a piena risoluzione). Il vero azzeramento del load è il bake-su-disco (#13).
 - **Niente ombre proiettate** (direzionale e torcia): su questa mesh a luce radente
   danno "crepe" (shadow acne) e lo "schiarimento" oltre la shadow distance. Il
   rilievo emerge bene dalle sole normali.
