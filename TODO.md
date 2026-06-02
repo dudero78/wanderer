@@ -69,10 +69,22 @@ con prograde/retrograde. Azzerarlo del tutto = lavoro dell'**autopilota** (#12),
   margine reazione + frenata erosa dalla gravità `aEff = brakeAccel − g`): arriva in tempo, da non ritoccare.
   Compare solo oltre `WarnMinClosing` (~50 m/s): avviso da viaggio, non per volo radente / saltelli / manovra fine.
 
-## PROSSIMO: #10 Teletrasporto / #7 più pianeti (Dario riparte da qui)
+## PROSSIMO: #14 Rifondazione del terreno (heightmap + CDLOD + micro) — FOCUS CORRENTE
 
-Ordine del piano: indicatore (fatto) → autopilota (fatto) → teletrasporto / più corpi. Il teletrasporto
-richiede corpi residenti (buildarli tutti all'avvio); più pianeti dà materiale vero da raggiungere.
+La mesh singola a risoluzione fissa ha toccato il soffitto: crateri sempre o morbidi, o finti nella normale,
+o "tutto rugged". Causa: una risoluzione sola non copre 5 ordini di grandezza (1 km corpo → 1 cm passo).
+**Strategia decisa** (vedi memoria `wanderer-terreno-strategia`): dato gerarchico + lavoro/frame costante.
+- **Stage 1 (IN CORSO): heightmap mippata bakeata** — bake CPU (dalla VERA `SampleHeight`, niente duplicazione
+  HLSL) di una heightmap float per faccia, mip-mappata, su disco (`Resources/BakedPlanet/Height*`). È il
+  BACKBONE dati; di per sé invisibile.
+- **Stage 1b: normale derivata dalla heightmap** (gradiente, mippata) → primo guadagno visibile (luce nitida,
+  completa, a ogni distanza).
+- **Stage 2: CDLOD** — geometria dislocata dalla heightmap, view-dependent, morphing continuo (niente popping/
+  cuciture). Vicino = geometria vera calpestabile; lontano = economica. È il pezzo grosso.
+- **Stage 3: micro procedurale** near-camera (sassi/grana) → il "zoom-payoff".
+- **Stage 4: contenuto feature-based** (crateri vari + bacini + mari) per il look-Luna, non rumore uniforme.
+
+Poi si riprende col GIOCO: #10 teletrasporto, #7 più pianeti (richiede corpi residenti all'avvio), #9 il VERBO.
 
 ## Altri lavori in corso
 
