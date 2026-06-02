@@ -14,8 +14,13 @@ using UnityEngine;
 /// </summary>
 public static class PlanetBakeTool
 {
-    const int MaskMeshRes = 256;     // mesh d'appoggio ALTA per il bake offline (qualità massima)
-    const int CraterMeshRes = 200;
+    // STESSA risoluzione del bake runtime: il commit "Load più veloce" aveva accertato qualità IDENTICA a
+    // queste res (la mesh d'appoggio copre solo le UV / dà il frame tangente; il dettaglio lo fa il fragment
+    // per-pixel). Alzarle NON migliora nulla e per i crateri ROVINA: a res alta la mesh d'appoggio contiene la
+    // geometria dei crateri → il suo frame tangente si inclina sulle pareti e la normale bakeata, applicata sul
+    // frame di render (res 320), ribalta la luce → bordi "cromati". Quindi il bake offline = identico al runtime.
+    const int MaskMeshRes = 64;
+    const int CraterMeshRes = 48;
 
     [MenuItem("Wanderer/Bake planet assets")]
     public static void BakePlanetAssets()
