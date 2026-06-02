@@ -485,16 +485,26 @@ public class QuadNode
                 }
             }
 
-        // skirt: anello di bordo abbassato, nasconde le crepe coi vicini a LOD diverso. La
-        // profondità deve coprire il MASSIMO dislivello possibile tra due LOD adiacenti, limitato
-        // dall'ampiezza del terreno: quindi scala col nodo ma con pavimento e tetto sull'ampiezza
-        // (sotto era troppo corto sui nodi fini → le crepe nere che inquietavano).
-        float skirtDrop = Mathf.Clamp(worldSize * qt.skirtFactor, 3f, terr.Amplitude);
+        // skirt: anello di bordo abbassato che nasconde le giunture coi vicini a LOD diverso.
         var ring = new List<int>(4 * R);
         for (int x = 0; x < R; x++) ring.Add(x);
         for (int y = 0; y < R; y++) ring.Add(y * n + (n - 1));
         for (int x = R; x > 0; x--) ring.Add((n - 1) * n + x);
         for (int y = R; y > 0; y--) ring.Add(y * n);
+
+        // PROFONDITÀ dello skirt = il PEGGIOR salto possibile al bordo, non un valore a caso. A un confine di
+        // LOD il gap massimo è lo scarto di MORPH del bordo (|delta| del vertice dispari = differenza fra forma
+        // fine e forma del genitore): è l'unica cosa che può muovere quei vertici. Lo skirt scende almeno di
+        // tanto (×2 di margine per i confini a 2 livelli) → per costruzione NON può restare una fessura.
+        // Minimo 3 m; tetto al lato del nodo (niente flap assurdi che sporcano la silhouette).
+        float maxEdgeDelta = 0f;
+        for (int k = 0; k < ring.Count; k++)
+        {
+            Vector4 mw = morph[ring[k]];
+            float m = Mathf.Sqrt(mw.x * mw.x + mw.y * mw.y + mw.z * mw.z);
+            if (m > maxEdgeDelta) maxEdgeDelta = m;
+        }
+        float skirtDrop = Mathf.Clamp(Mathf.Max(worldSize * qt.skirtFactor, maxEdgeDelta * 2f), 3f, worldSize);
 
         int skirtStart = verts.Count;
         for (int k = 0; k < ring.Count; k++)
