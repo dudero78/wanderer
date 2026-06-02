@@ -18,15 +18,31 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 Funziona: floating origin + doppia precisione, orbita Kepleriana, **gravità radiale**,
 **volo col jetpack** (tuta da raccogliere), **torcia** (F), ciclo giorno/notte.
 
-**Pianeta walkable a MESH SINGOLA** (cube-sphere, 6 facce, NESSUN LOD; `SingleMeshPlanet`).
-A scala compressa (corpi ≤ ~1.5 km, vedi "Scala") la mesh singola basta e scioglie alla
-radice cuciture/skirt/popping — difetti **inerenti** al chunked LOD, provato e **abbandonato**
-(vedi "Lezioni dure"). La build full-res gira su thread (niente freeze), con un proxy a bassa
-risoluzione mostrato nel frattempo. Mesh+walker leggono la stessa `SampleHeight`: una sola verità.
+**Renderer dei corpi rocciosi: QUADTREE CDLOD** (`PlanetQuadtree`, cube-sphere a 6 facce-radice).
+Geometria view-dependent: fitta sotto i piedi (crateri nitidi calpestabili, look Elite/Star Citizen),
+rada all'orizzonte. Build async su thread + **geomorph** (UV2, niente pop) + **skirt** + horizon culling +
+cache LRU dei nodi + LOD predittivo. Toggle `useQuadtree` su `GameBootstrap` (default ON); `SingleMeshPlanet`
+(res fissa, niente LOD) resta come fallback. Walker/gravità/collisione NON dipendono dal renderer: leggono
+`PlanetTerrain.SampleHeight` (una sola verità; il morph è puramente visivo e vale 0 da vicino, dove mesh e
+collisione combaciano). **Limite noto, ACCANTONATO:** ai confini fra livelli di LOD restano transizioni di
+shading ("scalini") — niente fessure/buchi (lo skirt è dimensionato sul salto di morph del bordo, copre per
+costruzione). Il fix definitivo è il **CDLOD bilanciato 2:1** — deciso ma RIMANDATO (vedi "Lezioni dure").
 
-**Crateri: FATTI** — geometria vera nell'heightfield (`CraterTerrainLayer`: composizione
-additiva, griglia 3D hashata seam-free, profilo C1, conca/bordo/ejecta/picco) + normale
-bakeata (`CraterNormalBake`) per i bordi nitidi, filtrata dal mipmap.
+**Crateri: geometria vera nell'heightfield** (`CraterTerrainLayer`: composizione additiva, griglia 3D hashata
+seam-free, profilo a **legge di potenza** con bordo netto regolabile `rimSharpness` 1=cono…4=quasi tagliente)
++ normale bakeata (`CraterNormalBake`) per i bordi fini, filtrata dal mipmap. Col quadtree i crateri
+grandi/medi sono GEOMETRIA, i fini li dà la normale.
+
+**Editor di pianeti** (scena separata, menu "Wanderer → Apri editor pianeti", `PlanetEditor`/`PlanetEditorBootstrap`):
+si compone una RICETTA (`PlanetRecipe`) — forma base (preset), tipo/colore (preset lunare/marziano/ghiacciato),
+N pipeline di crateri — con anteprima live (mesh che si rifinisce + ri-bake della normale quando l'edit si
+assesta) e si salva su disco (JSON in `persistentDataPath/planets`). Le ricette "ufficiali" del gioco vanno in
+`Assets/Resources/Planets/<nome>.json` (asset → nella build). `PlanetRecipe.ScaledTo(raggio)` scala le misure
+assolute conservando l'aspetto → stesso look su corpi di raggio diverso.
+
+**Due corpi**: il **Pianeta** (lunare, raggio 500) e **Cetra** (luna marziana craterizzata, raggio 300, g 3.0,
+in orbita attorno al pianeta — ricetta creata nell'editor). Aggiungere un corpo roccioso = una `CelestialBody`
++ `PlanetTerrain` (ApplyRecipe) sullo stesso GameObject; walker/mappa/viaggio "gratis".
 
 **Superficie — base lunare liscia.** Colore quasi uniforme grigio (`_SoilMean`) + variazione
 macro a bassa frequenza; il bello lo fanno la FORMA (crateri + colline) e la LUCE. Dettaglio
@@ -154,24 +170,26 @@ Compressa, stile Outer Wilds (NON reale): asteroidi 80-300 m, lune 300-800 m, ro
 0.8-1.5 km **walkable**; giganti gassosi 1.5-3 km in cui **voli dentro** (volume nuotabile +
 isole + tornado, tipo Profondo Gigante); stelle 3-5 km a cui **ti avvicini ed entri**. I corpi
 non-walkable (gas/stelle) saranno un **secondo renderer volumetrico** (raymarch su sfera-guscio),
-non mesh. Conseguenza chiave: i rocciosi stanno in una mesh singola → niente LOD.
+non mesh. I rocciosi usano il **quadtree CDLOD** (vedi "Stato attuale").
 
 ## Direzione (il GIOCO, non il renderer)
 
-I pianeti si **generano da una descrizione, poi si FISSANO** (bake) come asset fatti a mano:
-il procedurale è uno strumento di CREAZIONE, non un sistema runtime. La superficie ravvicinata
-è già a target — **smettere di limarla** e costruire il GIOCO: più corpi DIVERSI + un VERBO
-(atterra · cammina · raccogli · vai altrove · puoi fallire). **MVP: mini-loop su 2-3 corpi.**
-FATTO: hand-off di gravità, mappa+selezione, **viaggio fra corpi + match-velocity**, indicatore
-di rotta — puoi già volare da un corpo all'altro, atterrare e ripartire. MANCANO: più pianeti, il
-teletrasporto, il VERBO. NON costruire ora l'astrazione ricetta composizione→pianeta (trappola
-identica al quadtree: prima 2-3 corpi a mano).
+I pianeti si **creano nell'editor da una ricetta** (`PlanetRecipe`), poi si **FISSANO** (bake su disco):
+il procedurale è uno strumento di CREAZIONE, non un sistema runtime. La superficie ravvicinata col quadtree
+è a target — costruire il GIOCO: più corpi DIVERSI + un VERBO (atterra · cammina · raccogli · vai altrove ·
+puoi fallire). **MVP: mini-loop su 2-3 corpi.**
+FATTO: hand-off di gravità, mappa+selezione, **viaggio fra corpi + match-velocity**, indicatore di rotta,
+**autopilota**, **editor di pianeti + ricette**, **quadtree CDLOD**, **secondo corpo (Cetra)** — puoi volare
+da un corpo all'altro, atterrare, ripartire. MANCANO: il teletrasporto, il VERBO, altri corpi diversi.
+**Prossima sessione (deciso con Dario):** una serie di **migliorie all'editor di pianeti e alle ricette**.
 
 ## Come si avvia
 
-Unity 6, menu **Wanderer → Crea scena demo**, poi **Play**. Tutta la scena è
-costruita da codice in `GameBootstrap.cs`: niente setup manuale nell'editor.
-I parametri (raggi, gravità, terreno, torcia) sono lì, commentati.
+Unity 6, menu **Wanderer → Crea scena di gioco**, poi **Play** (il comando crea `Game.unity` e la
+registra nei Build Settings → niente "build nera"). Tutta la scena è costruita da codice in
+`GameBootstrap.cs`: niente setup manuale nell'editor. I parametri (raggi, gravità, terreno, orbite,
+torcia) sono lì, commentati. Altri menu: **Wanderer → Apri editor pianeti** (scena editor) e
+**Wanderer → Bake planet assets** (bake offline su disco di pianeta + Cetra).
 
 ## Architettura
 
@@ -181,16 +199,18 @@ Core/      Vector3d, FloatingOrigin   — doppia precisione, origine ancorata al
            RenderScaler               — render a frazione di risoluzione (ora 1.0: GPU libera)
            GameSettings               — opzioni runtime (facilitazioni) statiche + PlayerPrefs
 Physics/   KeplerOrbit, CelestialBody (UniversePosition + UniverseVelocityAt), SolarSystem (Reference: corpo ancorato; preserva la velocità allo switch)
-World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di TerrainLayer, unica verità mesh+walker
+World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di TerrainLayer, unica verità mesh+walker. Recipe + ApplyRecipe
+           PlanetRecipe      — RICETTA salvabile (JSON): forma base + N pipeline crateri + colore. LoadResource / ScaledTo(raggio)
            TerrainLayer      — astrazione di un processo (forma → altezza); base, poi crateri, ...
            BaseTerrainLayer  — forma di base (fBm)
-           CraterTerrainLayer— processo "bombardamento": crateri additivi, griglia 3D hashata, profilo C1
+           CraterTerrainLayer— processo "bombardamento": crateri additivi, griglia 3D hashata; profilo a legge di potenza (rimSharpness)
            Noise3D           — gradient noise (Perlin) CPU per la forma della mesh
-           PlanetMeshBuilder — cube-sphere; ComputeFaceData (thread-safe) + CreateMesh (main thread)
-           SingleMeshPlanet  — 6 facce, no LOD, build su thread + proxy
-           PlanetPresets     — parametri terreno dei corpi (preset condiviso scena + bake offline: una verità)
-           PlanetBaker       — bakea per faccia: maschera minerale + normale crateri; detail-normal condivisa.
-                               Runtime (RT, ~1.9s, fallback) o da disco (TryLoadBakedMaterials ← asset bakeati)
+           PlanetMeshBuilder — cube-sphere; ComputeFaceData (thread-safe) + CreateMesh (main thread); FaceAxes/ParamToDir
+           PlanetQuadtree    — RENDERER attivo: chunked LOD CDLOD (geomorph, skirt, cache LRU, async). Init(terrain, faceMats, cam)
+           SingleMeshPlanet  — 6 facce, niente LOD, build su thread + proxy. FALLBACK (useQuadtree=OFF)
+           PlanetPresets     — ConfigureDemoPlanet → ApplyRecipe(PlanetRecipe.Demo()) (condiviso scena + bake)
+           PlanetBaker       — bakea per faccia (mask + normale crateri dalla RICETTA + colori): runtime (RT, fallback) o
+                               da disco per-corpo (TryLoadBakedMaterials(terrain, dir) ← Resources/BakedPlanet[_Cetra])
            SunLight
 Player/    PlanetWalker   — camminata su sfera + volo jetpack (volo libero in Newtoniano, spinta scalata alla gravità)
            Flashlight     — torcia che scala con la quota
@@ -199,10 +219,13 @@ Player/    PlanetWalker   — camminata su sfera + volo jetpack (volo libero in 
            OrbitDisplay   — orbite del sistema a schermo (O), anche in volo (ellisse cacheata)
 Items/     SuitPickup
 UI/        SettingsMenu   — schermata impostazioni (à): congela i comandi, regola le facilitazioni
-Bootstrap/ GameBootstrap  — costruisce la scena (tutti i parametri sono qui)
-Editor/    SceneSetup, PlanetBakeTool (menu "Wanderer → Bake planet assets": bake offline su disco, #13)
+           PlanetEditor   — UI dell'editor di pianeti (scena separata): modifica la RICETTA, anteprima live, salva/carica
+           EditorOrbitCam — camera orbitale dell'editor (tasto destro ruota, rotella zoom)
+Bootstrap/ GameBootstrap        — costruisce la scena di gioco (parametri qui; toggle useQuadtree; ApplyCetraRecipe + BuildCetra)
+           PlanetEditorBootstrap— costruisce la scena editor (pianeta da SmoothSphere + camera orbitale + UI)
+Editor/    SceneSetup (menu "Crea scena di gioco" / "Apri editor pianeti"), PlanetBakeTool ("Bake planet assets": bake offline pianeta + Cetra, #13)
 Debug/     DebugHud
-Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta (la mesh singola usa questo)
+Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta + GEOMORPH CDLOD nel vert (quadtree)
            CraterNormalBake (Wanderer/CraterNormalBake) — bake normale crateri per faccia (mippata)
            PlanetBake (Wanderer/PlanetBake)          — bake maschera minerale
            DetailNormalBake                          — bake grana → normal map tileable
@@ -307,6 +330,33 @@ vicino all'origine di Unity → la precisione non degrada mai.
   quadtree LOD. Nota di coerenza: il walker segue `SampleHeight` (Noise3D, CPU)
   mentre il displacement userebbe `fbmRelief` (HLSL) → il giocatore "fluttua" sui
   bump nuovi finché le due altezze non si uniscono.
+- **Quadtree CDLOD: è il renderer GIUSTO per i corpi rocciosi (era accantonato per errore).** La mesh singola a
+  res fissa ha un MURO di risoluzione: da vicino i crateri si sfaccettano e non puoi avere bordi nitidi
+  calpestabili. Il quadtree (chunked LOD + geomorph + skirt) dà geometria vera view-dependent → look Elite/Star
+  Citizen. Era stato tolto pensando "a questa scala la mesh singola basta": sbagliato appena servono crateri
+  nitidi a terra. Lo shader teneva già il geomorph nel vert → riesumarlo (`git show d798107:.../PlanetQuadtree.cs`)
+  è stato il 90% del lavoro. NON ri-accantonarlo.
+- **Geomorph: il vertice COMPLETA la morph verso il genitore entro la PROPRIA distanza di split**, non a quella di
+  merge. `mf = saturate((d − splitDist·(1−range))/(splitDist·range))`. Così quando una patch arriva al suo limite —
+  dove può confinare con una più grossa — è già sulla forma del genitore (= la forma della vicina) → i gradini si
+  chiudono. Se completa più tardi (1.4·splitDist) resta di dettaglio dove la vicina è già grossa → scalino.
+- **Skirt: la profondità NON è arbitraria, è il salto di morph del bordo.** Il gap massimo a un confine di LOD è
+  `|delta di morph|` del vertice dispari (scarto fra forma fine e forma del genitore), l'unica cosa che muove quei
+  vertici. `skirtDrop = max(worldSize·skirtFactor, maxEdgeMorphDelta·2)`, clamp [3, worldSize] → niente fessure per
+  costruzione. Lo skirt deve anche **morfare col bordo** (stesso delta) e avere **normale radiale** (verso l'alto),
+  o: crepa sopra lo skirt durante il morph, e lametta verticale scura ai confini.
+- **Stitch di LOD (transizioni di shading ai confini): ACCANTONATO.** Niente fessure/buchi, ma restano "scalini" di
+  shading dove due livelli si toccano (peggio coi salti di 2+ livelli: l'albero non è bilanciato). Il fix definitivo
+  è il **quadtree bilanciato 2:1** (vicini ≤ 1 livello → il morph di un livello basta; si possono togliere gli skirt).
+  Deciso ma RIMANDATO: ci si è persi troppo tempo, si va avanti col gioco.
+- **Colore dalla ricetta.** `PlanetBaker.BuildMaterial` DEVE impostare `_SoilMean/_MariaColor/_MariaScale/_MariaStr`
+  da `terrain.Recipe`, o un corpo marziano esce grigio (lo shader resta sul default lunare). L'editor li spingeva a
+  mano; in gioco serve qui.
+- **Performance/load del quadtree (prossimo passo, opzione "a" decisa, NON ancora fatto):** il collo di bottiglia è la
+  CPU che ricalcola il rumore per ogni vertice di ogni nodo (load lento + finestra "seghettata" finché rifinisce). Il
+  bake produce GIÀ le HEIGHTMAP per faccia: far campionare al quadtree la heightmap (un fetch) invece del rumore =
+  CPU scarica, build veloce. Attenzione: campionare per DIREZIONE→faccia (non per-faccia con clamp) o si reintroducono
+  giunture ai 6 spigoli del cubo. Walker resta analitico (opzione a).
 
 ## Superficie e shader (Wanderer/PlanetBaked)
 
@@ -323,16 +373,24 @@ Catena del colore in `surf`:
 5. **normale**: un soffio di micro-grana (`_GrainStr`) solo < ~13 m (la normale ad alta
    frequenza è la prima causa di sparkle/moiré sotto luce → quasi spenta).
 
-`vert` fa il **geomorph** (CDLOD) leggendo UV2 (xyz = spostamento verso il genitore, w =
-splitDist): transizione LOD continua, niente pop. Tutto è world-fixed + mipmappato.
+`vert` fa il **geomorph** (CDLOD) leggendo UV2 (xyz = spostamento verso il genitore, w = splitDist): il vertice
+morfa verso la forma del genitore **completando entro la propria distanza di split** (banda [splitDist·(1−`_MorphRange`),
+splitDist]) → quando confina con una patch più grossa è già sulla sua forma, transizione continua, niente pop. Anche il
+**COLORE** viene dalla ricetta (`_SoilMean`/`_MariaColor`/`_MariaScale`/`_MariaStr`, impostati in `PlanetBaker.BuildMaterial`).
+Tutto world-fixed + mipmappato.
 
-Manopole identità pianeta: `_SoilMean`/`_SoilTint` (colore), `Amplitude`/`Octaves` nel
-terreno (forma). Texture: solo `soil_dirt` è usata (base+grana+normale). `soil_red`/`soil_rock`
-sono importate per i pianeti futuri (rosso/scuro), non ancora cablate.
+Manopole identità pianeta: ora la **RICETTA** (`PlanetRecipe`): colore suolo/mari, forma base (ampiezza/freq/ottave),
+pipeline di crateri (raggio/densità/profondità/bordo/`rimSharpness`). Texture: solo `soil_dirt` è usata (base+grana+normale);
+`soil_red`/`soil_rock` importate per pianeti futuri, non ancora cablate.
 
 ## Generazione pianeti (roadmap concordata)
 
-Obiettivo: dare a Claude la **composizione chimica** (+ proprietà fisiche) di un corpo e
+**Stato:** esiste l'**editor di pianeti** (scena separata) e il modello-dati **`PlanetRecipe`** (forma base +
+pipeline di crateri + colore, salvabile in JSON). Cetra è stata creata così. La RICETTA è la fonte di verità
+condivisa da editor, bake e quadtree. **Prossima sessione: migliorie a editor + ricette** (es. swap/scala texture,
+più tipi di pipeline — mari/tettonica/montagne/ghiaccio —, editing per-feature dei singoli crateri, più preset).
+
+Obiettivo a tendere: dare a Claude la **composizione chimica** (+ proprietà fisiche) di un corpo e
 generare un pianeta "tipo-Mercurio / tipo-Luna / tipo-Ganimede".
 
 **Verità tecnica:** la composizione NON produce l'aspetto in modo deterministico — l'aspetto
@@ -359,3 +417,7 @@ ghiaccio, poi atmosfera). Mai costruire sul vuoto.
 
 Repo su `dudero78/wanderer`, branch `main`, via host SSH `github.com-dudero78`.
 Dario lavora su `main` (progetto solo). Commit/push solo su richiesta.
+
+Le cartelle `Assets/Resources/BakedPlanet*` (texture bakeate) sono in `.gitignore`: sono cache PESANTI ma
+RIGENERABILI dal comando "Bake planet assets". Le **ricette** (`Resources/Planets/*.json`) e le texture sorgente
+(`Resources/Textures`) restano versionate: sono le fonti, il bake è derivato.
