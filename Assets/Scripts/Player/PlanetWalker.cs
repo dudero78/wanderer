@@ -306,14 +306,14 @@ public class PlanetWalker : MonoBehaviour
                 rb.AddForce(nThrust * liftThrust * thrustSpool01, ForceMode.Acceleration);
                 boost01 = 0f;   // azzerato: tornando a Crociera si riparte da manovra
 
-                // Freno di assetto (MATCH VELOCITY): porta a zero la velocità rispetto al corpo
-                // ANCORATO. L'origine è ancorata al corpo sotto i piedi (a terra) o alla DESTINAZIONE
-                // selezionata (in volo), quindi rb.linearVelocity È già la velocità relativa a quel
-                // corpo. Tienilo premuto per "sincronizzarti" con la destinazione (resta centrata) o
-                // per uscire dall'orbita di un pianeta (annulli la tangenziale e la gravità ti fa scendere).
+                // MATCH VELOCITY (X): TIENI la velocità relativa al corpo ANCORATO a ZERO. L'origine è ancorata
+                // al corpo sotto i piedi (a terra) o alla DESTINAZIONE in volo, quindi rb.linearVelocity È già la
+                // velocità relativa a quel corpo. Tenuto premuto: annulla lo slancio E contrasta la gravità →
+                // resti FERMO rispetto al corpo (hover vicino a un pianeta, sincronizzato con la destinazione in
+                // viaggio). NON è "frena e cadi": per scendere/atterrare RILASCI X (la gravità ti riprende) o Shift.
                 Braking = Input.GetKey(brakeKey);
                 // spool del freno: sale a 1 in brakeRampTime tenendo X, ricade quasi subito al rilascio. Così
-                // un tap accidentale frena pochissimo (parte dolce) ma tenuto premuto sale RAPIDISSIMO.
+                // un tap accidentale frena/tiene pochissimo (parte dolce) ma tenuto premuto sale RAPIDISSIMO.
                 brakeSpool01 = Mathf.MoveTowards(brakeSpool01, Braking ? 1f : 0f,
                                                  Time.fixedDeltaTime / (Braking ? Mathf.Max(brakeRampTime, 0.01f) : 0.05f));
                 if (Braking)
@@ -330,6 +330,10 @@ public class PlanetWalker : MonoBehaviour
                         float newSp = Mathf.Max(0f, sp - decel * Time.fixedDeltaTime);
                         rb.linearVelocity = vel * (newSp / sp);
                     }
+                    // ...e contrasta la gravità (annullata in proporzione allo spool, applicata in cima a g pieno):
+                    // a freno pieno la gravità netta è 0 → NON affondi più, tieni la quota. Prima la frenata aveva
+                    // poca autorità vicino allo zero e la gravità vinceva → si scendeva a ~5 m/s. In spazio g≈0 → nullo.
+                    rb.AddForce(up * g * brakeSpool01, ForceMode.Acceleration);
                 }
             }
             else

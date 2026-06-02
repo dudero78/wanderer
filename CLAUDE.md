@@ -48,8 +48,10 @@ Phobos/Luna). Identità pianeta = 2 colori (`_SoilMean`/`_SoilTint`) + manopole 
   bersaglio "scivolerebbe" via. Spinta **scalata alla gravità locale**
   (`max(newtonThrust, 1.6·g)`) → decolli da QUALUNQUE corpo, anche la stella (g=100):
   invariante "ciò su cui atterri, lo puoi lasciare". Sarà il default dell'astronave.
-  **Freno di assetto** (`X`, match velocity): azzera la velocità relativa al **corpo
-  ancorato** — serve per sincronizzarti con la destinazione, uscire dall'orbita, atterrare.
+  **Match velocity** (`X`): TIENE a zero la velocità relativa al **corpo ancorato** — finché premi, annulla
+  lo slancio E contrasta la gravità (in proporzione allo spool del freno) → resti FERMO rispetto al corpo
+  (hover vicino a un pianeta, sincronizzato con la destinazione in viaggio). Non è "frena e cadi": per
+  scendere/atterrare **rilasci X** (la gravità ti riprende) o usi Shift. In spazio profondo (g≈0) = puro freno.
 
 HUD volo: **altitudine** sul corpo di gravità più vicino + **distanza** sul corpo
 selezionato (separate); velocità, **radiale con segno** (− = ti avvicini),
