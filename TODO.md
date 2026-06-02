@@ -106,3 +106,7 @@ richiede corpi residenti (buildarli tutti all'avvio); più pianeti dà materiale
   ricetta — trappola identica al quadtree se astrai troppo presto).
 - Giganti gassosi / stelle come **volumi** (secondo renderer volumetrico raymarch), non mesh walkable.
 - 6DOF pieno con roll: solo come modalità astronave, se mai servirà (per il viaggio attuale non serve).
+- **Proiezione non-rettilineare (stereografica/Panini)** come post-process: tiene i corpi TONDI anche a FOV
+  ampio (la deformazione ai bordi è inerente alla proiezione rettilineare, non riducibile a FOV fisso). In un
+  gioco spaziale ha quasi solo vantaggi (poche linee rette da incurvare). Rimandata: per ora il FOV è la leva
+  (default 52°, slider 35–80 nel menù à). Si farà col look definitivo, non ora (priorità al GIOCO).
