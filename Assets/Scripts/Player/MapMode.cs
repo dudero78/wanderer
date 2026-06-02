@@ -39,6 +39,7 @@ public class MapMode : MonoBehaviour
 
     public CelestialBody Selected => selected;
     public bool Active => state != State.Off;
+    public Camera ViewCamera => mapCam;   // la camera della mappa (per il reticolo di rotta in modalità mappa)
 
     public void Init(Camera playerCamera, PlanetWalker w, SolarSystem s)
     {

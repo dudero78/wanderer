@@ -84,6 +84,9 @@ velocità orbitali e rendeva il match-velocity ingiocabile).
   **SINCRONIZZATO** (verde) quando la velocità relativa ~0. Freccia al bordo se fuori vista, si
   dissolve quando il corpo riempie lo schermo. Tutto scalato con la risoluzione. Texture procedurali una
   volta all'avvio. Drift residuo dopo il match = FISICA (gravità), si trimma a mano (→ autopilota #12).
+  I numeri (distanza/velocità) hanno l'offset dal centro **cappato** → da vicino restano sul corpo, non
+  escono dalla visuale. **Compare anche in MAPPA** sul corpo selezionato (usa la camera della mappa via
+  `MapMode.ViewCamera`): anello + chevron + NOME del corpo → si vede subito quale è selezionato.
   **Gauge di frenata** (in basso al centro, solo in volo libero MANUALE newtoniano): barra verso la tacca
   "ORA". Distanza necessaria calcolata ONESTAMENTE dai valori in gioco (non va più ritoccata): `d_react`
   (continui ad avvicinarti mentre reagisci + lo spool del freno: `closing·(brakeRampTime + ReactionTime)`)

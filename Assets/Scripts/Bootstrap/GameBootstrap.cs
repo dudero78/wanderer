@@ -256,7 +256,7 @@ public class GameBootstrap : MonoBehaviour
 
         // --- Indicatore di rotta: reticolo stile Outer Wilds sul corpo selezionato (bussola del viaggio) ---
         var route = gameObject.AddComponent<RouteIndicator>();
-        route.Init(cam, walker, solar);
+        route.Init(cam, walker, solar, map);
 
         // --- Orbite a schermo (O): linee delle orbite del sistema, anche in volo ---
         var orbitDisplay = gameObject.AddComponent<OrbitDisplay>();

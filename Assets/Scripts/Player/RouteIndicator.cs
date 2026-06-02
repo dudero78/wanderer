@@ -17,6 +17,8 @@ public class RouteIndicator : MonoBehaviour
     Camera cam;
     PlanetWalker walker;
     SolarSystem solar;
+    MapMode map;     // per disegnare il reticolo anche in mappa (sul corpo selezionato), con la sua camera
+    Camera view;     // camera ATTIVA in questo frame: quella del giocatore, o quella della mappa se aperta
 
     Texture2D ringTex, chevronTex, discTex, progradeTex, retroTex, barTex;
     GUIStyle label;
@@ -34,11 +36,12 @@ public class RouteIndicator : MonoBehaviour
     const float ReactionTime = 1.5f;     // margine di reazione umano (s) sommato allo spool del freno nella gauge di frenata
     const float WarnMinClosing = 50f;    // sotto questa velocità di avvicinamento (m/s) la gauge NON compare: è un avviso da viaggio interplanetario, non per volo radente / saltelli / manovra fine vicino al suolo (lì usi i motori, non il freno)
 
-    public void Init(Camera playerCamera, PlanetWalker w, SolarSystem s)
+    public void Init(Camera playerCamera, PlanetWalker w, SolarSystem s, MapMode m)
     {
         cam = playerCamera;
         walker = w;
         solar = s;
+        map = m;
 
         // Anello a PARENTESI stile Outer Wilds: due archi sottili a SINISTRA e DESTRA, con ampi varchi sopra
         // e sotto. Banda con smoothstep a mano + alone tenue; le estremità degli archi sfumano nel varco.
@@ -100,15 +103,22 @@ public class RouteIndicator : MonoBehaviour
     void OnGUI()
     {
         if (Event.current.type != EventType.Repaint) return;
-        if (cam == null || solar == null || !cam.enabled) return;   // cam spenta = modalità mappa: niente reticolo
+        if (cam == null || solar == null) return;
         var target = solar.Destination;
         if (target == null) return;
+
+        // Camera ATTIVA: in mappa il reticolo segue la camera della mappa → vedi quale corpo è selezionato.
+        // Altrimenti la camera del giocatore (se spenta e non in mappa, niente da disegnare).
+        bool mapActive = map != null && map.Active;
+        view = mapActive ? map.ViewCamera : cam;
+        if (view == null || !view.enabled) return;
+
         if (label == null)
             label = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
         float ui = Mathf.Max(1f, Screen.height / 1080f);   // scala l'HUD con la risoluzione (Retina/4K)
         label.fontSize = Mathf.RoundToInt(14f * ui);
 
-        Vector3 camPos = cam.transform.position;
+        Vector3 camPos = view.transform.position;
         Vector3 tp = target.transform.position;
         Vector2 gui = ToGui(tp, out bool behind, out bool onScreen);
 
@@ -128,7 +138,7 @@ public class RouteIndicator : MonoBehaviour
         // u = d_required / distanza-dalla-superficie. u=1 → ULTIMO momento per frenare; >1 → non ce la fai più.
         // Disegnata SEMPRE (anche quando il corpo riempie lo schermo e il reticolo svanisce): lì serve di più.
         // Sotto autopilota è nascosta (frena lui).
-        if (airborne && walker != null && walker.IsNewtonian && !walker.Autopilot)
+        if (!mapActive && airborne && walker != null && walker.IsNewtonian && !walker.Autopilot)
         {
             Vector3 toTb = (tp - camPos).normalized;
             float closingB = Vector3.Dot(relVel, toTb);          // + = ti avvicini
@@ -145,7 +155,7 @@ public class RouteIndicator : MonoBehaviour
         }
 
         // raggio VERO a schermo (per la dissolvenza ravvicinata) e raggio CLAMPATO (per il disegno leggibile).
-        float focal = Screen.height / (2f * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad));
+        float focal = Screen.height / (2f * Mathf.Tan(view.fieldOfView * 0.5f * Mathf.Deg2Rad));
         float trueRad = focal * (float)target.Radius / Mathf.Max(dist, 1f);
         // quando il corpo riempie lo schermo svanisce: sei arrivato, non intralcia.
         float fade = 1f - Smooth(0.85f, 1.3f, trueRad / (Screen.height * 0.5f));
@@ -170,7 +180,7 @@ public class RouteIndicator : MonoBehaviour
             // LATERALE (componente perpendicolare alla rotta verso il bersaglio), NON alla direzione pura: così
             // vicino allo zero il marker resta al centro e non "sbanda" — la direzione di un vettore minuscolo è
             // instabile. Tratteggio su entrambi. Deriva laterale ~0 mentre ti avvicini = allineato (verde).
-            if (airborne && relSpeed > SyncSpeed)
+            if (!mapActive && airborne && relSpeed > SyncSpeed)
             {
                 float pxPerMS = 6f * ui;        // pixel di offset per m/s di deriva laterale
                 float ringEdge = ring * 0.5f;
@@ -180,8 +190,8 @@ public class RouteIndicator : MonoBehaviour
                 float closing = Vector3.Dot(relVel, toT);          // + = ti avvicini
                 Vector3 latVel = relVel - toT * closing;           // deriva laterale (perpendicolare alla rotta)
                 float lateral = latVel.magnitude;
-                Vector2 off = new Vector2(Vector3.Dot(latVel, cam.transform.right),
-                                        -Vector3.Dot(latVel, cam.transform.up)) * pxPerMS;
+                Vector2 off = new Vector2(Vector3.Dot(latVel, view.transform.right),
+                                        -Vector3.Dot(latVel, view.transform.up)) * pxPerMS;
                 off.x = Mathf.Clamp(off.x, -maxLeash, maxLeash);   // clamp PER ASSE: deriva H e V leggibili separate
                 off.y = Mathf.Clamp(off.y, -maxLeash, maxLeash);
 
@@ -202,17 +212,26 @@ public class RouteIndicator : MonoBehaviour
                     Shadowed(new Rect(gui.x - 70f * ui, gui.y + ringEdge + 6f * ui, 140f * ui, 20f * ui), "ALLINEATO", Green, fade, TextAnchor.UpperCenter);
             }
 
-            // testo a lato: distanza sempre; velocità (col SEGNO) solo in volo.
-            float tx = gui.x + ring * 0.5f + 12f * ui, ty = gui.y - 16f * ui;
-            Shadowed(new Rect(tx, ty, 170f * ui, 22f * ui), FmtDist(dist), White, fade, TextAnchor.UpperLeft);
-            if (synced)
-                Shadowed(new Rect(tx, ty + 18f * ui, 170f * ui, 22f * ui), "SINCRONIZZATO", Green, fade, TextAnchor.UpperLeft);
-            else if (airborne)
+            // testo accanto al corpo. L'offset dal centro è CAPPATO: da vicino l'anello è enorme e, ancorando
+            // il testo al suo bordo, i numeri uscivano dalla visuale → li teniamo vicino al CENTRO del corpo
+            // (sempre visibili e utili). In mappa mostra il NOME (la distanza dalla camera-mappa non significa nulla).
+            float tx = gui.x + Mathf.Min(ring * 0.5f + 12f * ui, 100f * ui), ty = gui.y - 16f * ui;
+            if (mapActive)
             {
-                // velocità di avvicinamento col segno: − = ti ALLONTANI, + = ti avvicini.
-                Vector3 toT = (tp - camPos).normalized;
-                float closing = Vector3.Dot(relVel, toT);
-                Shadowed(new Rect(tx, ty + 18f * ui, 170f * ui, 22f * ui), closing.ToString("+0;-0;0") + " m/s", White, fade, TextAnchor.UpperLeft);
+                Shadowed(new Rect(tx, ty, 220f * ui, 22f * ui), target.gameObject.name, White, fade, TextAnchor.UpperLeft);
+            }
+            else
+            {
+                Shadowed(new Rect(tx, ty, 170f * ui, 22f * ui), FmtDist(dist), White, fade, TextAnchor.UpperLeft);
+                if (synced)
+                    Shadowed(new Rect(tx, ty + 18f * ui, 170f * ui, 22f * ui), "SINCRONIZZATO", Green, fade, TextAnchor.UpperLeft);
+                else if (airborne)
+                {
+                    // velocità di avvicinamento col segno: − = ti ALLONTANI, + = ti avvicini.
+                    Vector3 toT = (tp - camPos).normalized;
+                    float closing = Vector3.Dot(relVel, toT);
+                    Shadowed(new Rect(tx, ty + 18f * ui, 170f * ui, 22f * ui), closing.ToString("+0;-0;0") + " m/s", White, fade, TextAnchor.UpperLeft);
+                }
             }
         }
         else
@@ -226,7 +245,9 @@ public class RouteIndicator : MonoBehaviour
             Vector2 edge = ClampToRect(ctr, dir, new Rect(m, m, Screen.width - 2f * m, Screen.height - 2f * m));
             float ang = Mathf.Atan2(dir.x, -dir.y) * Mathf.Rad2Deg;  // casetta apice in alto → ruota verso dir
             DrawTex(chevronTex, edge, 26f * ui, 26f * ui, ang, baseCol, fade);
-            Shadowed(new Rect(edge.x - 60f * ui, edge.y + 18f * ui, 120f * ui, 20f * ui), FmtDist(dist), White, fade, TextAnchor.UpperCenter);
+            // in mappa la distanza dalla camera non significa nulla: solo la freccia, niente numero.
+            Shadowed(new Rect(edge.x - 60f * ui, edge.y + 18f * ui, 120f * ui, 20f * ui),
+                mapActive ? target.gameObject.name : FmtDist(dist), White, fade, TextAnchor.UpperCenter);
         }
     }
 
@@ -235,9 +256,9 @@ public class RouteIndicator : MonoBehaviour
     // Proietta un punto-mondo in coordinate GUI (y giù), riportando da pixel-camera a pixel-schermo (RenderScaler).
     Vector2 ToGui(Vector3 world, out bool behind, out bool onScreen)
     {
-        Vector3 sp = cam.WorldToScreenPoint(world);
-        if (cam.pixelWidth > 0) sp.x *= (float)Screen.width / cam.pixelWidth;
-        if (cam.pixelHeight > 0) sp.y *= (float)Screen.height / cam.pixelHeight;
+        Vector3 sp = view.WorldToScreenPoint(world);
+        if (view.pixelWidth > 0) sp.x *= (float)Screen.width / view.pixelWidth;
+        if (view.pixelHeight > 0) sp.y *= (float)Screen.height / view.pixelHeight;
         behind = sp.z <= 0f;
         Vector2 ctr = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
         Vector2 scr = new Vector2(sp.x, sp.y);
