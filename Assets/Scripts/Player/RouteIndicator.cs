@@ -18,7 +18,7 @@ public class RouteIndicator : MonoBehaviour
     PlanetWalker walker;
     SolarSystem solar;
 
-    Texture2D ringTex, chevronTex, discTex, progradeTex;
+    Texture2D ringTex, chevronTex, discTex, progradeTex, retroTex;
     GUIStyle label;
 
     // Tavolozza: blu di riposo, verde quando sincronizzato o in intercetto.
@@ -80,6 +80,14 @@ public class RouteIndicator : MonoBehaviour
             float tick = (1f - Smooth(5f, 9f, axis)) * Smooth(0.58f, 0.62f, r) * (1f - Smooth(0.92f, 0.97f, r));
             return Mathf.Max(circle, Mathf.Max(dot, tick));
         });
+
+        // Marker RETROGRADE: solo un cerchietto vuoto (l'opposto del prograde — "spingi di là per annullare").
+        retroTex = Make(64, 64, (u, v) =>
+        {
+            float dx = u - 0.5f, dy = v - 0.5f;
+            float r = 2f * Mathf.Sqrt(dx * dx + dy * dy);
+            return 1f - Smooth(0.05f, 0.07f, Mathf.Abs(r - 0.5f));
+        });
     }
 
     void OnGUI()
@@ -122,44 +130,41 @@ public class RouteIndicator : MonoBehaviour
             DrawTex(discTex, gui, 6f, 6f, 0f, A(Cyan, fade));            // pip centrale ciano
             DrawTex(chevronTex, gui + new Vector2(0f, -ring * 0.5f - 14f), 16f, 16f, 0f, baseCol, fade);  // casetta sopra il varco
 
-            // VETTORE VELOCITÀ (⊕): mostra dove punta la tua velocità rispetto al bersaglio. DERIVA dal reticolo
-            // in proporzione al disallineamento (2D: su/giù e sinistra/destra), fino a un tetto, e una LINEA
-            // TRATTEGGIATA lo tiene collegato al centro così non lo perdi mai (stile Outer Wilds). Quando torna
-            // sul bersaglio la velocità punta dritta lì = INTERCETTO (verde).
-            if (airborne && relSpeed > 0.5f)
+            // VETTORE VELOCITÀ — due marker: PROGRADE (pieno ⊕, dove derivi di lato) e RETROGRADE (cerchietto
+            // vuoto, l'opposto: spingi di là per annullare la deriva). L'offset è proporzionale alla velocità
+            // LATERALE (componente perpendicolare alla rotta verso il bersaglio), NON alla direzione pura: così
+            // vicino allo zero il marker resta al centro e non "sbanda" — la direzione di un vettore minuscolo è
+            // instabile. Tratteggio su entrambi. Deriva laterale ~0 mentre ti avvicini = allineato (verde).
+            if (airborne && relSpeed > SyncSpeed)
             {
+                const float pxPerMS = 6f;       // pixel di offset per m/s di deriva laterale
                 float ringEdge = ring * 0.5f;
-                float maxLeash = Mathf.Clamp(ring * 1.3f, 130f, 320f);   // quanto può allontanarsi dal centro
-                Vector2 off; float misalign;
-                if (ProgradeGui(relVel, out Vector2 vp))
-                {
-                    off = vp - gui;                 // offset 2D REALE: su/giù e sinistra/destra indipendenti
-                    misalign = off.magnitude;
-                }
-                else
-                {
-                    // velocità rivolta DIETRO: niente intercetto, indico solo la deriva proiettata, fuori dal box.
-                    Vector2 g = new Vector2(Vector3.Dot(relVel, cam.transform.right), -Vector3.Dot(relVel, cam.transform.up));
-                    off = (g.sqrMagnitude > 1e-6f ? g.normalized : new Vector2(0f, -1f)) * (maxLeash * 2f);
-                    misalign = float.MaxValue;
-                }
-                // clamp PER ASSE (box): il marker non esce mai, ma le due derive restano leggibili separate.
-                off.x = Mathf.Clamp(off.x, -maxLeash, maxLeash);
-                off.y = Mathf.Clamp(off.y, -maxLeash, maxLeash);
-                Vector2 mpos = gui + off;
-                bool intercept = misalign < Mathf.Max(rad * 0.4f, 12f);
-                Color pc = intercept ? Green : Blue;
+                float maxLeash = Mathf.Clamp(ring * 1.3f, 130f, 320f);
 
-                // tratteggio di collegamento: dal bordo dell'anello fino al marker (niente snap, posizione continua).
+                Vector3 toT = (tp - camPos).normalized;
+                float closing = Vector3.Dot(relVel, toT);          // + = ti avvicini
+                Vector3 latVel = relVel - toT * closing;           // deriva laterale (perpendicolare alla rotta)
+                float lateral = latVel.magnitude;
+                Vector2 off = new Vector2(Vector3.Dot(latVel, cam.transform.right),
+                                        -Vector3.Dot(latVel, cam.transform.up)) * pxPerMS;
+                off.x = Mathf.Clamp(off.x, -maxLeash, maxLeash);   // clamp PER ASSE: deriva H e V leggibili separate
+                off.y = Mathf.Clamp(off.y, -maxLeash, maxLeash);
+
+                bool aligned = lateral < 2f && closing > 0.5f;     // poca deriva E ti avvicini
+                Color pc = aligned ? Green : Blue;
+                Vector2 mpos = gui + off, rpos = gui - off;
+
                 float lead = off.magnitude;
                 if (lead > ringEdge + 12f)
                 {
                     Vector2 d = off / lead;
-                    DrawDots(gui + d * (ringEdge + 4f), mpos - d * 12f, pc, fade);
+                    DrawDots(gui + d * (ringEdge + 4f), mpos - d * 12f, pc, fade);             // verso prograde
+                    DrawDots(gui - d * (ringEdge + 4f), rpos + d * 12f, A(Blue, 0.5f), fade);  // verso retrograde
                 }
-                DrawTex(progradeTex, mpos, 24f, 24f, 0f, pc, fade);
-                if (intercept && !synced)
-                    Shadowed(new Rect(gui.x - 70f, gui.y + ringEdge + 6f, 140f, 20f), "INTERCETTO", Green, fade, TextAnchor.UpperCenter);
+                DrawTex(retroTex, rpos, 18f, 18f, 0f, A(Blue, 0.55f), fade);    // retrograde: cerchietto vuoto
+                DrawTex(progradeTex, mpos, 24f, 24f, 0f, pc, fade);            // prograde: ⊕ pieno
+                if (aligned && !synced)
+                    Shadowed(new Rect(gui.x - 70f, gui.y + ringEdge + 6f, 140f, 20f), "ALLINEATO", Green, fade, TextAnchor.UpperCenter);
             }
 
             // testo a lato: distanza sempre; velocità (col SEGNO) solo in volo.
@@ -203,19 +208,6 @@ public class RouteIndicator : MonoBehaviour
         if (behind) scr = ctr - (scr - ctr);                        // dietro: rifletti, così la freccia punta giusto
         onScreen = !behind && scr.x >= 0f && scr.x <= Screen.width && scr.y >= 0f && scr.y <= Screen.height;
         return new Vector2(scr.x, Screen.height - scr.y);
-    }
-
-    // Punto di fuga della velocità relativa in coordinate GUI: dove "scorre" il mondo se mantieni questa velocità.
-    bool ProgradeGui(Vector3 relVel, out Vector2 gui)
-    {
-        gui = default;
-        Vector3 far = cam.transform.position + relVel.normalized * 1e6f;
-        Vector3 sp = cam.WorldToScreenPoint(far);
-        if (sp.z <= 0f) return false;                               // velocità verso dietro: nessun marker prograde
-        if (cam.pixelWidth > 0) sp.x *= (float)Screen.width / cam.pixelWidth;
-        if (cam.pixelHeight > 0) sp.y *= (float)Screen.height / cam.pixelHeight;
-        gui = new Vector2(sp.x, Screen.height - sp.y);
-        return true;
     }
 
     // Velocità del giocatore RELATIVA al bersaglio (scena, per secondo reale). rb.linearVelocity è relativa

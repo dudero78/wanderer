@@ -35,8 +35,8 @@ public class PlanetWalker : MonoBehaviour
     public float cruiseAltHigh = 120f;    // sopra questa quota la crociera è pienamente sbloccata
 
     [Header("Newtoniano")]
-    public float newtonThrust = 30f;      // accelerazione a pieno regime, nessun limite di velocità
-    public float thrustRampTime = 1.2f;   // secondi perché i motori salgano a piena spinta (inerzia)
+    public float newtonThrust = 22f;      // accelerazione a pieno regime, nessun limite di velocità (più bassa = assetto più fine)
+    public float thrustRampTime = 1.8f;   // secondi perché i motori salgano a piena spinta (inerzia, onset morbido)
     public float brakeAccel = 250f;       // freno di assetto: doma centinaia di m/s in un paio di secondi
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
     public float rollSpeed = 75f;         // gradi/s di rollio con Q/E in volo libero
