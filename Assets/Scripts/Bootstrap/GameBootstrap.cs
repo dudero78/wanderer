@@ -106,6 +106,9 @@ public class GameBootstrap : MonoBehaviour
 
         solar.Register(planet);
 
+        // --- Cetra: piccola luna craterizzata in orbita attorno al pianeta (ricetta creata nell'editor) ---
+        BuildCetra(solar, planet);
+
         // origine ancorata al pianeta: resta a ~(0,0,0), il resto dell'universo si muove
         solar.Anchor = planet;
         planet.UpdatePosition(0);
@@ -249,6 +252,60 @@ public class GameBootstrap : MonoBehaviour
         // --- Schermata impostazioni (à): facilitazioni opzionali (es. autopilota stazionario) ---
         var settings = gameObject.AddComponent<SettingsMenu>();
         settings.Init(walker, cam);
+    }
+
+    /// <summary>
+    /// Costruisce Cetra come SECONDO corpo roccioso, luna del pianeta. Tutto il resto del gioco lo gestisce
+    /// già: il walker prende dinamicamente il corpo più vicino e il suo PlanetTerrain (camminata/gravità su
+    /// Cetra "gratis"), la mappa lo elenca tra le destinazioni, l'origine si ri-ancora a lui quando ci voli.
+    ///
+    /// SCALA: la ricetta è stata autorata a raggio 500 m; ScaledTo(raggio) scala le misure assolute (ampiezza,
+    /// raggi crateri) così l'aspetto resta identico su un corpo più piccolo. Cambiare 'radius' è l'unica leva.
+    /// Gravità BASSA (corpo piccolo) → salti lunghi col jetpack: un'esperienza diversa dal pianeta.
+    /// </summary>
+    // Definizione di Cetra in UN punto (raggio + cartella del bake offline), condiviso fra gioco e bake-tool.
+    public const float CetraRadius = 300f;          // raggio (m). Grande rispetto al pianeta (500 m): luna "vicina e vistosa".
+    public const string CetraBakedDir = "BakedPlanet_Cetra";
+
+    /// <summary>Applica la ricetta di Cetra (caricata dagli asset, scalata al raggio) a un PlanetTerrain. Una sola
+    /// fonte di verità per gioco e bake offline. Ritorna false se la ricetta manca.</summary>
+    public static bool ApplyCetraRecipe(PlanetTerrain terrain)
+    {
+        var recipe = PlanetRecipe.LoadResource("Cetra");
+        if (recipe == null) return false;
+        terrain.ApplyRecipe(recipe.ScaledTo(CetraRadius));   // baseRadius della ricetta = raggio → mesh e gravità sulla stessa scala
+        terrain.RebuildLayers();
+        return true;
+    }
+
+    static void BuildCetra(SolarSystem solar, CelestialBody planet)
+    {
+        var go = new GameObject("Cetra");
+        var terrain = go.AddComponent<PlanetTerrain>();
+        if (!ApplyCetraRecipe(terrain)) { Destroy(go); return; }   // ricetta assente: salta Cetra, il resto del gioco parte comunque
+
+        var body = go.AddComponent<CelestialBody>();
+        body.Radius = CetraRadius;
+        body.SurfaceGravity = 3.0;                  // luna piccola: ~0.3 g
+        body.Parent = planet;
+        body.Orbit = new KeplerOrbit
+        {
+            SemiMajorAxis = 4000,   // ~2.9 km dalla superficie del pianeta: separata, vistosa nel cielo, raggiungibile
+            Eccentricity = 0.05,
+            Period = 240,           // ~105 m/s di velocità orbitale: ben sotto i 628 del pianeta → facile da sincronizzare (X)
+            Inclination = 0.4       // ~23°: orbita inclinata, non complanare (più interessante da raggiungere)
+        };
+
+        // PRIMA gli asset bakeati offline di Cetra (sua cartella dedicata: "Wanderer/Bake planet assets"), poi runtime.
+        var faceMats = PlanetBaker.TryLoadBakedMaterials(terrain, CetraBakedDir) ?? PlanetBaker.BakeFaceMaterials(terrain, 64);
+        if (faceMats != null)
+        {
+            var smp = go.AddComponent<SingleMeshPlanet>();
+            smp.Build(terrain, faceMats, 256, 32);  // res mesh 256 (corpo piccolo: basta), proxy 32 istantaneo
+        }
+        else Debug.LogWarning("Cetra: bake non riuscito, niente superficie (corpo comunque presente per gravità/mappa).");
+
+        solar.Register(body);
     }
 
     static void SetColor(GameObject go, Color c, bool emissive = false)

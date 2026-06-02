@@ -72,6 +72,11 @@ public class SingleMeshPlanet : MonoBehaviour
         }
     }
 
+    /// <summary>Renderer della faccia f (0..5) in ordine di faccia. Lo usa l'editor per ri-bakeare la
+    /// normale-crateri sul materiale GIUSTO (l'ordine dei figli non è garantito).</summary>
+    public MeshRenderer FaceRenderer(int f)
+        => (filters != null && f >= 0 && f < 6 && filters[f] != null) ? filters[f].GetComponent<MeshRenderer>() : null;
+
     void Update()
     {
         if (faces == null) return;

@@ -47,9 +47,8 @@ public class PlanetEditorBootstrap : MonoBehaviour
         var mats = PlanetBaker.BakeFaceMaterials(terrain, 64);
         if (mats != null)
         {
-            // NELL'EDITOR la luce dei crateri viene dalle NORMALI DELLA MESH (che riflettono la ricetta) →
-            // WYSIWYG. La normale-crateri bakeata è decorrelata dalla ricetta (usa altri campi): la spengo.
-            foreach (var m in mats) if (m != null) m.SetFloat("_CraterNormalApply", 0f);
+            // La normale-crateri bakeata segue la RICETTA (vedi PlanetBaker.PrimaryCrater) → i bordi nitidi
+            // cadono sulle conche della mesh. L'editor la ri-bakea quando un'edit si assesta (PlanetEditor).
             smp = planetGo.AddComponent<SingleMeshPlanet>();
             smp.Build(terrain, mats, meshRes, 48);
         }

@@ -31,6 +31,7 @@ public class PlanetTerrain : MonoBehaviour
     public float CraterDensity = 0.55f;       // prob. che una cella contenga un cratere
     public float CraterDepthRatio = 0.20f;    // profondità conca = ratio × raggio
     public float CraterRimRatio = 0.30f;      // altezza bordo = ratio × profondità
+    public float CraterRimSharpness = 2f;     // ripidità parete → bordo (1 = cono, >1 = cresta netta)
     [Space]
     public bool DominantCrater = true;        // un grande impatto (tipo Stickney su Phobos)
     public Vector3 DominantCraterDir = new Vector3(0.3f, 1f, 0.2f);
@@ -71,7 +72,7 @@ public class PlanetTerrain : MonoBehaviour
             {
                 if (c == null || !c.enabled) continue;
                 var cl = new CraterTerrainLayer(Recipe.baseRadius, c.seed, c.octaves,
-                    c.largestRadius, c.density, c.depthRatio, c.rimRatio);
+                    c.largestRadius, c.density, c.depthRatio, c.rimRatio, c.rimSharpness);
                 if (c.dominant) cl.AddManual(c.dominantDir, c.dominantRadius);
                 layers.Add(cl);
             }
@@ -84,7 +85,7 @@ public class PlanetTerrain : MonoBehaviour
         if (CratersEnabled)
         {
             var craters = new CraterTerrainLayer(BaseRadius, CraterSeed, CraterOctaves,
-                CraterLargestRadius, CraterDensity, CraterDepthRatio, CraterRimRatio);
+                CraterLargestRadius, CraterDensity, CraterDepthRatio, CraterRimRatio, CraterRimSharpness);
             if (DominantCrater) craters.AddManual(DominantCraterDir, DominantCraterRadius);
             layers.Add(craters);
         }

@@ -32,3 +32,8 @@ sysinfo.txt
 # Build standalone locali (artefatti)
 *.app/
 build-test.app/
+
+# Texture bakeate dei pianeti: asset PESANTI ma RIGENERABILI dal comando "Wanderer/Bake planet assets"
+# (sono una cache delle ricette). Le RICETTE (Resources/Planets/*.json) e le texture sorgente
+# (Resources/Textures) restano versionate: sono le fonti, il bake è derivato.
+/[Aa]ssets/[Rr]esources/BakedPlanet*

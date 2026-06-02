@@ -36,6 +36,35 @@ public class PlanetRecipe
     public float mariaScale = 2.2f;
     public float mariaStrength = 0.7f;
 
+    /// <summary>Carica una ricetta salvata come asset del progetto (Assets/Resources/Planets/&lt;name&gt;.json, importata
+    /// come TextAsset) → finisce nella build. null se non c'è. Le ricette dell'editor (persistentDataPath) si
+    /// copiano qui per renderle parte del gioco.</summary>
+    public static PlanetRecipe LoadResource(string name)
+    {
+        var ta = Resources.Load<TextAsset>("Planets/" + name);
+        if (ta == null) { Debug.LogWarning("Ricetta '" + name + "' non trovata in Resources/Planets."); return null; }
+        return JsonUtility.FromJson<PlanetRecipe>(ta.text);
+    }
+
+    /// <summary>Copia della ricetta scalata a un nuovo raggio: le misure ASSOLUTE (ampiezza, raggi dei crateri) si
+    /// scalano col raggio, le grandezze adimensionali (frequenze, densità, rapporti, colori) restano invariate →
+    /// STESSO aspetto autorato, corpo più piccolo o più grande. Il baseRadius risultante DEVE combaciare col
+    /// Radius del CelestialBody (mesh e gravità sulla stessa scala).</summary>
+    public PlanetRecipe ScaledTo(float targetRadius)
+    {
+        var c = JsonUtility.FromJson<PlanetRecipe>(JsonUtility.ToJson(this));   // copia profonda
+        float k = baseRadius > 1e-3f ? targetRadius / baseRadius : 1f;
+        c.baseRadius = targetRadius;
+        c.amplitude *= k;
+        foreach (var cr in c.craters)
+        {
+            if (cr == null) continue;
+            cr.largestRadius *= k;
+            cr.dominantRadius *= k;
+        }
+        return c;
+    }
+
     /// <summary>Sfera quasi liscia, nessun processo: il punto di PARTENZA dell'editor (poi aggiungi tutto).</summary>
     public static PlanetRecipe SmoothSphere()
     {
@@ -72,6 +101,7 @@ public class CraterRecipe
     public float density = 0.55f;      // prob. cratere per cella [0..1]
     public float depthRatio = 0.20f;   // profondità/raggio
     public float rimRatio = 0.30f;     // bordo/profondità
+    public float rimSharpness = 2f;    // ripidità della parete verso il bordo: 1 = cono, >1 = fondo piatto + bordo a cresta netta
     [Space]
     public bool dominant = false;      // un grande impatto piazzato a mano (tipo Stickney)
     public Vector3 dominantDir = new Vector3(0.3f, 1f, 0.2f);

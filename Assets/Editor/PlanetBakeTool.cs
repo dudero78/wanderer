@@ -30,19 +30,32 @@ public static class PlanetBakeTool
             return;
         }
 
-        // pianeta temporaneo configurato come in gioco (preset condiviso): stesso terreno → bake coerente.
+        if (!AssetDatabase.IsValidFolder("Assets/Resources")) AssetDatabase.CreateFolder("Assets", "Resources");
+
+        // Un corpo per cartella. Il configuratore prepara il terreno (ricetta → pipeline) come in gioco:
+        // stessa fonte di verità → bake coerente con ciò che il gioco renderizza a runtime.
+        BakeBody(PlanetBaker.BakedDir, PlanetPresets.ConfigureDemoPlanet);
+        BakeBody(GameBootstrap.CetraBakedDir, t => GameBootstrap.ApplyCetraRecipe(t));
+
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        Debug.Log("Bake planet assets: FATTO (pianeta + Cetra). Caricate da disco a runtime.");
+    }
+
+    /// <summary>Bakea tutte le texture di UN corpo (mask + crater normal + detail + heightmap) nella cartella data.
+    /// 'configure' prepara il terreno (ricetta + RebuildLayers) come in gioco.</summary>
+    static void BakeBody(string bakedDirName, System.Action<PlanetTerrain> configure)
+    {
         var go = new GameObject("__planetBakeTemp");
         try
         {
             var terrain = go.AddComponent<PlanetTerrain>();
-            PlanetPresets.ConfigureDemoPlanet(terrain);
-            terrain.RebuildLayers();
+            configure(terrain);
 
             // cartella pulita
-            string dir = "Assets/Resources/" + PlanetBaker.BakedDir;
+            string dir = "Assets/Resources/" + bakedDirName;
             if (AssetDatabase.IsValidFolder(dir)) AssetDatabase.DeleteAsset(dir);
-            if (!AssetDatabase.IsValidFolder("Assets/Resources")) AssetDatabase.CreateFolder("Assets", "Resources");
-            AssetDatabase.CreateFolder("Assets/Resources", PlanetBaker.BakedDir);
+            AssetDatabase.CreateFolder("Assets/Resources", bakedDirName);
 
             var maskMat = PlanetBaker.CreateMaskMaterial();
             var craterMat = PlanetBaker.CreateCraterMaterial(terrain);
@@ -53,7 +66,7 @@ public static class PlanetBakeTool
 
             for (int f = 0; f < 6; f++)
             {
-                EditorUtility.DisplayProgressBar("Bake planet assets", "Faccia " + (f + 1) + "/6", f / 6f);
+                EditorUtility.DisplayProgressBar("Bake " + bakedDirName, "Faccia " + (f + 1) + "/6", f / 6f);
                 var maskRT = PlanetBaker.BakeMaskRT(terrain, f, MaskMeshRes, maskMat);
                 SaveRtAsAsset(maskRT, dir + "/Mask" + f + ".asset", TextureWrapMode.Clamp, FilterMode.Bilinear, 1);
                 var craterRT = PlanetBaker.BakeCraterNormalRT(terrain, f, PlanetBaker.CraterRtSize, craterMat, CraterMeshRes);
@@ -63,13 +76,9 @@ public static class PlanetBakeTool
             // HEIGHTMAP per faccia (Stage 1): displacement float mippato, dalla VERA SampleHeight (CPU, offline).
             for (int f = 0; f < 6; f++)
             {
-                EditorUtility.DisplayProgressBar("Bake planet assets", "Heightmap faccia " + (f + 1) + "/6", 0.5f + f / 12f);
+                EditorUtility.DisplayProgressBar("Bake " + bakedDirName, "Heightmap faccia " + (f + 1) + "/6", 0.5f + f / 12f);
                 SaveHeightmap(terrain, f, dir + "/Height" + f + ".asset");
             }
-
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-            Debug.Log("Bake planet assets: FATTO → " + dir + " (mask+crater+detail + 6 heightmap). Caricate da disco a runtime.");
         }
         finally
         {

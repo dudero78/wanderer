@@ -18,6 +18,7 @@ Shader "Wanderer/CraterNormalBake"
         _CraterDensity ("Crateri: densità", Float) = 0.55
         _CraterDepthRatio ("Crateri: profondità/raggio", Float) = 0.2
         _CraterRimRatio ("Crateri: bordo/profondità", Float) = 0.3
+        _CraterRimSharp ("Crateri: ripidità parete (esponente)", Float) = 2
         _CraterNormalStr ("Crateri: forza (ripidità ottica)", Float) = 0.6
     }
     SubShader
@@ -35,7 +36,7 @@ Shader "Wanderer/CraterNormalBake"
             #include "UnityCG.cginc"
 
             float _BaseRadius, _CraterSeed, _CraterOctaves, _CraterLargest, _CraterDensity;
-            float _CraterDepthRatio, _CraterRimRatio, _CraterNormalStr;
+            float _CraterDepthRatio, _CraterRimRatio, _CraterRimSharp, _CraterNormalStr;
 
             uint cHash(int3 p, uint seed)
             {
@@ -84,8 +85,9 @@ Shader "Wanderer/CraterNormalBake"
                                 float rim = depth * _CraterRimRatio;
                                 float floorR = 0.15;
                                 float dcav = 0.0;
-                                if (r > floorR && r < 1.0) { float t = (r - floorR) / (1.0 - floorR); dcav = 6.0 * t * (1.0 - t) / (1.0 - floorR); }
-                                float wri = (r <= 1.0) ? 0.5 : 0.9;
+                                // derivata della parete a legge di potenza cav=-(1-t^k): d/dr = k·t^(k-1)/(1-floorR)
+                                if (r > floorR && r < 1.0) { float t = (r - floorR) / (1.0 - floorR); dcav = _CraterRimSharp * pow(t, _CraterRimSharp - 1.0) / (1.0 - floorR); }
+                                float wri = (r <= 1.0) ? 0.42 : 0.7;
                                 float drr = r - 1.0;
                                 float ring = exp(-(drr * drr) / (wri * wri));
                                 float dOdr = depth * dcav + rim * ring * (-2.0 * drr / (wri * wri));

@@ -11,14 +11,19 @@ using UnityEngine;
 /// </summary>
 public class PlanetEditor : MonoBehaviour
 {
-    const int PreviewRes = 110;
+    const int PreviewRes = 128;        // mesh durante il drag (reattiva)
+    const int FinalRes = 256;          // mesh quando l'edit si assesta (nitida)
+    const int BakeMeshRes = 48;        // mesh d'appoggio per il ri-bake della normale-crateri
+    const int EditorCraterRt = 512;    // risoluzione RT della normale-crateri nell'editor (rapida da ri-bakeare)
 
     PlanetTerrain terrain;
     SingleMeshPlanet smp;
     PlanetRecipe recipe;
     MeshRenderer[] faceRenderers;
+    RenderTexture[] craterRTs;         // normale-crateri per faccia: liberate e rifatte a ogni assestamento
 
     bool geomDirty, colorDirty;
+    int settleTimer = -1;              // ≥0 = sto contando i frame dall'ultima modifica per rifinire
     int pendingRemove = -1;
     bool pendingAdd;
     Vector2 scroll;
@@ -43,8 +48,47 @@ public class PlanetEditor : MonoBehaviour
         if (pendingRemove >= 0 && pendingRemove < recipe.craters.Count) { recipe.craters.RemoveAt(pendingRemove); pendingRemove = -1; geomDirty = true; }
         if (pendingAdd) { recipe.craters.Add(new CraterRecipe()); pendingAdd = false; geomDirty = true; }
 
-        if (geomDirty) { terrain.ApplyRecipe(recipe); if (smp != null) smp.RebuildSync(terrain, PreviewRes); geomDirty = false; }
+        if (geomDirty)
+        {
+            terrain.ApplyRecipe(recipe);
+            if (smp != null) smp.RebuildSync(terrain, PreviewRes);   // anteprima rapida durante il drag
+            geomDirty = false;
+            settleTimer = 0;                                          // avvia il conto per la rifinitura
+        }
+        else if (settleTimer >= 0)
+        {
+            settleTimer++;
+            if (settleTimer > 10)                                     // edit assestato (~0.2 s fermo)
+            {
+                if (smp != null) smp.RebuildSync(terrain, FinalRes);  // mesh ad alta risoluzione
+                RebakeCraters();                                      // normale-crateri coerente con la ricetta
+                settleTimer = -1;
+            }
+        }
+
         if (colorDirty) { PushColors(); colorDirty = false; }
+    }
+
+    /// <summary>Ri-bakea la normale dei crateri (bordi nitidi) dalla ricetta corrente, per faccia. Fatto solo
+    /// all'assestamento di un edit: durante il drag si vede la sola mesh (basta per orientarsi).</summary>
+    void RebakeCraters()
+    {
+        if (smp == null) return;
+        var craterMat = PlanetBaker.CreateCraterMaterial(terrain);
+        if (craterMat == null) return;
+        if (craterRTs == null) craterRTs = new RenderTexture[6];
+        var prev = RenderTexture.active;
+        for (int f = 0; f < 6; f++)
+        {
+            var r = smp.FaceRenderer(f);
+            if (r == null || r.sharedMaterial == null) continue;
+            var rt = PlanetBaker.BakeCraterNormalRT(terrain, f, EditorCraterRt, craterMat, BakeMeshRes);
+            r.sharedMaterial.SetTexture("_CraterNormalMap", rt);
+            if (craterRTs[f] != null) craterRTs[f].Release();
+            craterRTs[f] = rt;
+        }
+        RenderTexture.active = prev;
+        Destroy(craterMat);
     }
 
     void PushColors()
@@ -110,6 +154,7 @@ public class PlanetEditor : MonoBehaviour
             c.octaves = Mathf.RoundToInt(Slider("Ottave taglia", c.octaves, 1, 7, ui, ref geomDirty));
             c.depthRatio = Slider("Profondità/raggio", c.depthRatio, 0.05f, 0.5f, ui, ref geomDirty);
             c.rimRatio = Slider("Bordo/profondità", c.rimRatio, 0.1f, 0.6f, ui, ref geomDirty);
+            c.rimSharpness = Slider("Nitidezza bordi", c.rimSharpness, 1f, 4f, ui, ref geomDirty);
             c.dominant = Toggle("Dominante", c.dominant, ui);
             if (c.dominant) c.dominantRadius = Slider("  raggio dominante", c.dominantRadius, 50f, 500f, ui, ref geomDirty);
             GUILayout.Space(8f * ui);
@@ -125,7 +170,7 @@ public class PlanetEditor : MonoBehaviour
         GUILayout.EndHorizontal();
 
         GUILayout.EndScrollView();
-        GUILayout.Label("Tasto DESTRO + trascina = ruota · rotella = zoom · anteprima " + PreviewRes, val);
+        GUILayout.Label("Tasto DESTRO + trascina = ruota · rotella = zoom · si rifinisce quando fermi lo slider", val);
         GUILayout.EndArea();
     }
 

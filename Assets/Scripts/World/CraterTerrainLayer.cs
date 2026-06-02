@@ -27,6 +27,7 @@ public class CraterTerrainLayer : TerrainLayer
     readonly float density;         // prob. che una cella contenga un cratere [0..1]
     readonly float depthRatio;      // profondità conca = depthRatio × raggio
     readonly float rimRatio;        // altezza bordo   = rimRatio × profondità
+    readonly float rimSharpness;    // esponente della parete: 1 = cono, >1 = fondo piatto + bordo a cresta netta
 
     // Crateri "a mano" (es. il dominante tipo Stickney): valutati sempre, fuori dal campo.
     struct Manual { public Vector3 dir; public float radius; }
@@ -52,7 +53,7 @@ public class CraterTerrainLayer : TerrainLayer
     const float PEAK_WIDTH = 0.13f;
 
     public CraterTerrainLayer(float baseRadius, int seed, int octaves, float largestRadius,
-                              float density, float depthRatio, float rimRatio)
+                              float density, float depthRatio, float rimRatio, float rimSharpness = 2f)
     {
         this.baseRadius = baseRadius;
         this.seed = seed;
@@ -61,6 +62,7 @@ public class CraterTerrainLayer : TerrainLayer
         this.density = Mathf.Clamp01(density);
         this.depthRatio = depthRatio;
         this.rimRatio = rimRatio;
+        this.rimSharpness = Mathf.Max(1f, rimSharpness);
     }
 
     /// <summary>Aggiunge un cratere piazzato a mano (il dominante). dir non serve normalizzata.</summary>
@@ -133,19 +135,20 @@ public class CraterTerrainLayer : TerrainLayer
         // morfologia: 0 = ciotola semplice (piccoli), 1 = complesso (grandi: fondo piatto + picco)
         float cx = Mathf.Clamp01((radius - SIMPLE_MAX) / (COMPLEX_MAX - SIMPLE_MAX));
 
-        // conca: fondo (eventualmente piatto) che RISALE al bordo con raccordo morbido. La GEOMETRIA
-        // resta LISCIA di proposito (bassa frequenza → il LOD la regge senza crepe/terrazzamenti): la
-        // ripidità ottica del bordo la dà la NORMALE nello shader, non questa parete. Solo i crateri
-        // grandi prendono un filo di fondo piatto (forma a conca complessa).
+        // conca: fondo (eventualmente piatto) che RISALE al bordo. La parete usa una legge di potenza
+        // (esponente rimSharpness): a 1 è un cono, sopra 1 il fondo si appiattisce e la parete impenna
+        // verso il bordo → CRESTA NETTA (la pendenza alla cresta non è più zero: spigolo C0 voluto, è
+        // il "bordo quasi tagliente"). Resta continua in valore → la mesh non si spezza. Solo i crateri
+        // grandi prendono in più un fondo piatto (conca complessa).
         float floorR = 0.3f * cx;                        // raggio del fondo piatto, solo sui grandi
         float cav;
         if (r < floorR) cav = -1f;                       // fondo piatto
-        else if (r < 1f) { float t = (r - floorR) / (1f - floorR); cav = -(1f - Smooth01(t)); }
+        else if (r < 1f) { float t = (r - floorR) / (1f - floorR); cav = -(1f - Mathf.Pow(t, rimSharpness)); }
         else cav = 0f;
 
-        // bordo + ejecta: cresta ARROTONDATA (larga = morbida, non aliasa), coda esterna più lunga
+        // bordo + ejecta: cresta più STRETTA (crestina marcata sul bordo), coda esterna più corta
         float dr = r - 1f;
-        float w = (r <= 1f) ? 0.5f : 0.9f;
+        float w = (r <= 1f) ? 0.42f : 0.7f;
         float ring = Mathf.Exp(-(dr * dr) / (w * w));
 
         // picco centrale: solo crateri complessi. Pinnacolo che si alza dal fondo piatto.

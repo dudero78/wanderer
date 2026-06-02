@@ -56,22 +56,22 @@ public static class PlanetBaker
 
     /// <summary>Carica i materiali dagli asset bakeati offline (Resources/BakedPlanet). Ritorna null se il
     /// set è incompleto/assente → il chiamante usa il bake runtime. Così la feature è OPT-IN e non rompe nulla.</summary>
-    public static Material[] TryLoadBakedMaterials(PlanetTerrain terrain)
+    public static Material[] TryLoadBakedMaterials(PlanetTerrain terrain, string bakedDir = BakedDir)
     {
         var sampleShader = Shader.Find("Wanderer/PlanetBaked");
         if (sampleShader == null) return null;
-        var detail = Resources.Load<Texture2D>(BakedDir + "/Detail");
+        var detail = Resources.Load<Texture2D>(bakedDir + "/Detail");
         var soil = Resources.Load<Texture2D>("Textures/soil_dirt");
 
         var mats = new Material[6];
         for (int f = 0; f < 6; f++)
         {
-            var mask = Resources.Load<Texture2D>(BakedDir + "/Mask" + f);
-            var crater = Resources.Load<Texture2D>(BakedDir + "/Crater" + f);
+            var mask = Resources.Load<Texture2D>(bakedDir + "/Mask" + f);
+            var crater = Resources.Load<Texture2D>(bakedDir + "/Crater" + f);
             if (mask == null || crater == null) return null;   // set incompleto → fallback al bake runtime
             mats[f] = BuildMaterial(terrain, mask, crater, detail, soil);
         }
-        Debug.Log("[load] superficie pianeta da asset bakeati (Resources/" + BakedDir + ")");
+        Debug.Log("[load] superficie da asset bakeati (Resources/" + bakedDir + ")");
         return mats;
     }
 
@@ -83,6 +83,17 @@ public static class PlanetBaker
         var mat = new Material(Shader.Find("Wanderer/PlanetBaked"));
         mat.SetFloat("_BaseRadius", terrain.BaseRadius);
         mat.SetFloat("_Amplitude", terrain.Amplitude);
+        // COLORE dalla ricetta (suolo + mari): senza questo il materiale resta sul grigio lunare di default dello
+        // shader → un pianeta marziano uscirebbe grigio. L'editor li spingeva a mano (PushColors); qui è la stessa cosa
+        // per il gioco. Vale sia per il bake runtime che per quello da disco (entrambi passano da qui).
+        var rec = terrain.Recipe;
+        if (rec != null)
+        {
+            mat.SetColor("_SoilMean", rec.soilMean);
+            mat.SetColor("_MariaColor", rec.mariaColor);
+            mat.SetFloat("_MariaScale", rec.mariaScale);
+            mat.SetFloat("_MariaStr", rec.mariaStrength);
+        }
         if (maskTex != null) mat.SetTexture("_MaskMap", maskTex);
         if (detailTex != null) mat.SetTexture("_DetailNormal", detailTex);
         if (soil != null) mat.SetTexture("_SoilSand", soil);
@@ -115,16 +126,45 @@ public static class PlanetBaker
         // analitico per-pixel aliaserebbe in un pettine regolare (aliasing di campionamento, nessun clamp lo toglie).
         var m = new Material(sh);
         m.SetFloat("_BaseRadius", terrain.BaseRadius);
-        m.SetFloat("_CraterSeed", terrain.CraterSeed);
-        m.SetFloat("_CraterOctaves", terrain.CraterOctaves);
-        m.SetFloat("_CraterLargest", terrain.CraterLargestRadius);
-        m.SetFloat("_CraterDensity", terrain.CraterDensity);
-        m.SetFloat("_CraterDepthRatio", terrain.CraterDepthRatio);
-        m.SetFloat("_CraterRimRatio", terrain.CraterRimRatio);
+
+        // Se c'è una RICETTA (editor), il bake segue la sua pipeline di crateri PRIMARIA (la prima attiva) →
+        // la normale è coerente con ciò che hai composto. Nessuna pipeline attiva → densità 0 (normale piatta:
+        // niente crateri fantasma sulla sfera liscia di partenza). Senza ricetta usa i campi legacy della scena.
+        if (terrain != null && terrain.Recipe != null)
+        {
+            var c = PrimaryCrater(terrain);
+            m.SetFloat("_CraterSeed", c != null ? c.seed : 0);
+            m.SetFloat("_CraterOctaves", c != null ? c.octaves : 1);
+            m.SetFloat("_CraterLargest", c != null ? c.largestRadius : 100f);
+            m.SetFloat("_CraterDensity", c != null ? c.density : 0f);
+            m.SetFloat("_CraterDepthRatio", c != null ? c.depthRatio : 0.2f);
+            m.SetFloat("_CraterRimRatio", c != null ? c.rimRatio : 0.3f);
+            m.SetFloat("_CraterRimSharp", c != null ? c.rimSharpness : 2f);
+        }
+        else
+        {
+            m.SetFloat("_CraterSeed", terrain.CraterSeed);
+            m.SetFloat("_CraterOctaves", terrain.CraterOctaves);
+            m.SetFloat("_CraterLargest", terrain.CraterLargestRadius);
+            m.SetFloat("_CraterDensity", terrain.CraterDensity);
+            m.SetFloat("_CraterDepthRatio", terrain.CraterDepthRatio);
+            m.SetFloat("_CraterRimRatio", terrain.CraterRimRatio);
+            m.SetFloat("_CraterRimSharp", terrain.CraterRimSharpness);
+        }
         // forza normale crateri: troppo alta (≥~0.9) e i piccoli sotto luce radente sembrano "cromati". 0.7 = bordi
         // leggibili senza effetto metallico.
         m.SetFloat("_CraterNormalStr", 0.7f);
         return m;
+    }
+
+    /// <summary>Prima pipeline di crateri attiva della ricetta (o null se non c'è ricetta / nessuna attiva).
+    /// Il bake-normale gestisce UN campo: nell'editor preview rappresenta la popolazione principale.</summary>
+    static CraterRecipe PrimaryCrater(PlanetTerrain terrain)
+    {
+        var r = terrain != null ? terrain.Recipe : null;
+        if (r == null) return null;
+        foreach (var c in r.craters) if (c != null && c.enabled) return c;
+        return null;
     }
 
     // ---- BAKE DELLE RENDERTEXTURE (per faccia) -----------------------------------------------------
