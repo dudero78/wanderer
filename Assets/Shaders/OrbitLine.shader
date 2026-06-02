@@ -40,7 +40,7 @@ Shader "Wanderer/OrbitLine"
             #include "UnityCG.cginc"
 
             struct appdata { float4 vertex:POSITION; float3 normal:NORMAL; float2 uv:TEXCOORD0; };
-            struct v2f     { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; };
+            struct v2f     { float4 pos:SV_POSITION; float side:TEXCOORD0; float2 bh:TEXCOORD1; };
 
             fixed4 _Color;
             float _PixelWidth, _Core, _Halo, _PeakU, _TailLen, _TailPow, _Floor, _HeadBoost;
@@ -63,28 +63,31 @@ Shader "Wanderer/OrbitLine"
                 float2 off = perp * side * (_PixelWidth / _ScreenParams.y);   // NDC per px·(W/2)·2 = W px tot
                 c0.xy += off * c0.w;                               // in clip space (contrasta la divisione per w)
 
+                // LUMINOSITÀ LUNGO L'ANELLO calcolata QUI, per-vertice (uv.x = posizione vera del campione).
+                // Si interpola poi il VALORE di luminosità, che è continuo attorno all'anello → alla cucitura
+                // (campione n-1 → 0) va liscio. Se invece si interpolasse uv.x e si ricalcolasse frac() nel
+                // fragment, sul segmento di chiusura uv.x spazzerebbe 1→0 all'indietro e il nucleo bianco
+                // comparirebbe come un nodo in un punto fisso (la cucitura), non sul pianeta.
+                float back   = frac(_PeakU - v.uv.x);              // 0 al pianeta, cresce ANDANDO INDIETRO
+                float tail   = pow(saturate(1.0 - back / _TailLen), _TailPow);
+                float bright = _Floor + (1.0 - _Floor) * tail;
+                float headD  = min(back, 1.0 - back);
+                float head   = exp(-headD * headD * 500.0) * _HeadBoost;   // nucleo sul pianeta
+
                 v2f o;
-                o.pos = c0;
-                o.uv  = v.uv;
+                o.pos  = c0;
+                o.side = v.uv.y;                                   // 0..1 attraverso il filo (niente cucitura)
+                o.bh   = float2(bright, head);
                 return o;
             }
 
             fixed4 frag(v2f i) : SV_Target
             {
                 // sezione trasversale (lato): nucleo sottile + alone morbido
-                float a     = abs(i.uv.y * 2.0 - 1.0);            // 0 al centro, 1 ai bordi
+                float a     = abs(i.side * 2.0 - 1.0);            // 0 al centro, 1 ai bordi
                 float cross = exp(-a * a * _Core) + 0.5 * exp(-a * a * _Halo);
 
-                // lungo l'anello (uv.x): coda dietro al pianeta
-                float back   = frac(_PeakU - i.uv.x);             // 0 al pianeta, cresce ANDANDO INDIETRO
-                float tail   = pow(saturate(1.0 - back / _TailLen), _TailPow);
-                float bright = _Floor + (1.0 - _Floor) * tail;
-
-                // testa: piccolo nucleo bianco proprio sul pianeta
-                float headD = min(back, 1.0 - back);
-                float head  = exp(-headD * headD * 500.0) * _HeadBoost;
-
-                float3 light = _Color.rgb * bright + head;        // 'head' schiarisce verso il bianco
+                float3 light = _Color.rgb * i.bh.x + i.bh.y;      // 'head' schiarisce verso il bianco
                 light *= cross * _Color.a;
                 return fixed4(light, 1);
             }
