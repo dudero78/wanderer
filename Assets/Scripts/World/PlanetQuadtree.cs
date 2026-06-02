@@ -503,10 +503,14 @@ public class QuadNode
             Vector3 v = verts[ci];
             Vector3 dir = v.normalized;
             verts.Add(v - dir * skirtDrop);
-            normals.Add(normals[ci]);
+            // normale RADIALE (verso l'alto), non quella del bordo: così lo skirt si illumina come terreno
+            // piatto invece che come parete verticale → niente lametta scura ai confini di LOD.
+            normals.Add(dir);
             tangents.Add(tangents[ci]);
             uvs.Add(uvs[ci]);
-            morph.Add(new Vector4(0f, 0f, 0f, splitDist));   // lo skirt non morfa
+            // lo skirt MORFA COL bordo (stesso delta del vertice di bordo): resta attaccato alla superficie
+            // mentre questa morfa. Con morph 0 il bordo si spostava e si apriva una crepa SOPRA lo skirt.
+            morph.Add(morph[ci]);
         }
         int rc = ring.Count;
         for (int k = 0; k < rc; k++)
