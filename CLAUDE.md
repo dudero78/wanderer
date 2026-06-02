@@ -15,18 +15,24 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 
 ## Stato attuale (vedi git log per il dettaglio)
 
-Funziona: floating origin + doppia precisione, orbita Kepleriana, **pianeta
-walkable** con **quadtree LOD** (cube-sphere chunked, build asincrona, node-cache
-LRU, geomorph CDLOD → niente pop, ritorno/orbita istantanei), **gravità radiale**,
+Funziona: floating origin + doppia precisione, orbita Kepleriana, **gravità radiale**,
 **volo col jetpack** (tuta da raccogliere), **torcia** (F), ciclo giorno/notte.
 
-**Superficie — base lunare liscia, committata e stabile.** Colore quasi uniforme
-grigio (`_SoilMean`) + variazione macro a bassa frequenza; il bello lo fanno la
-FORMA del terreno (colline morbide, 5 ottave) e la LUCE, non il dettaglio di
-superficie. Tutto il dettaglio è **WORLD-FIXED** (UV ancorata alla faccia) + mipmap
-hardware → niente moiré, niente scivolamento, nitido a ogni distanza. L'identità di
-un pianeta = 2 colori (`_SoilMean`/`_SoilTint`) + manopole di terreno (`Amplitude`,
-`Octaves`). Il PERCHÉ di queste scelte (due giorni di vicoli ciechi) è in "Lezioni dure".
+**Pianeta walkable a MESH SINGOLA** (cube-sphere, 6 facce, NESSUN LOD; `SingleMeshPlanet`).
+A scala compressa (corpi ≤ ~1.5 km, vedi "Scala") la mesh singola basta e scioglie alla
+radice cuciture/skirt/popping — difetti **inerenti** al chunked LOD, provato e **abbandonato**
+(vedi "Lezioni dure"). La build full-res gira su thread (niente freeze), con un proxy a bassa
+risoluzione mostrato nel frattempo. Mesh+walker leggono la stessa `SampleHeight`: una sola verità.
+
+**Crateri: FATTI** — geometria vera nell'heightfield (`CraterTerrainLayer`: composizione
+additiva, griglia 3D hashata seam-free, profilo C1, conca/bordo/ejecta/picco) + normale
+bakeata (`CraterNormalBake`) per i bordi nitidi, filtrata dal mipmap.
+
+**Superficie — base lunare liscia.** Colore quasi uniforme grigio (`_SoilMean`) + variazione
+macro a bassa frequenza; il bello lo fanno la FORMA (crateri + colline) e la LUCE. Dettaglio
+WORLD-FIXED + mipmap → niente moiré/scivolamento. **Lezione dura, da ricordare:** la base NON
+deve competere coi crateri — ampiezza base BASSA, struttura quasi tutta dai crateri (come
+Phobos/Luna). Identità pianeta = 2 colori (`_SoilMean`/`_SoilTint`) + manopole crateri/terreno.
 
 **Volo a due modelli, toggle con `N`** (`PlanetWalker`):
 - *Crociera* (default tuta): la potenza dei motori cresce con la quota e con quanto
@@ -46,7 +52,22 @@ un pianeta = 2 colori (`_SoilMean`/`_SoilTint`) + manopole di terreno (`Amplitud
 HUD volo: velocità, **radiale con segno** (− = ti avvicini), **tangenziale**
 (quanta orbita hai), modello attivo, stato `FRENO` e stato **torcia**.
 
-Prossimo passo visivo concordato: **crateri**.
+## Scala (decisa)
+
+Compressa, stile Outer Wilds (NON reale): asteroidi 80-300 m, lune 300-800 m, rocciosi
+0.8-1.5 km **walkable**; giganti gassosi 1.5-3 km in cui **voli dentro** (volume nuotabile +
+isole + tornado, tipo Profondo Gigante); stelle 3-5 km a cui **ti avvicini ed entri**. I corpi
+non-walkable (gas/stelle) saranno un **secondo renderer volumetrico** (raymarch su sfera-guscio),
+non mesh. Conseguenza chiave: i rocciosi stanno in una mesh singola → niente LOD.
+
+## Direzione (il GIOCO, non il renderer)
+
+I pianeti si **generano da una descrizione, poi si FISSANO** (bake) come asset fatti a mano:
+il procedurale è uno strumento di CREAZIONE, non un sistema runtime. La superficie ravvicinata
+è già a target — **smettere di limarla** e costruire il GIOCO: più corpi DIVERSI + un VERBO
+(atterra · cammina · raccogli · vai altrove · puoi fallire). **MVP: mini-loop su 2-3 corpi.**
+Prerequisiti: hand-off di gravità tra corpi, più pianeti, mappa+selezione. NON costruire ora
+l'astrazione ricetta composizione→pianeta (trappola identica al quadtree: prima 2-3 corpi a mano).
 
 ## Come si avvia
 
@@ -61,19 +82,22 @@ Core/      Vector3d, FloatingOrigin   — doppia precisione, origine ancorata al
            PerformanceGovernor        — cap fps (30 attivi / 15 idle): leva sul calore CPU
            RenderScaler               — render a frazione di risoluzione (ora 1.0: GPU libera)
 Physics/   KeplerOrbit, CelestialBody, SolarSystem
-World/     PlanetTerrain     — SampleHeight/SurfaceNormal (unica fonte di verità mesh+walker)
+World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di TerrainLayer, unica verità mesh+walker
+           TerrainLayer      — astrazione di un processo (forma → altezza); base, poi crateri, ...
+           BaseTerrainLayer  — forma di base (fBm)
+           CraterTerrainLayer— processo "bombardamento": crateri additivi, griglia 3D hashata, profilo C1
            Noise3D           — gradient noise (Perlin) CPU per la forma della mesh
-           PlanetMeshBuilder — cube-sphere, normali analitiche, tangenti
-           PlanetQuadtree    — quadtree LOD chunked: split/merge, node-cache LRU, geomorph,
-                               build asincrona, horizon culling, predictive LOD
-           PlanetBaker       — bakea la maschera minerale per faccia + detail-normal condivisa
+           PlanetMeshBuilder — cube-sphere; ComputeFaceData (thread-safe) + CreateMesh (main thread)
+           SingleMeshPlanet  — 6 facce, no LOD, build su thread + proxy
+           PlanetBaker       — bakea per faccia: maschera minerale + normale crateri; detail-normal condivisa
            SunLight
 Player/    PlanetWalker   — camminata su sfera + volo jetpack
            Flashlight     — torcia che scala con la quota
 Items/     SuitPickup
 Bootstrap/ GameBootstrap  — costruisce la scena (tutti i parametri sono qui)
 Debug/     DebugHud
-Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie, USATO dal quadtree
+Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta (la mesh singola usa questo)
+           CraterNormalBake (Wanderer/CraterNormalBake) — bake normale crateri per faccia (mippata)
            PlanetBake (Wanderer/PlanetBake)          — bake maschera minerale
            DetailNormalBake                          — bake grana → normal map tileable
            PlanetSurface (Wanderer/Planet)           — vecchio shader procedurale, solo fallback
