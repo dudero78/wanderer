@@ -106,9 +106,14 @@ public class GameBootstrap : MonoBehaviour
         else
         {
             // fallback robusto: se il bake non riesce, mesh uniforme + materiale procedurale.
-            var planetMat = new Material(Shader.Find("Wanderer/Planet"));
-            planetMat.SetFloat("_BaseRadius", terrain.BaseRadius);
-            planetMat.SetFloat("_Amplitude", terrain.Amplitude);
+            var planetSh = Shader.Find("Wanderer/Planet");
+            var planetMat = planetSh != null ? new Material(planetSh) : null;
+            if (planetMat != null)
+            {
+                planetMat.SetFloat("_BaseRadius", terrain.BaseRadius);
+                planetMat.SetFloat("_Amplitude", terrain.Amplitude);
+            }
+            else Debug.LogError("Shader 'Wanderer/Planet' non trovato nella build (Always Included Shaders).");
             PlanetMeshBuilder.Build(planetGo.transform, terrain, 300, planetMat);
             Debug.Log("Pianeta: bake non riuscito, mesh uniforme procedurale (fallback).");
         }
@@ -253,7 +258,15 @@ public class GameBootstrap : MonoBehaviour
     {
         var r = go.GetComponent<Renderer>();
         if (!r) return;
-        var m = new Material(Shader.Find("Standard")) { color = c };
+        var sh = Shader.Find("Standard");
+        if (sh == null)
+        {
+            // shader assente nella build (stripping): tieni il materiale di default del primitivo invece di
+            // crashare (new Material(null) lancerebbe e aborterebbe la costruzione della scena → nero totale).
+            Debug.LogError("Shader 'Standard' non trovato nella build: aggiungilo agli Always Included Shaders.");
+            return;
+        }
+        var m = new Material(sh) { color = c };
         if (emissive)
         {
             m.EnableKeyword("_EMISSION");
