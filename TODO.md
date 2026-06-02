@@ -77,10 +77,14 @@ o "tutto rugged". Causa: una risoluzione sola non copre 5 ordini di grandezza (1
 - **Stage 1 (IN CORSO): heightmap mippata bakeata** — bake CPU (dalla VERA `SampleHeight`, niente duplicazione
   HLSL) di una heightmap float per faccia, mip-mappata, su disco (`Resources/BakedPlanet/Height*`). È il
   BACKBONE dati; di per sé invisibile.
-- **Stage 1b: normale derivata dalla heightmap** (gradiente, mippata) → primo guadagno visibile (luce nitida,
-  completa, a ogni distanza).
-- **Stage 2: CDLOD** — geometria dislocata dalla heightmap, view-dependent, morphing continuo (niente popping/
-  cuciture). Vicino = geometria vera calpestabile; lontano = economica. È il pezzo grosso.
+- **Stage 1b: SALTATO** — la normale-da-heightmap è il punto fragile dei tangent-frame (bug "glifi"). Carmack:
+  metti il dettaglio in GEOMETRIA (normale gratis e corretta), non in una normalmap finta. → si va allo Stage 2.
+- **Stage 2 (IN CORSO): tassellazione GPU dislocata dalla heightmap** — shader `Wanderer/PlanetTessellated`
+  (isolato; fallback = `PlanetBaked` se mancano le heightmap). La GPU sottodivide vicino alla camera e disloca
+  i vertici sulla heightmap → crateri come GEOMETRIA vera; normale calcolata dai VICINI (esatta, niente
+  tangent-frame). `UnityDistanceBasedTess` (cap `_TessMax`, bounded). Assi faccia passati al materiale per
+  ricostruire ParamToDir. **DA VERIFICARE: compila? performance? cuciture (lo skirt non c'è nel disp)?**
+  Prossimo se ok: lowering base-mesh res + tess più alta; gestire i crateri lontani (normalmap inversa al tess).
 - **Stage 3: micro procedurale** near-camera (sassi/grana) → il "zoom-payoff".
 - **Stage 4: contenuto feature-based** (crateri vari + bacini + mari) per il look-Luna, non rumore uniforme.
 
