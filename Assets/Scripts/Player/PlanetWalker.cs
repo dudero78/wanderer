@@ -39,8 +39,8 @@ public class PlanetWalker : MonoBehaviour
     public float thrustRampTime = 1.8f;   // secondi perché i motori salgano a piena spinta (inerzia, onset morbido)
     public float brakeAccel = 250f;       // freno di assetto: picco di decelerazione (doma centinaia di m/s)
     public float brakeRampTime = 0.3f;    // secondi per salire a piena potenza tenendo X (anti-tap accidentale)
-    public float brakeKnee = 12f;         // sotto questa velocità il freno entra nella coda dolce
-    public float brakeEaseTau = 0.35f;    // costante di tempo dell'avvicinamento finale a 0 (più alto = più lento/visibile)
+    public float brakeKnee = 40f;         // sotto questa velocità il freno entra nella coda dolce (inizia prima)
+    public float brakeEaseTau = 0.8f;     // costante di tempo dell'avvicinamento finale a 0 (più alto = più lento/visibile)
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
     public float rollSpeed = 75f;         // gradi/s di rollio con Q/E in volo libero
 
