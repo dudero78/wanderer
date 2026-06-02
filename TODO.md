@@ -46,12 +46,20 @@ Lezione (volo newtoniano puro, scelta di Dario): dopo il match-velocity un drift
 mentre spingi — è FISICA (gravità del corpo vicino + accumulo se miri storto), non un bug. Si trimma
 con prograde/retrograde. Azzerarlo del tutto = lavoro dell'**autopilota** (#12), non toccare la fisica.
 
-## PROSSIMO: #12 Autopilota (Dario riparte da qui)
+- ✅ **#12 Autopilota** (`T`, toggle) — hands-off completo verso il corpo selezionato (`PlanetWalker`).
+  Orienta il muso al bersaglio (slerp con ease-out, `autoTurnTau`), pilota l'INTERO vettore velocità relativa
+  (verso il corpo = velocità desiderata, laterale = 0 → annulla anche la deriva), e si ferma SINCRONIZZATO
+  a **quota di sorvolo** (~1 raggio sopra la superficie, `autoHoverRadii`). Profilo "frena in tempo"
+  `v = √(2·a·d)` capato a `autoCruiseSpeed`: la velocità d'avvicinamento è sempre tale da poter azzerare
+  entro il punto d'arrivo. Accel morbida per prendere velocità (`autoAccel`), forte per frenare/raddrizzare
+  (`autoBrakeAccel`, ≥1.6·g → regge anche la stella). Il Δv si applica a `rb.linearVelocity` (identico in
+  ogni riferimento inerziale → indipendente dall'ancora). Si disinserisce all'arrivo, atterrando, o con `N`.
+  Riusa `RelativeVelocityTo` (stessa contabilità del `RouteIndicator`). **DA PROVARE in Play da Dario.**
 
-Stile Outer Wilds: tieni un tasto → la nave si allinea al bersaglio, fa match-velocity, accelera e
-**frena all'arrivo**. È la soluzione "hands-off" al drift residuo del newtoniano. Ordine nel piano:
-indicatore (fatto) → autopilota → teletrasporto. Mattoni già pronti: `RelativeVelocity`, freno X
-graduale, velocità laterale/closing già calcolate nel `RouteIndicator`.
+## PROSSIMO: #10 Teletrasporto / #7 più pianeti (Dario riparte da qui)
+
+Ordine del piano: indicatore (fatto) → autopilota (fatto) → teletrasporto / più corpi. Il teletrasporto
+richiede corpi residenti (buildarli tutti all'avvio); più pianeti dà materiale vero da raggiungere.
 
 ## Altri lavori in corso
 

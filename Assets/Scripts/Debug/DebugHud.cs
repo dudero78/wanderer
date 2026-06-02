@@ -83,7 +83,7 @@ public class DebugHud : MonoBehaviour
 
         bool jetpack = walker != null && walker.HasJetpack;
         string controls = jetpack
-            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende · Q/E rollio · N cambia volo · X freno (newtoniano).  F torcia · M mappa · O orbite · Mouse guarda · Esc cursore"
+            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende · Q/E rollio · N cambia volo · X freno · T autopilota.  F torcia · M mappa · O orbite · Mouse guarda · Esc cursore"
             : "WASD muovi  ·  Space salta  ·  Mouse guarda  ·  Esc libera il cursore";
 
         // velocità/radiale relative al RIFERIMENTO: "ti avvicini" parla del corpo verso cui viaggi.
@@ -93,9 +93,10 @@ public class DebugHud : MonoBehaviour
         string radWord = rad > 0.5f ? "ti allontani" : rad < -0.5f ? "ti AVVICINI" : "stazionario";
         string model = walker != null && walker.IsNewtonian ? $"NEWTONIANO (spinta {walker.ThrustSpool01 * 100f:F0}%)" : $"Crociera ({(walker != null ? walker.Boost01 * 100f : 0f):F0}%)";
         string brake = walker != null && walker.Braking ? "   ·   FRENO" : "";
+        string auto = walker != null && walker.Autopilot ? "   ·   AUTOPILOTA" : "";
         string torch = flash != null && flash.IsOn ? "ACCESA" : "spenta";
         string flightLine = jetpack
-            ? $"Velocità           : {spd:F0} m/s   ·   radiale {rad:+0;-0} ({radWord})   ·   tangenz. {tan:F0} (orbita)   ·   Volo: {model}{brake}\n" +
+            ? $"Velocità           : {spd:F0} m/s   ·   radiale {rad:+0;-0} ({radWord})   ·   tangenz. {tan:F0} (orbita)   ·   Volo: {model}{brake}{auto}\n" +
               $"Torcia             : {torch}\n"
             : "";
 

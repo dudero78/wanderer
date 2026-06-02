@@ -89,7 +89,16 @@ velocità orbitali e rendeva il match-velocity ingiocabile).
   con la floating origin → niente solve orbitale per frame.
 
 Comandi volo: `WASD` spinta · `Space`/`Shift` su/giù · `Q/E` rollio (volo libero) · `N` Crociera/Newtoniano
-· `X` match-velocity · `F` torcia · `M` mappa · `O` orbite.
+· `X` match-velocity · `T` autopilota · `F` torcia · `M` mappa · `O` orbite.
+
+**Autopilota (`T`, toggle)**: hands-off completo verso il corpo selezionato. Si inserisce solo con la tuta e
+con una destinazione scelta sulla mappa; passa a Newtoniano. Orienta il muso al bersaglio, pilota l'INTERO
+vettore velocità relativa (componente verso il corpo = velocità desiderata, laterale = 0), e si ferma
+SINCRONIZZATO a **quota di sorvolo** (~1 raggio sopra la superficie). Profilo "frena in tempo"
+(`v = √(2·a·d)`, capato a `autoCruiseSpeed`): la velocità d'avvicinamento è sempre tale da poter azzerare
+entro il punto d'arrivo. Il Δv si applica a `rb.linearVelocity` (identico in ogni riferimento inerziale →
+indipendente dall'ancora). Si disinserisce da solo all'arrivo, atterrando, o se premi `N`. È la soluzione
+hands-off al drift residuo del newtoniano.
 
 ## Scala (decisa)
 

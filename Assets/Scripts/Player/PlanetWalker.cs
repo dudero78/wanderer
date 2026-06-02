@@ -35,7 +35,7 @@ public class PlanetWalker : MonoBehaviour
     public float cruiseAltHigh = 120f;    // sopra questa quota la crociera è pienamente sbloccata
 
     [Header("Newtoniano")]
-    public float newtonThrust = 22f;      // accelerazione a pieno regime, nessun limite di velocità (più bassa = assetto più fine)
+    public float newtonThrust = 55f;      // accelerazione a pieno regime, NESSUN limite di velocità (delta-v reale): più alta = prende velocità più in fretta
     public float thrustRampTime = 1.8f;   // secondi perché i motori salgano a piena spinta (inerzia, onset morbido)
     public float brakeAccel = 250f;       // freno di assetto: picco di decelerazione (doma centinaia di m/s)
     public float brakeRampTime = 0.3f;    // secondi per salire a piena potenza tenendo X (anti-tap accidentale)
@@ -44,6 +44,15 @@ public class PlanetWalker : MonoBehaviour
     public float brakeFloor = 5f;         // decel minima nella coda: evita che striscia all'infinito vicino a 0
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
     public float rollSpeed = 75f;         // gradi/s di rollio con Q/E in volo libero
+
+    [Header("Autopilota (T): aggancia il corpo selezionato, allinea, accelera, frena a quota di sorvolo")]
+    public KeyCode autopilotKey = KeyCode.T;  // toggle: T inserisce/disinserisce; vola hands-off verso la destinazione
+    public float autoCruiseSpeed = 1200f;  // tetto di sicurezza alla velocità di crociera; il VERO limite è il "frena in tempo"
+    public float autoAccel = 90f;          // accelerazione con cui PRENDE velocità nel tratto lungo (più alta = parte più decisa)
+    public float autoBrakeAccel = 160f;    // decelerazione per FRENARE / annullare la deriva (forte, reattiva); detta anche la distanza di frenata
+    public float autoTurnTau = 0.7f;       // costante di tempo dell'allineamento del muso (più alto = più dolce/lento, ease-out)
+    public float autoHoverRadii = 1f;      // quota d'arrivo = questo × raggio del corpo SOPRA la superficie (sorvolo sicuro)
+    public float autoArriveSync = 1f;      // |velocità relativa| sotto cui, arrivati a quota, l'autopilota si disinserisce
 
     [System.NonSerialized] public bool HasJetpack;
     [System.NonSerialized] public bool ControlsActive = true;   // false = comandi congelati (es. modalità mappa)
@@ -58,6 +67,7 @@ public class PlanetWalker : MonoBehaviour
     public float Boost01 => boost01;   // 0 = manovra, 1 = crociera piena (per l'HUD)
     public float ThrustSpool01 => thrustSpool01;   // regime motori newtoniani 0..1 (per l'HUD)
     public bool Braking { get; private set; }         // freno di assetto attivo (per l'HUD)
+    public bool Autopilot { get; private set; }        // autopilota inserito (toggle T): vola da solo verso la destinazione
 
     Rigidbody rb;
     float pitch;
@@ -94,19 +104,37 @@ public class PlanetWalker : MonoBehaviour
     {
         if (!ControlsActive) return;   // congelato (es. modalità mappa): niente sguardo né tasti
 
-        // sguardo: yaw sul corpo, pitch sulla camera
-        float mx = Input.GetAxis("Mouse X") * mouseSensitivity;
-        float my = Input.GetAxis("Mouse Y") * mouseSensitivity;
-        yawDelta += mx;   // accumulato: applicato in FixedUpdate (interpolato) -> niente stutter
-        pitch = Mathf.Clamp(pitch - my, -85f, 85f);
-        if (cameraPivot) cameraPivot.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+        // T (toggle) inserisce/disinserisce l'autopilota: vola hands-off verso il corpo SELEZIONATO. Si inserisce
+        // solo con la tuta E con una destinazione scelta sulla mappa (niente da agganciare, altrimenti). Quando si
+        // inserisce passa a Newtoniano, così alla disinserzione resti in volo libero (no scatto di assetto).
+        if (HasJetpack && Input.GetKeyDown(autopilotKey))
+        {
+            var dest = SolarSystem.Instance != null ? SolarSystem.Instance.Destination : null;
+            Autopilot = !Autopilot && dest != null;
+            if (Autopilot) Model = FlightModel.Newtonian;
+        }
+
+        // sguardo: yaw sul corpo, pitch sulla camera. CONGELATO sotto autopilota (hands-off): è il computer
+        // a orientare il muso, il mouse non deve combattere l'allineamento.
+        if (!Autopilot)
+        {
+            float mx = Input.GetAxis("Mouse X") * mouseSensitivity;
+            float my = Input.GetAxis("Mouse Y") * mouseSensitivity;
+            yawDelta += mx;   // accumulato: applicato in FixedUpdate (interpolato) -> niente stutter
+            pitch = Mathf.Clamp(pitch - my, -85f, 85f);
+            if (cameraPivot) cameraPivot.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+        }
 
         if (Input.GetKeyDown(KeyCode.Escape)) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         if (Input.GetMouseButtonDown(0)) { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
 
-        // N commuta il modello di volo (solo con la tuta: senza non si vola)
+        // N commuta il modello di volo (solo con la tuta: senza non si vola). Disinserisce l'autopilota:
+        // se metti mano al modello vuoi il controllo.
         if (HasJetpack && Input.GetKeyDown(KeyCode.N))
+        {
             Model = Model == FlightModel.Cruise ? FlightModel.Newtonian : FlightModel.Cruise;
+            Autopilot = false;
+        }
 
         // rollio in volo libero (Q/E): accumulato qui, applicato e azzerato in FixedUpdate.
         float roll = (Input.GetKey(KeyCode.E) ? 1f : 0f) - (Input.GetKey(KeyCode.Q) ? 1f : 0f);
@@ -154,8 +182,31 @@ public class PlanetWalker : MonoBehaviour
         // per camminare e per gli assi tangenti della crociera.
         bool airborne = r > restHeight + 0.05f;
         bool freeFlight = HasJetpack && Model == FlightModel.Newtonian && airborne;
+
+        // AUTOPILOTA attivo solo in volo e con una destinazione selezionata. A terra non c'è nulla da agganciare:
+        // se atterri (o perdi la destinazione) si disinserisce da solo.
+        var dest = SolarSystem.Instance != null ? SolarSystem.Instance.Destination : null;
+        if (Autopilot && (!airborne || dest == null)) Autopilot = false;
+        bool autoActive = Autopilot && HasJetpack && airborne && dest != null;
+
         Quaternion look;
-        if (freeFlight)
+        if (autoActive)
+        {
+            // orienta il muso verso il bersaglio con ease-out esponenziale (slerp di una frazione per frame):
+            // rallenta avvicinandosi all'assetto giusto → niente scatto a fine corsa, feel da astronave. Raddrizza
+            // anche la camera (pitch → 0) → il corpo finisce dolcemente al centro dello schermo.
+            float kTurn = 1f - Mathf.Exp(-Time.fixedDeltaTime / Mathf.Max(autoTurnTau, 0.01f));
+            Vector3 toDest = dest.transform.position - rb.position;
+            if (toDest.sqrMagnitude > 1e-4f)
+            {
+                Quaternion want = Quaternion.LookRotation(toDest.normalized, up);
+                look = Quaternion.Slerp(transform.rotation, want, kTurn);
+            }
+            else look = transform.rotation;
+            pitch = Mathf.Lerp(pitch, 0f, kTurn);
+            if (cameraPivot) cameraPivot.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+        }
+        else if (freeFlight)
         {
             look = Quaternion.AngleAxis(yawDelta, transform.up) * transform.rotation;
             // rollio attorno all'asse di SGUARDO (forward con il pitch): inclina anche il "su" del
@@ -197,7 +248,13 @@ public class PlanetWalker : MonoBehaviour
             if (thrust.sqrMagnitude > 1f) thrust = thrust.normalized;   // niente diagonale più veloce
             bool thrusting = thrust.sqrMagnitude > 0.0001f;
 
-            if (Model == FlightModel.Newtonian)
+            if (autoActive)
+            {
+                AutopilotControl(dest, g);
+                boost01 = 0f;
+                thrustSpool01 = 0f;
+            }
+            else if (Model == FlightModel.Newtonian)
             {
                 // Newtoniano puro: nessun attrito, la spinta si somma → la velocità cresce
                 // davvero (delta-v reale). Per fermarti ti giri e controspingi. La gravità
@@ -313,6 +370,61 @@ public class PlanetWalker : MonoBehaviour
             float vs = Mathf.Clamp(Vector3.Dot(vUp, up), -maxFallSpeed, maxFlySpeed);
             rb.linearVelocity = wish * moveSpeed + up * vs;
         }
+    }
+
+    // ===== AUTOPILOTA =====
+    // Vola hands-off verso il corpo selezionato e si ferma SINCRONIZZATO a quota di sorvolo (autoHoverRadii ×
+    // raggio sopra la superficie). Logica: profilo di velocità "frena in tempo" — la velocità di avvicinamento
+    // desiderata è la massima da cui posso ancora azzerare entro il punto d'arrivo (v = √(2·a·d)), capata a una
+    // crociera. Pilota l'INTERO vettore velocità relativa verso quel target (componente verso il bersaglio =
+    // v desiderata, componente laterale = 0), così annulla anche la deriva. Il Δv si applica a rb.linearVelocity:
+    // un cambio di velocità è identico in qualunque riferimento inerziale, quindi non importa a chi è ancorata
+    // l'origine. La gravità (AddForce sopra) tira ogni frame; l'autopilota la ricorregge al frame dopo (residuo
+    // = g·dt, trascurabile) → tiene il sorvolo stabile anche contro la stella (cap accel ≥ 1.6·g).
+    void AutopilotControl(CelestialBody target, float g)
+    {
+        Vector3 toDest = target.transform.position - rb.position;
+        float dist = toDest.magnitude;
+        if (dist < 0.001f) { Autopilot = false; return; }
+        Vector3 toT = toDest / dist;
+
+        // punto d'arrivo: autoHoverRadii raggi SOPRA la superficie → distanza dal centro = (1 + hover)·raggio.
+        float standoff = (float)target.Radius * (1f + Mathf.Max(0f, autoHoverRadii));
+        float dtg = dist - standoff;   // distanza ancora da percorrere (può essere <0 se sei già più dentro)
+
+        Vector3 relVel = RelativeVelocityTo(target);
+        float closing = Vector3.Dot(relVel, toT);   // + = ti avvicini
+
+        // velocità di avvicinamento desiderata: √(2·a·d), così da poter frenare a 0 entro il punto d'arrivo;
+        // capata alla crociera. La decel di riferimento è ≥ 1.6·g per restare valida anche vicino a corpi pesanti.
+        float aBrake = Mathf.Max(autoBrakeAccel, g * 1.6f);
+        float vWant = Mathf.Min(autoCruiseSpeed, Mathf.Sqrt(2f * aBrake * Mathf.Max(dtg, 0f)));
+        Vector3 desiredRel = toT * vWant;   // verso il bersaglio a vWant, ZERO deriva laterale
+
+        // quanto possiamo cambiare la velocità in questo frame: morbido per PRENDERE quota di velocità,
+        // forte per FRENARE/raddrizzare (come il freno X tarato a mano) → arrivo deciso ma non a strappo.
+        // In ENTRAMBE le fasi l'autorità è ALMENO 1.6·g (come la spinta manuale): vicino a un corpo pesante
+        // (la stella, g≈100) l'autopilota deve poter risalire e tenere il sorvolo, non farsi tirare dentro.
+        float accelCap = (closing < vWant ? Mathf.Max(autoAccel, g * 1.6f) : aBrake);
+        Vector3 newRel = Vector3.MoveTowards(relVel, desiredRel, accelCap * Time.fixedDeltaTime);
+        rb.linearVelocity += newRel - relVel;   // Δv: identico in ogni riferimento inerziale
+        Braking = closing > vWant + 1f;          // per l'HUD: l'autopilota sta decelerando
+
+        // arrivato: a quota di sorvolo e quasi fermo rispetto al corpo → disinserisci, resti in hover sincronizzato.
+        if (dtg < standoff * 0.05f && relVel.magnitude < autoArriveSync) Autopilot = false;
+    }
+
+    // Velocità del giocatore RELATIVA a un corpo (stessa contabilità del RouteIndicator): rb.linearVelocity è
+    // relativa al corpo ANCORATO; al bersaglio si toglie la velocità-scena del bersaglio = (target − ancora) in
+    // velocità-universo × TimeScale. Se il bersaglio È l'ancora (in viaggio) resta la velocità del giocatore.
+    Vector3 RelativeVelocityTo(CelestialBody target)
+    {
+        Vector3 pv = rb.linearVelocity;
+        var s = SolarSystem.Instance;
+        var refb = s != null ? s.Reference : null;
+        if (refb == null || target == null) return pv;
+        Vector3 tvs = (target.UniverseVelocityAt(s.SimTime) - refb.UniverseVelocityAt(s.SimTime)).ToVector3() * (float)s.TimeScale;
+        return pv - tvs;
     }
 
     CelestialBody Nearest()
