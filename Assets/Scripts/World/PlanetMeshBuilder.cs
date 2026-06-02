@@ -33,6 +33,30 @@ public static class PlanetMeshBuilder
         return pointOnCube.normalized;
     }
 
+    /// <summary>
+    /// Inverso di ParamToDir: una direzione unitaria → faccia del cubo + parametri (tx,ty)∈[0,1]².
+    /// La faccia è quella verso cui punta la direzione (proiezione massima); poi si riportano gli
+    /// assi tangenti in parametri. Usato per trovare il vicino di un nodo attraverso un bordo (anche
+    /// fra facce diverse) senza transform manuali: si campiona la direzione appena oltre il bordo e
+    /// la si reinterpreta qui. Coerente al 100% con ParamToDir perché usa gli stessi FaceAxes.
+    /// </summary>
+    public static void DirToFaceParam(Vector3 dir, out int face, out float tx, out float ty)
+    {
+        face = 0; float best = -2f;
+        for (int f = 0; f < 6; f++)
+        {
+            float d = Vector3.Dot(dir, FaceNormals[f]);
+            if (d > best) { best = d; face = f; }
+        }
+        Vector3 localUp = FaceNormals[face];
+        FaceAxes(localUp, out var axisA, out var axisB);
+        float dn = Vector3.Dot(dir, localUp);
+        if (dn < 1e-6f) dn = 1e-6f;                 // la direzione punta verso la faccia: dn > 0
+        float s = 1f / dn;                          // scala la dir sul piano della faccia del cubo
+        tx = Mathf.Clamp01(0.5f + 0.5f * s * Vector3.Dot(dir, axisA));
+        ty = Mathf.Clamp01(0.5f + 0.5f * s * Vector3.Dot(dir, axisB));
+    }
+
     public static void Build(Transform parent, PlanetTerrain terrain, int resolution, Material mat)
     {
         foreach (var normal in FaceNormals)
@@ -47,14 +71,27 @@ public static class PlanetMeshBuilder
 
     public static Mesh BuildFaceMesh(Vector3 localUp, PlanetTerrain terrain, int res)
     {
+        ComputeFaceData(localUp, terrain, res, out var verts, out var normals, out var tangents, out var uvs, out var tris);
+        return CreateMesh(verts, normals, tangents, uvs, tris);
+    }
+
+    /// <summary>
+    /// Calcola i dati della mesh-faccia (vertici/normali/tangenti/uv/triangoli). THREAD-SAFE: solo
+    /// matematica (SampleHeight/SurfaceNormal sono pure), niente API Unity. Così le 6 facce si
+    /// costruiscono in parallelo su thread e il main thread fa solo l'upload (CreateMesh) → niente
+    /// freeze di caricamento. La pipeline dei layer va costruita PRIMA sul main thread (RebuildLayers).
+    /// </summary>
+    public static void ComputeFaceData(Vector3 localUp, PlanetTerrain terrain, int res,
+        out Vector3[] verts, out Vector3[] normals, out Vector4[] tangents, out Vector2[] uvs, out int[] tris)
+    {
         Vector3 axisA, axisB;
         FaceAxes(localUp, out axisA, out axisB);
 
-        var verts = new Vector3[res * res];
-        var normals = new Vector3[res * res];
-        var tangents = new Vector4[res * res];
-        var uvs = new Vector2[res * res];   // (tx,ty) in [0,1]²: indirizza la texture di rilievo bakeata
-        var tris = new int[(res - 1) * (res - 1) * 6];
+        verts = new Vector3[res * res];
+        normals = new Vector3[res * res];
+        tangents = new Vector4[res * res];
+        uvs = new Vector2[res * res];   // (tx,ty) in [0,1]²: indirizza la texture di rilievo bakeata
+        tris = new int[(res - 1) * (res - 1) * 6];
         int ti = 0;
         float eps = 2f / (res - 1);   // passo per la differenza centrale (~ una cella di griglia)
 
@@ -94,7 +131,11 @@ public static class PlanetMeshBuilder
         Vector3 c = (verts[tris[0]] + verts[tris[1]] + verts[tris[2]]) / 3f;
         Vector3 faceNrm = Vector3.Cross(verts[tris[1]] - verts[tris[0]], verts[tris[2]] - verts[tris[0]]);
         if (Vector3.Dot(faceNrm, c) < 0f) System.Array.Reverse(tris);
+    }
 
+    /// <summary>Crea la Mesh dai dati calcolati. SOLO main thread (API Unity).</summary>
+    public static Mesh CreateMesh(Vector3[] verts, Vector3[] normals, Vector4[] tangents, Vector2[] uvs, int[] tris)
+    {
         var mesh = new Mesh();
         if (verts.Length > 65535) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         mesh.vertices = verts;
