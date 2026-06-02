@@ -28,3 +28,7 @@
 # Crash report
 sysinfo.txt
 *.stackdump
+
+# Build standalone locali (artefatti)
+*.app/
+build-test.app/
