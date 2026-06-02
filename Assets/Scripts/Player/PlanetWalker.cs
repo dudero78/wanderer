@@ -37,12 +37,12 @@ public class PlanetWalker : MonoBehaviour
     [Header("Newtoniano")]
     public float newtonThrust = 120f;     // accelerazione a pieno regime, NESSUN limite di velocità (delta-v reale): spinta DECISA da astronave (OW). Scala con la gravità locale (max(.,1.6·g)) → vicino alla stella resta una lotta vera
     public float thrustRampTime = 1.0f;   // secondi perché i motori salgano a piena spinta: onset BREVE → senti la gravità un istante, poi i motori "prendono" e ti scagliano
-    public float brakeAccel = 250f;       // freno di assetto: picco di decelerazione nella fascia media (doma centinaia di m/s)
-    public float brakeTimeConstant = 2.5f;// ad ALTA velocità la decel cresce con la velocità (frena entro ~questi secondi): da migliaia di m/s frena molto più forte del picco costante
+    public float brakeAccel = 320f;       // freno di assetto: picco di decelerazione nella fascia media (doma centinaia di m/s)
+    public float brakeTimeConstant = 2.2f;// ad ALTA velocità la decel cresce con la velocità (frena entro ~questi secondi): da migliaia di m/s frena molto più forte del picco costante
     public float brakeRampTime = 0.3f;    // secondi per salire a piena potenza tenendo X (anti-tap accidentale)
-    public float brakeKnee = 40f;         // sotto questa velocità il freno entra nella coda dolce (inizia prima)
-    public float brakeEaseTau = 0.9f;     // costante di tempo dell'avvicinamento finale a 0 (più alto = più lento/visibile): gli ultimi numeri scendono PIANO
-    public float brakeFloor = 2.5f;       // decel minima nella coda: evita che striscia all'infinito vicino a 0 (bassa → fine dolce)
+    public float brakeKnee = 40f;         // sotto questa velocità il freno entra nella coda (inizia prima)
+    public float brakeEaseTau = 0.35f;    // costante di tempo dell'avvicinamento finale a 0 (più basso = più rapido): gli ultimi numeri scorrono SVELTI fino allo 0
+    public float brakeFloor = 6f;         // decel minima nella coda: chiude l'ultimo tratto in fretta (evita lo strisciamento vicino a 0)
     public float softStopAccel = 700f;    // decelerazione dello STOP DOLCE (autopilota interrotto): più RAPIDA del freno X (brakeAccel)
     public float softStopEndSpeed = 0.6f; // sotto questa velocità relativa lo stop dolce molla e ridà il controllo
     public KeyCode brakeKey = KeyCode.X;  // tienilo premuto per annullare l'orbita e poter atterrare
@@ -351,8 +351,8 @@ public class PlanetWalker : MonoBehaviour
                         // Tre fasce: ALTA velocità → decel PROPORZIONALE alla velocità (sp/brakeTimeConstant):
                         // da migliaia di m/s frena molto più forte del picco costante. FASCIA MEDIA → picco
                         // costante (peakAccel). CODA (sotto il ginocchio) → di nuovo proporzionale ma con τ più
-                        // grande (brakeEaseTau): gli ultimi numeri scendono PIANO e l'occhio li segue. Floor
-                        // minimo per chiudere davvero a 0 in tempo finito. Lo stop dolce usa softStopAccel
+                        // piccolo (brakeEaseTau): gli ultimi numeri scorrono SVELTI fino allo 0. Floor minimo
+                        // per chiudere l'ultimo tratto in fretta, in tempo finito. Lo stop dolce usa softStopAccel
                         // (più alto di brakeAccel) come picco → frenata più rapida della X.
                         float peakAccel = SoftStopping ? softStopAccel : brakeAccel;
                         float core = sp > brakeKnee
