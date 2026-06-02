@@ -27,7 +27,10 @@ public class GameBootstrap : MonoBehaviour
         Time.fixedDeltaTime = 1f / 60f;
 
         var solar = gameObject.AddComponent<SolarSystem>();
-        solar.TimeScale = 3.0;
+        // 1 = ritmo di gioco. La velocità orbitale del pianeta (~628 m/s) è già quella che il freno X
+        // deve domare per sincronizzarti con un corpo: accelerare il tempo la gonfia e rende il match
+        // velocity ingiocabile. Alza questo SOLO per osservare le orbite veloci (debug), non in volo.
+        solar.TimeScale = 1.0;
 
         // --- Stella (corpo centrale, fisso all'origine dell'universo) ---
         var starGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
