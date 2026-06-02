@@ -95,16 +95,29 @@ public static class PlanetMeshBuilder
         int ti = 0;
         float eps = 2f / (res - 1);   // passo per la differenza centrale (~ una cella di griglia)
 
+        // SKIRT anti-cucitura: le facce dovrebbero condividere i vertici di bordo (stessa dir → stessa
+        // SampleHeight), ma micro-differenze di arrotondamento aprono T-junction ai seam → a quota bassa, ad
+        // angolo radente, si vedono come fessure nere (lo spazio dietro). Rimedio robusto e standard: estendo il
+        // dominio di UNA cella oltre il quadrante e ABBASSO l'anello esterno → quel lembo si infila SOTTO la
+        // superficie della faccia vicina e sigilla la fessura, senza toccare la superficie calpestabile (l'anello
+        // interno resta a piena quota proprio sul bordo). Nessun triangolo/winding nuovo: solo posizioni.
+        float margin = 1f / (res - 1);                         // ~1 cella di sovrapposizione nel vicino
+        float skirt = Mathf.Max(2f, terrain.Amplitude * 0.25f); // profondità del lembo nascosto
+
         for (int y = 0; y < res; y++)
         {
             for (int x = 0; x < res; x++)
             {
                 int i = x + y * res;
-                float tx = x / (float)(res - 1);
-                float ty = y / (float)(res - 1);
+                float u = x / (float)(res - 1);
+                float v = y / (float)(res - 1);
+                float tx = -margin + u * (1f + 2f * margin);   // dominio [-margin, 1+margin]
+                float ty = -margin + v * (1f + 2f * margin);
                 Vector3 pointOnCube = localUp + (tx - 0.5f) * 2f * axisA + (ty - 0.5f) * 2f * axisB;
                 Vector3 dir = pointOnCube.normalized;
-                verts[i] = dir * terrain.SampleHeight(dir);
+                bool flange = x == 0 || x == res - 1 || y == 0 || y == res - 1;   // anello esterno = lembo nascosto
+                float h = terrain.SampleHeight(dir) - (flange ? skirt : 0f);
+                verts[i] = dir * h;
                 Vector3 nrm = terrain.SurfaceNormal(dir, eps);
                 normals[i] = nrm;
                 // tangente arbitraria perpendicolare alla normale: serve allo shader per
@@ -112,7 +125,7 @@ public static class PlanetMeshBuilder
                 Vector3 refV = Mathf.Abs(nrm.y) < 0.99f ? Vector3.up : Vector3.right;
                 Vector3 tan = Vector3.Normalize(Vector3.Cross(refV, nrm));
                 tangents[i] = new Vector4(tan.x, tan.y, tan.z, 1f);
-                uvs[i] = new Vector2(tx, ty);   // la stessa parametrizzazione usata dal bake
+                uvs[i] = new Vector2(Mathf.Clamp01(tx), Mathf.Clamp01(ty));   // [0,1] per il bake (il lembo va appena oltre)
 
                 if (x < res - 1 && y < res - 1)
                 {
