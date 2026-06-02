@@ -42,15 +42,45 @@ Phobos/Luna). Identità pianeta = 2 colori (`_SoilMean`/`_SoilTint`) + manopole 
   la gravità si sente (precipiti accelerando). Conseguenza: il jetpack non galleggia
   da solo, per tenere quota dai un filo di Space.
 - *Newtoniano*: nessun attrito, la spinta si somma (delta-v reale, alla Outer
-  Wilds). Comandi **relativi allo sguardo** (puntare e andare), non agli assi
-  tangenti — altrimenti da lontano non si torna indietro. Sarà il default
-  dell'astronave. **Freno di assetto** (`X`, match velocity): controspinta
-  automatica che azzera la velocità relativa al pianeta — serve per uscire
-  dall'orbita e atterrare (a 500 m di quota bastano ~50 m/s di traverso per orbitare
-  stabile: senza freno giri in tondo all'infinito).
+  Wilds). Comandi **relativi allo sguardo** (puntare e andare). In **volo libero**
+  (Newtoniano staccato dal suolo) l'orientamento NON si aggancia alla gravità: ruoti
+  solo col mouse — altrimenti un pianeta che orbita ti ruoterebbe la vista e il
+  bersaglio "scivolerebbe" via. Spinta **scalata alla gravità locale**
+  (`max(newtonThrust, 1.6·g)`) → decolli da QUALUNQUE corpo, anche la stella (g=100):
+  invariante "ciò su cui atterri, lo puoi lasciare". Sarà il default dell'astronave.
+  **Freno di assetto** (`X`, match velocity): azzera la velocità relativa al **corpo
+  ancorato** — serve per sincronizzarti con la destinazione, uscire dall'orbita, atterrare.
 
-HUD volo: velocità, **radiale con segno** (− = ti avvicini), **tangenziale**
-(quanta orbita hai), modello attivo, stato `FRENO` e stato **torcia**.
+HUD volo: **altitudine** sul corpo di gravità più vicino + **distanza** sul corpo
+selezionato (separate); velocità, **radiale con segno** (− = ti avvicini),
+**tangenziale**, modello attivo, stato `FRENO` e **torcia**.
+
+## Viaggio fra corpi (sistema di riferimento)
+
+Scala compressa = il sistema sta in float (a 60 km la precisione è ottima). Per viaggiare
+alla Outer Wilds l'origine si **ancora a un corpo di riferimento** (`SolarSystem.Reference`),
+che resta FERMO in scena:
+- nella **zona locale** di un corpo (quota sotto la soglia di decollo ~`raggio·0.5`, con
+  isteresi) ancori a lui → camminata e atterraggio stabili;
+- in **volo con una destinazione** selezionata ancori alla **destinazione** → è ferma e
+  raggiungibile (non sfugge mentre orbita).
+
+Allo switch di riferimento si **preserva la velocità-universo** del giocatore (correzione =
+differenza di velocità dei due corpi × `TimeScale`, via `CelestialBody.UniverseVelocityAt`):
+cambiare ancora NON altera il moto reale. Conseguenza voluta: appena decolli mantieni lo
+slancio orbitale e la destinazione "scorre"; è il **freno X (match velocity)** a sincronizzarti,
+poi punti e vai. **`TimeScale = 1`** in gioco (3 era l'acceleratore di debug: gonfiava le
+velocità orbitali e rendeva il match-velocity ingiocabile).
+
+## Mappa e navigazione
+
+- **Mappa (`M`)**: zoom-out sul sistema con le orbite; clicca un corpo per **selezionarlo**
+  come destinazione (`MapMode`, camera dedicata, comandi del walker congelati).
+- **Indicatore di rotta** (`RouteIndicator`): reticolo HUD sul corpo selezionato — anello +
+  chevron + distanza/velocità relativa + **marker del vettore velocità** (sovrapposto al
+  bersaglio = rotta d'intercetto); verde quando **sincronizzato**; freccia al bordo se fuori
+  vista; si dissolve quando il corpo riempie lo schermo. Texture procedurali generate una volta
+  all'avvio (→ da bakeare su disco, vedi TODO).
 
 ## Scala (decisa)
 
@@ -66,8 +96,10 @@ I pianeti si **generano da una descrizione, poi si FISSANO** (bake) come asset f
 il procedurale è uno strumento di CREAZIONE, non un sistema runtime. La superficie ravvicinata
 è già a target — **smettere di limarla** e costruire il GIOCO: più corpi DIVERSI + un VERBO
 (atterra · cammina · raccogli · vai altrove · puoi fallire). **MVP: mini-loop su 2-3 corpi.**
-Prerequisiti: hand-off di gravità tra corpi, più pianeti, mappa+selezione. NON costruire ora
-l'astrazione ricetta composizione→pianeta (trappola identica al quadtree: prima 2-3 corpi a mano).
+FATTO: hand-off di gravità, mappa+selezione, **viaggio fra corpi + match-velocity**, indicatore
+di rotta — puoi già volare da un corpo all'altro, atterrare e ripartire. MANCANO: più pianeti, il
+teletrasporto, il VERBO. NON costruire ora l'astrazione ricetta composizione→pianeta (trappola
+identica al quadtree: prima 2-3 corpi a mano).
 
 ## Come si avvia
 
@@ -81,7 +113,7 @@ I parametri (raggi, gravità, terreno, torcia) sono lì, commentati.
 Core/      Vector3d, FloatingOrigin   — doppia precisione, origine ancorata al pianeta
            PerformanceGovernor        — cap fps (30 attivi / 15 idle): leva sul calore CPU
            RenderScaler               — render a frazione di risoluzione (ora 1.0: GPU libera)
-Physics/   KeplerOrbit, CelestialBody, SolarSystem
+Physics/   KeplerOrbit, CelestialBody (UniversePosition + UniverseVelocityAt), SolarSystem (Reference: corpo ancorato; preserva la velocità allo switch)
 World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di TerrainLayer, unica verità mesh+walker
            TerrainLayer      — astrazione di un processo (forma → altezza); base, poi crateri, ...
            BaseTerrainLayer  — forma di base (fBm)
@@ -91,8 +123,10 @@ World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di Terrain
            SingleMeshPlanet  — 6 facce, no LOD, build su thread + proxy
            PlanetBaker       — bakea per faccia: maschera minerale + normale crateri; detail-normal condivisa
            SunLight
-Player/    PlanetWalker   — camminata su sfera + volo jetpack
+Player/    PlanetWalker   — camminata su sfera + volo jetpack (volo libero in Newtoniano, spinta scalata alla gravità)
            Flashlight     — torcia che scala con la quota
+           MapMode        — mappa (M): zoom-out + orbite + selezione corpo destinazione
+           RouteIndicator — reticolo di rotta sul corpo selezionato (HUD, texture procedurali)
 Items/     SuitPickup
 Bootstrap/ GameBootstrap  — costruisce la scena (tutti i parametri sono qui)
 Debug/     DebugHud
@@ -133,6 +167,11 @@ vicino all'origine di Unity → la precisione non degrada mai.
   maschere di colore (dove serve il valore, non il gradiente — ed è più economico).
 - **Hash: mai combinare le coordinate con XOR semplice** (lineare → pattern
   strutturati). Mixing sequenziale (multiply+shift) o PCG.
+- **`Mathf.SmoothStep(a,b,t)` NON è la `smoothstep` di GLSL.** In Unity interpola
+  l'OUTPUT tra `a` e `b` secondo `t∈[0,1]`; non soglia l'input fra due edge. Usata come
+  edge-threshold (`1 - Mathf.SmoothStep(e0,e1,x)`) torna ~costante → texture/forme
+  generate PIENE (il reticolo "disco in un quadrato"). Smoothstep vera a mano:
+  `t=saturate((x-e0)/(e1-e0)); return t*t*(3-2t);`.
 - **Dettaglio di superficie WORLD-FIXED, mai a frequenza che galleggia con la camera.**
   Provato il "trucco microscopio" (frequenza di campionamento ∝ 1/dist per texel costante
   a schermo): sembra magico ma è non-fisico → i dettagli (sassi) SCIVOLANO e cambiano scala
