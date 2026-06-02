@@ -32,6 +32,15 @@ public class MapMode : MonoBehaviour
 
     GUIStyle mapStyle, hereStyle;
     GameObject playerMarker;   // "tu sei qui": dove sta il giocatore in scena (su un corpo o in volo)
+
+    // Scia: traiettoria percorsa. Registrata SEMPRE (anche fuori mappa) in coordinate-UNIVERSO (la scena
+    // trasla con la floating origin) e riconvertita a scena ogni frame → resta coerente con stella e orbite.
+    LineRenderer trail;
+    const int MaxTrailPoints = 1024;   // ring buffer: oltre, scarta il punto più vecchio (scia "recente")
+    readonly List<Vector3d> trailPts = new List<Vector3d>();
+    float trailStep = 30f;             // distanza minima fra due punti registrati (scalata sul sistema in Init)
+    float trailMaxJump = 1e9f;         // salto max plausibile fra due frame: oltre = ri-ancoraggio, si scarta
+
     readonly List<GameObject> markers = new List<GameObject>();
     readonly Dictionary<GameObject, CelestialBody> markerBody = new Dictionary<GameObject, CelestialBody>();
     readonly List<LineRenderer> orbits = new List<LineRenderer>();
@@ -60,6 +69,8 @@ public class MapMode : MonoBehaviour
         mapCam.fieldOfView = 55f;
         mapCam.enabled = false;
 
+        trailStep = SystemRadius() * 0.0015f;   // ~42 m su un sistema da 28 km → scia fine ma punti contenuti
+        trailMaxJump = SystemRadius() * 0.25f;  // un frame reale non copre mai tanto: oltre = ri-ancoraggio
         BuildVisuals();
         ShowVisuals(false);
     }
@@ -123,6 +134,21 @@ public class MapMode : MonoBehaviour
             playerMarker.GetComponent<MeshRenderer>().sharedMaterial = m;
         }
         playerMarker.transform.SetParent(transform, false);
+
+        // scia del giocatore: filo verde, brilla al capo recente e sfuma sul vecchio (coda a cometa)
+        if (lineShader != null)
+        {
+            var tgo = new GameObject("PlayerTrail");
+            tgo.transform.SetParent(transform, false);
+            trail = tgo.AddComponent<LineRenderer>();
+            trail.material = new Material(lineShader);
+            trail.useWorldSpace = true;
+            trail.widthMultiplier = orbitWidth * 0.8f;
+            trail.numCapVertices = 2;
+            trail.positionCount = 0;
+            trail.startColor = new Color(0.4f, 1f, 0.5f, 0.12f);   // capo VECCHIO (indice 0): quasi spento
+            trail.endColor = new Color(0.45f, 1f, 0.55f, 0.9f);    // capo RECENTE: acceso
+        }
     }
 
     // Centro del sistema = la stella (corpo senza orbita); fallback: media dei corpi.
@@ -162,6 +188,8 @@ public class MapMode : MonoBehaviour
 
     void Update()
     {
+        RecordTrail();   // sempre: la traiettoria si accumula anche mentre voli, non solo in mappa
+
         if (state == State.Off)
         {
             if (walker != null && Input.GetKeyDown(toggleKey)) EnterMap();
@@ -240,15 +268,36 @@ public class MapMode : MonoBehaviour
         }
     }
 
+    // Registra la posizione-universo del giocatore quando si è spostato abbastanza dall'ultimo punto.
+    void RecordTrail()
+    {
+        if (walker == null) return;
+        Vector3d uni = FloatingOrigin.SceneOrigin + new Vector3d(walker.transform.position);
+        if (trailPts.Count > 0)
+        {
+            double d = Vector3d.Distance(uni, trailPts[trailPts.Count - 1]);
+            if (d > trailMaxJump) return;   // salto da ri-ancoraggio (floating origin): NON è moto reale, scarta
+            if (d <= trailStep) return;     // troppo vicino all'ultimo punto: non registrare
+        }
+        trailPts.Add(uni);
+        if (trailPts.Count > MaxTrailPoints) trailPts.RemoveAt(0);   // scia "recente": scarta il più vecchio
+    }
+
     void UpdateVisuals()
     {
         Vector3 camPos = mapCam.transform.position;
         if (playerMarker != null && walker != null)
         {
             playerMarker.transform.position = walker.transform.position;
-            // un filo più grande dei corpi: sta quasi sopra al marker del pianeta su cui ti trovi → deve spiccare
             playerMarker.transform.localScale = Vector3.one *
-                (Vector3.Distance(camPos, walker.transform.position) * markerScreenSize * 1.3f);
+                (Vector3.Distance(camPos, walker.transform.position) * markerScreenSize * 0.9f);
+        }
+        if (trail != null)
+        {
+            int n = trailPts.Count;
+            trail.positionCount = n;
+            for (int i = 0; i < n; i++) trail.SetPosition(i, (trailPts[i] - FloatingOrigin.SceneOrigin).ToVector3());
+            trail.enabled = n >= 2;   // serve almeno un segmento
         }
         for (int i = 0; i < markers.Count; i++)
         {
@@ -283,6 +332,7 @@ public class MapMode : MonoBehaviour
         for (int i = 0; i < markers.Count; i++) markers[i].SetActive(on);
         for (int i = 0; i < orbits.Count; i++) orbits[i].enabled = on;
         if (playerMarker != null) playerMarker.SetActive(on);
+        if (trail != null) trail.enabled = on && trailPts.Count >= 2;
     }
 
     void OnGUI()
