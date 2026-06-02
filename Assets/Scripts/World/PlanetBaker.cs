@@ -87,11 +87,8 @@ public static class PlanetBaker
         if (detailTex != null) mat.SetTexture("_DetailNormal", detailTex);
         if (soil != null) mat.SetTexture("_SoilSand", soil);
         if (craterTex != null) mat.SetTexture("_CraterNormalMap", craterTex);
-
-        // ALBEDO da MAPPA EQUIRECT REALE (validazione pipeline mappe→render): se c'è la texture, l'albedo
-        // viene dal dato reale (campionato per direzione nello shader), non dal procedurale grigio.
-        var albedo = Resources.Load<Texture2D>("Textures/phobos_albedo");
-        if (albedo != null) { mat.SetTexture("_AlbedoMap", albedo); mat.SetFloat("_AlbedoMapStr", 1f); }
+        // L'albedo equirect (_AlbedoMap/_AlbedoMapStr) resta una feature dello shader per i corpi con DATI REALI
+        // o mappe autorate; di default OFF → si usa l'albedo procedurale (mari + variazione) dello shader.
         return mat;
     }
 

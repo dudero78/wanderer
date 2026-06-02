@@ -22,6 +22,14 @@ Shader "Wanderer/PlanetBaked"
         _BaseRadius ("Raggio base",      Float) = 500
         _Amplitude  ("Ampiezza terreno", Float) = 30
 
+        // MARI a grande scala (tipo lunari): regioni scure che danno al pianeta un aspetto VERO da orbita
+        // (non grigio uniforme). _MariaColor = scurezza dei mari; _MariaScale = grandezza (basso = grandi);
+        // _MariaThresh = quanta superficie è "mare"; _MariaVar = variazione di luminosità a media scala.
+        _MariaColor ("Mari: colore/scurezza", Color) = (0.42, 0.42, 0.45, 1)
+        _MariaScale ("Mari: scala (basso = grandi)", Float) = 2.2
+        _MariaThresh ("Mari: soglia (frazione mari)", Range(0,1)) = 0.46
+        _MariaVar ("Variazione luminosità (media scala)", Range(0,0.5)) = 0.16
+
         // SUOLO LISCIO: colore quasi uniforme. Il bello è la FORMA del terreno e la LUCE, non il
         // dettaglio di superficie. _SoilMean = colore base (grigio lunare); _SoilTint lo modula.
         // Per un pianeta giallo/rosso bastano questi due colori (è la "identità" del pianeta).
@@ -78,8 +86,8 @@ Shader "Wanderer/PlanetBaked"
         #pragma target 4.0
         #include "PlanetNoise.cginc"
 
-        fixed4 _PeakColor, _SoilTint, _SoilMean, _MineralA, _MineralB;
-        float _MineralStr, _PeakStr;
+        fixed4 _PeakColor, _SoilTint, _SoilMean, _MineralA, _MineralB, _MariaColor;
+        float _MineralStr, _PeakStr, _MariaScale, _MariaThresh, _MariaVar;
         float _BaseRadius, _Amplitude;
         float _GrainStr, _DetailScale, _MacroVar, _MacroScale, _SandDetail;
         float _MorphRange;
@@ -178,6 +186,16 @@ Shader "Wanderer/PlanetBaked"
             // cappucci appena più chiari sulle creste delle dune (tenui).
             float t = saturate((h - (_BaseRadius - _Amplitude)) / (2.0 * _Amplitude));
             alb = lerp(alb, _PeakColor.rgb, smoothstep(0.74, 0.97, t) * _PeakStr);
+
+            // MARI a grande scala + variazione di luminosità (world-fixed per DIREZIONE → continui sulla sfera,
+            // niente cuciture). Danno l'aspetto di una luna vera da orbita: macchie scure ampie su un altopiano
+            // più chiaro, più una variazione media che rompe l'uniformità. fbm ∈ [0,1] (libreria condivisa).
+            float3 sdir = normalize(P);
+            float maria = fbm(sdir * _MariaScale);
+            float land = smoothstep(_MariaThresh - 0.12, _MariaThresh + 0.12, maria);   // 0 = mare scuro, 1 = altopiano
+            alb *= lerp(_MariaColor.rgb, float3(1.0, 1.0, 1.0), land);
+            float bv = fbm(sdir * (_MariaScale * 3.3) + 41.7);
+            alb *= lerp(1.0 - _MariaVar, 1.0 + _MariaVar, bv);
 
             // ALBEDO da MAPPA EQUIRECT (dati reali): campiona per DIREZIONE (lon/lat) → fonte di verità del
             // colore. Mappa la sfera dei punti: lon = atan2(z,x), lat = asin(y). Sostituisce il procedurale.
