@@ -24,7 +24,7 @@ public class GpuPlanetSurface : MonoBehaviour
 
     ComputeShader cs;
     int kFace, kNorm, kIdx;
-    GraphicsBuffer posBuf, nrmBuf, idxBuf;   // posizioni/normali (3 float per vertice) + index buffer
+    GraphicsBuffer posBuf, nrmBuf, bedNrmBuf, depthBuf, idxBuf;   // posizioni/normali pelo (3 float/v) + normale fondo (3 float/v) + profondità acqua (1 float/v) + index buffer
     // index buffer in CACHE per lato-griglia (gp): la topologia dipende solo dalla risoluzione e l'array a
     // 2048 è enorme (~600 MB) → costruirlo UNA volta per livello, poi riusarlo (niente scatti ripetuti sullo zoom).
     readonly System.Collections.Generic.Dictionary<int, GraphicsBuffer> idxCache = new System.Collections.Generic.Dictionary<int, GraphicsBuffer>();
@@ -64,15 +64,21 @@ public class GpuPlanetSurface : MonoBehaviour
         int totalVerts = vertsPerFace * 6;
         posBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
         nrmBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
+        bedNrmBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
+        depthBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
         cs.SetBuffer(kFace, "_VPos", posBuf);
+        cs.SetBuffer(kFace, "_VDepth", depthBuf);
         cs.SetBuffer(kNorm, "_VPos", posBuf);
         cs.SetBuffer(kNorm, "_VNrm", nrmBuf);
+        cs.SetBuffer(kNorm, "_VBedNrm", bedNrmBuf);
 
         UseIndexBuffer();
 
         mat = new Material(sh);
         mat.SetBuffer("_VPos", posBuf);
         mat.SetBuffer("_VNrm", nrmBuf);
+        mat.SetBuffer("_VBedNrm", bedNrmBuf);
+        mat.SetBuffer("_VDepth", depthBuf);
 
         Rebuild(terrain);
         Ready = true;
@@ -89,6 +95,7 @@ public class GpuPlanetSurface : MonoBehaviour
         shape = GpuShapeBuffers.Build(cs, terrain, new[] { kFace, kNorm });
 
         cs.SetInt("_R", res);
+        cs.SetInt("_HasSea", terrain.Recipe != null && terrain.Recipe.LastSea() != null ? 1 : 0);
         int gFace = (gp + 7) / 8;
         int gNrm = (gp + 7) / 8;   // normali su TUTTA la griglia padded (incluso il bordo di sovrapposizione)
         for (int f = 0; f < 6; f++)
@@ -120,18 +127,24 @@ public class GpuPlanetSurface : MonoBehaviour
         newRes = Mathf.Clamp(newRes, 2, 4096);
         if (newRes == res) return;
 
-        posBuf?.Release(); nrmBuf?.Release();   // l'index buffer NON si rilascia: è in cache (riusato per livello)
+        posBuf?.Release(); nrmBuf?.Release(); bedNrmBuf?.Release(); depthBuf?.Release();   // l'index buffer NON si rilascia: è in cache (riusato per livello)
         res = newRes; gp = res + 2; vertsPerFace = gp * gp;
 
         int totalVerts = vertsPerFace * 6;
         posBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
         nrmBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
+        bedNrmBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
+        depthBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
         cs.SetBuffer(kFace, "_VPos", posBuf);
+        cs.SetBuffer(kFace, "_VDepth", depthBuf);
         cs.SetBuffer(kNorm, "_VPos", posBuf);
         cs.SetBuffer(kNorm, "_VNrm", nrmBuf);
+        cs.SetBuffer(kNorm, "_VBedNrm", bedNrmBuf);
         UseIndexBuffer();
         mat.SetBuffer("_VPos", posBuf);
         mat.SetBuffer("_VNrm", nrmBuf);
+        mat.SetBuffer("_VBedNrm", bedNrmBuf);
+        mat.SetBuffer("_VDepth", depthBuf);
 
         Rebuild(terrain);
     }
@@ -187,6 +200,8 @@ public class GpuPlanetSurface : MonoBehaviour
                 mat.SetFloat("_SeaForma", sea.seaForma);
                 mat.SetFloat("_SeaSeed", sea.seed);
                 mat.SetFloat("_SeaLiquid", sea.liquid ? 1f : 0f);
+                mat.SetFloat("_SeaClear", sea.seaClear ? 1f : 0f);
+                mat.SetFloat("_SeaClarity", sea.seaClarity);
             }
             else mat.SetFloat("_SeaOn", 0f);
         }
@@ -234,7 +249,7 @@ public class GpuPlanetSurface : MonoBehaviour
 
     void OnDestroy()
     {
-        posBuf?.Release(); nrmBuf?.Release();
+        posBuf?.Release(); nrmBuf?.Release(); bedNrmBuf?.Release(); depthBuf?.Release();
         foreach (var b in idxCache.Values) b?.Release();   // idxBuf punta a una di queste: non rilasciarlo a parte
         idxCache.Clear(); idxCountCache.Clear();
         shape?.Dispose();

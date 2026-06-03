@@ -107,6 +107,7 @@ public class PlanetRecipe
             p.dominantRadius *= k;
             p.seaLevel *= k;
             p.seaRoughness *= k;
+            p.seaClarity *= k;
             p.elevationContrast *= k;
             p.boundaryUplift *= k;
         }
@@ -183,6 +184,8 @@ public class ProcessStep
     public float seaRoughScale = 3f;            // frequenza del rilievo: bassa = forme larghe, alta = fitte
     public float seaForma = 0f;                 // forma del fondale: −1 = creste/dune, 0 = liscio, +1 = collinette/gobbe
     public bool liquid = false;                 // true = resa come ACQUA (riflessi/lucentezza/fresnel); false = superficie opaca tinta. Solo visivo: la geometria resta il pelo piatto (il nuoto sarà gameplay)
+    public bool seaClear = false;               // true = acqua TRASPARENTE: si vede il fondale sommerso, che sbiadisce verso il colore profondo con la profondità. Richiede liquid. Solo path GPU
+    public float seaClarity = 8f;               // profondità (m) a cui l'acqua diventa ~opaca: bassa = torbida (vedi solo le secche), alta = cristallina (vedi anche il fondo profondo)
 
     public static ProcessStep FromCrater(CraterRecipe c) => new ProcessStep
     {

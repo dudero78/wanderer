@@ -124,8 +124,10 @@ Bivi possibili (da decidere con Dario):
   [[wanderer-rendering-roadmap]].
 - ⬜ **Residuo minore**: forse restano marcature di shading molto tenui qua e là sull'anteprima GPU (da indagare
   solo se danno fastidio).
-- ⬜ **Acqua liquida — resto**: il toggle "liquido" + il look acqua (glint+fresnel) sono FATTI; restano la resa
-  **trasparente/depth** (vedere il fondale sommerso) e il **nuoto/affondamento** del walker (gameplay).
+- ⬜ **Acqua liquida — resto**: toggle "liquido" + look acqua (glint+fresnel) + **trasparenza** (vedere il
+  fondale sommerso, attenuato con la profondità) FATTI sul path GPU. Resta il **nuoto/affondamento** del walker
+  (gameplay) e — se serve — la trasparenza anche sul path CPU/in gioco (PlanetBaked, che non ha la profondità
+  per-vertice → andrebbe portata lì come vertex attribute o ricostruita).
 - ⬜ **Altri processi**: montagne (ridged noise per la texture delle catene), ghiaccio, erosione (bake?).
 - ⬜ **Migliorie editor**: editing per-feature (cancella/modifica singolo cratere), più preset.
 

@@ -45,6 +45,8 @@ Shader "Wanderer/PlanetProcedural"
         _SeaForma ("Mare: forma fondale", Range(-1,1)) = 0
         _SeaSeed ("Mare: seme", Float) = 4242
         _SeaLiquid ("Mare: liquido (acqua)", Float) = 0
+        _SeaClear ("Mare: trasparente", Float) = 0
+        _SeaClarity ("Mare: limpidezza (m)", Float) = 8
 
         _Saturation ("Saturazione", Range(0,2)) = 1
     }
@@ -64,12 +66,15 @@ Shader "Wanderer/PlanetProcedural"
 
             StructuredBuffer<float> _VPos;   // 3 float per vertice (x,y,z), buffer piatto
             StructuredBuffer<float> _VNrm;
+            StructuredBuffer<float> _VBedNrm; // 3 float per vertice: normale del fondo sommerso (rilievo del fondale)
+            StructuredBuffer<float> _VDepth; // 1 float per vertice: profondità dell'acqua (pelo − fondo)
 
             float _BaseRadius, _Amplitude, _Frequency, _Lacunarity, _Gain;
             int _Octaves, _Seed;
             float4 _SoilMean, _SoilTint, _MineralA, _MineralB, _PeakColor, _MariaColor, _SeaColor;
             float _MacroVar, _MacroScale, _MineralStr, _MineralScale, _PeakStr, _MariaScale, _MariaStr;
             float _SeaOn, _SeaLevel, _SeaSat, _SeaRough, _SeaRoughScale, _SeaForma, _SeaSeed, _SeaLiquid, _Saturation;
+            float _SeaClear, _SeaClarity;
             float3 _SunDir, _SunColor, _Ambient;
 
             struct v2f
@@ -77,6 +82,8 @@ Shader "Wanderer/PlanetProcedural"
                 float4 pos : SV_POSITION;
                 float3 nrm : TEXCOORD0;
                 float3 lp  : TEXCOORD1;   // posizione in spazio oggetto (= mondo, pianeta all'origine)
+                float  depth : TEXCOORD2; // profondità dell'acqua al vertice, interpolata sul triangolo
+                float3 bnrm : TEXCOORD3;  // normale del fondo sommerso (rilievo del fondale)
             };
 
             v2f vert(uint vid : SV_VertexID)
@@ -84,9 +91,12 @@ Shader "Wanderer/PlanetProcedural"
                 v2f o;
                 float3 p = float3(_VPos[vid * 3], _VPos[vid * 3 + 1], _VPos[vid * 3 + 2]);
                 float3 n = float3(_VNrm[vid * 3], _VNrm[vid * 3 + 1], _VNrm[vid * 3 + 2]);
+                float3 bn = float3(_VBedNrm[vid * 3], _VBedNrm[vid * 3 + 1], _VBedNrm[vid * 3 + 2]);
                 o.pos = UnityObjectToClipPos(p);
                 o.nrm = UnityObjectToWorldNormal(n);
+                o.bnrm = UnityObjectToWorldNormal(bn);
                 o.lp = p;
+                o.depth = _VDepth[vid];
                 return o;
             }
 
@@ -137,19 +147,38 @@ Shader "Wanderer/PlanetProcedural"
                 float region = smoothstep(0.42, 0.64, fbm(sdir * _MariaScale));
                 alb = lerp(alb, alb * _MariaColor.rgb, low * region * _MariaStr);
 
-                // tinta del MARE (saturazione propria), copre suolo/crateri sommersi
+                // MARE. Tinta dell'acqua (saturazione propria). Se TRASPARENTE l'acqua bassa lascia vedere il
+                // fondo (l'albedo del suolo, tinto d'acqua) e si scurisce verso il colore profondo con la
+                // profondità (assorbimento alla Beer-Lambert: exp(−depth/limpidezza)); profonda → opaca. La
+                // profondità arriva per-vertice dal compute (il fondo non è geometria: la superficie È il pelo).
                 float seaLuma = dot(_SeaColor.rgb, float3(0.2126, 0.7152, 0.0722));
                 float3 seaCol = lerp(float3(seaLuma, seaLuma, seaLuma), _SeaColor.rgb, _SeaSat);
-                alb = lerp(alb, seaCol, seaMask);
+                float3 waterAlb = seaCol;
+                float seaTrans = 0.0;   // quanto si vede il fondo (1 = secca, 0 = fondale opaco); 0 se non trasparente
+                if (_SeaClear > 0.5 && _SeaLiquid > 0.5)
+                {
+                    seaTrans = exp(-max(IN.depth, 0.0) / max(_SeaClarity, 0.05));
+                    float3 waterTint = _SeaColor.rgb / max(seaLuma, 0.04);             // tinta a luminosità neutra (non scurisce)
+                    float3 bedSeen = alb * lerp(float3(1.0, 1.0, 1.0), waterTint, 0.6);
+                    waterAlb = lerp(seaCol, bedSeen, seaTrans);
+                }
+                alb = lerp(alb, waterAlb, seaMask);
 
                 // saturazione finale
                 float luma = dot(alb, float3(0.2126, 0.7152, 0.0722));
                 alb = lerp(float3(luma, luma, luma), alb, _Saturation);
 
-                // luce: normale geometrica del vertice. Sul mare NON va appiattita: con la rugosità il pelo È
-                // geometria ondulata e la normale la cattura (come PlanetBaked, che sul mare tiene la normale mesh).
+                // luce: normale geometrica del vertice (il pelo). Sul mare NON va appiattita: con la rugosità il
+                // pelo È geometria ondulata e la normale la cattura (come PlanetBaked, che sul mare tiene la normale).
                 float3 nrm = normalize(IN.nrm);
-                float ndl = saturate(dot(nrm, _SunDir));
+                // RILIEVO DEL FONDALE: dove guardo il fondo in trasparenza (seaTrans·seaMask) illumino con la
+                // normale del FONDO sommerso, così il fondale ha il suo rilievo invece di seguire il pelo liscio.
+                // Acqua profonda/terra → torna alla normale del pelo. Il glint qui sotto resta sul pelo (è giusto:
+                // il riflesso è sulla superficie, non sul fondo).
+                float3 shadeN = nrm;
+                if (seaTrans > 0.0)
+                    shadeN = normalize(lerp(nrm, normalize(IN.bnrm), seaTrans * seaMask));
+                float ndl = saturate(dot(shadeN, _SunDir));
                 float3 col = alb * (ndl * _SunColor + _Ambient);
 
                 // MARE LIQUIDO: aspetto d'ACQUA invece di superficie opaca. Riflesso speculare del sole (glint) +

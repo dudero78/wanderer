@@ -393,6 +393,13 @@ public class PlanetEditor : MonoBehaviour
                 p.seaColor.b = Slider("Colore B", "Componente blu dell'acqua.", p.seaColor.b, 0f, 1f, ui, ref colorDirty);
                 p.liquid = Toggle("Liquido", "Rende il mare come ACQUA (riflessi speculari + lucentezza ai bordi) invece di superficie opaca tinta. È solo aspetto: il nuoto sarà nel gioco.", p.liquid, ui, geometry: false, changed: out bool liqChg);
                 if (liqChg) colorDirty = true;
+                if (p.liquid)
+                {
+                    p.seaClear = Toggle("  Trasparente", "Acqua limpida: si vede il fondale sommerso, che sbiadisce verso il colore profondo man mano che l'acqua si fa fonda. (Visibile sull'anteprima GPU.)", p.seaClear, ui, geometry: false, changed: out bool clearChg);
+                    if (clearChg) colorDirty = true;
+                    if (p.seaClear)
+                        p.seaClarity = Slider("  limpidezza (m)", "Profondità a cui l'acqua diventa quasi opaca: bassa = torbida (vedi solo le secche), alta = cristallina (vedi anche il fondo profondo).", p.seaClarity, 1f, 60f, ui, ref colorDirty);
+                }
             }
             GUILayout.Space(8f * ui);
         }

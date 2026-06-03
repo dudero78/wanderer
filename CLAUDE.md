@@ -66,6 +66,16 @@ versanti dei crateri → rimosso). **PROSSIMO:** resa GPU IN GIOCO (B1) · mater
   del sole + schiarita di Fresnel ai bordi (solo lato illuminato), in entrambi gli shader. La **larghezza del glint
   è legata alla rugosità del mare** (liscio = punto netto da specchio; mosso = scia larga). Solo aspetto: la
   geometria resta il pelo piatto, il nuoto sarà gameplay.
+- **Mare TRASPARENTE** (flag `seaClear` + `seaClarity`, sotto "Liquido"): l'acqua limpida lascia vedere il **fondale
+  sommerso**, che sbiadisce verso il colore profondo con la profondità (Beer-Lambert `exp(−depth/seaClarity)`).
+  La **profondità dell'acqua** (pelo − fondo) non è geometria — la superficie disegnata È il pelo — quindi il
+  compute la emette **per-vertice** (`_VDepth`, calcolata in `SampleHeightD` al momento dell'allagamento) e il
+  fragment la interpola e la usa. **Solo sul path GPU** (l'anteprima vera, tasto G): il path CPU/in gioco
+  (`PlanetBaked`) non ha la profondità per-vertice e resta opaco. `seaClarity` = profondità a cui l'acqua diventa
+  ~opaca (torbida↔cristallina). **Rilievo del fondale:** il fondo visto in trasparenza è illuminato dalla
+  **normale del FONDO sommerso** (`_VBedNrm`, normale analitica di `BedHeight` = pipeline senza allagamento),
+  pesata da `seaTrans·seaMask` → l'acqua bassa mostra il rilievo del fondale; profonda/terra torna alla normale
+  del pelo. Il glint resta sul pelo (il riflesso è sulla superficie).
 - **Dettaglio anteprima GPU** (toolbar 512/1024/2048 + **Auto**): la risoluzione della mesh GPU. Default **512**
   fisso (niente scatti durante l'editing). **Auto** = opt-in (lo attiva chi zooma sui dettagli senza editare): segue
   lo zoom con ISTERESI (soglie relative al raggio) — vicino 2048, lontano 512. L'**index buffer è generato sulla

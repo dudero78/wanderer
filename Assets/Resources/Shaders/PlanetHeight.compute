@@ -67,6 +67,7 @@ int _ProcessCount;
 float3 _FaceUp, _AxisA, _AxisB;
 float  _U0, _V0, _Step;
 int    _NE;                       // lato della griglia estesa (nodeRes+3)
+int    _HasSea;                   // 1 se la ricetta ha un mare → calcola la normale del fondo; 0 = salta (no spreco)
 // posizioni locali (dir*altezza), NE*NE punti, scritte PIATTE come float (x,y,z consecutivi). Lo
 // structured buffer di float3 in lettura su Metal può disallinearsi (stride 16 vs 12) → posizioni
 // spazzatura; il buffer di float (4 byte) è privo di ambiguità — è ciò che il test di parità usa con
@@ -87,6 +88,8 @@ int _FaceOffset;                 // vertice di partenza di questa faccia nei buf
 int _R;                          // vertici per lato della faccia (la griglia padded è _R+2)
 RWStructuredBuffer<float> _VPos; // posizioni locali (dir*altezza)
 RWStructuredBuffer<float> _VNrm; // normali analitiche
+RWStructuredBuffer<float> _VDepth; // profondità dell'acqua per vertice (pelo − fondo, m); 0 dove asciutto. Per la resa trasparente del mare
+RWStructuredBuffer<float> _VBedNrm; // normale del FONDO sommerso (terreno senza allagamento): dà il rilievo del fondale visto attraverso l'acqua trasparente
 
 // =================================================================================================
 // Noise3D (gradient noise di Perlin + fBm) — fedele a Noise3D.cs
@@ -383,10 +386,16 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
 // SampleHeight completo = base + PIPELINE ORDINATA di processi (= PlanetTerrain.SampleHeight)
 // =================================================================================================
 
-float SampleHeight(float3 unitDir)
+// Versione con la PROFONDITÀ dell'acqua: per ogni processo "Mare" registra (pelo − fondo) prima
+// dell'allagamento → quanto è spessa l'acqua in quel punto. La usa la resa trasparente del mare (il fondo
+// non è geometria: la superficie disegnata È il pelo, quindi la profondità va portata fuori esplicitamente).
+// Un cratere scavato DOPO il mare riabbassa h sotto il pelo, ma waterDepth resta quella del mare: lì la
+// maschera del mare nel fragment è 0 (h lontano dal pelo) → asciutto, la profondità non viene usata.
+float SampleHeightD(float3 unitDir, out float waterDepth)
 {
     float n = Fbm(unitDir * _Frequency, _Octaves, _Lacunarity, _Gain, _Seed);  // [0,1]
     float h = _BaseRadius + (n - 0.5) * 2.0 * _Amplitude;
+    waterDepth = 0.0;
 
     // processi nell'ORDINE della ricetta (un cratere dopo un mare scava all'asciutto)
     for (int pi = 0; pi < _ProcessCount; pi++)
@@ -395,8 +404,29 @@ float SampleHeight(float3 unitDir)
         int type = (int)pr.x;
         int idx = (int)pr.y;
         if (type == 0)      h += CraterApply(_Craters[idx], unitDir, _BaseRadius);
-        else if (type == 1) h = max(h, SeaSurface(_Seas[idx], unitDir));
+        else if (type == 1) { float s = SeaSurface(_Seas[idx], unitDir); waterDepth = max(0.0, s - h); h = max(h, s); }
         else                h += TectonicApply(_Tectonics[idx], unitDir);
+    }
+    return h;
+}
+
+float SampleHeight(float3 unitDir) { float wd; return SampleHeightD(unitDir, wd); }
+
+// Quota del FONDO: la pipeline completa MA senza allagamento (il Mare non alza la quota). Crateri/tettonica
+// prima e dopo il mare contano (un cratere sommerso fa parte del fondale) → è il rilievo del terreno sotto
+// l'acqua. La sua normale analitica dà il rilievo del fondale visto in trasparenza.
+float BedHeight(float3 unitDir)
+{
+    float n = Fbm(unitDir * _Frequency, _Octaves, _Lacunarity, _Gain, _Seed);
+    float h = _BaseRadius + (n - 0.5) * 2.0 * _Amplitude;
+    for (int pi = 0; pi < _ProcessCount; pi++)
+    {
+        float2 pr = _Process[pi];
+        int type = (int)pr.x;
+        int idx = (int)pr.y;
+        if (type == 0)      h += CraterApply(_Craters[idx], unitDir, _BaseRadius);
+        else if (type == 2) h += TectonicApply(_Tectonics[idx], unitDir);
+        // type 1 (mare): non allaga → resta il fondo
     }
     return h;
 }
@@ -444,9 +474,12 @@ void CSFaceGrid(uint3 id : SV_DispatchThreadID)
     // NIENTE snap: lo snap a lattice terrazzava i versanti ripidi dei crateri (crepe). Le cuciture fra le
     // facce sono coperte dalla SOVRAPPOSIZIONE di una cella (vedi index buffer), non più dallo snap.
     float3 dir = ParamToDir(tx, ty);
-    float3 p = dir * SampleHeight(dir);
-    int o = (_FaceOffset + id.x + id.y * gp) * 3;
+    float depth;
+    float3 p = dir * SampleHeightD(dir, depth);
+    int vi = _FaceOffset + id.x + id.y * gp;
+    int o = vi * 3;
     _VPos[o] = p.x; _VPos[o + 1] = p.y; _VPos[o + 2] = p.z;
+    _VDepth[vi] = depth;
 }
 
 // ---- anteprima GPU: normali ANALITICHE (= PlanetTerrain.SurfaceNormal) --------------------------
@@ -481,6 +514,21 @@ void CSFaceNormals(uint3 id : SV_DispatchThreadID)
     if (dot(n, dir) < 0.0) n = -n;                 // verso l'esterno
     int o = (_FaceOffset + px + py * gp) * 3;
     _VNrm[o] = n.x; _VNrm[o + 1] = n.y; _VNrm[o + 2] = n.z;
+
+    // normale del FONDO (terreno sommerso, senza allagamento): stesse direzioni tangenti, quota = BedHeight.
+    // Solo se c'è un mare (branch UNIFORME, niente divergenza): senza acqua coinciderebbe con la normale del
+    // pelo → inutile pagare i 4 BedHeight extra. Se non c'è mare, copia la normale del pelo.
+    float3 bn = n;
+    if (_HasSea != 0)
+    {
+        float3 bAp = dAp * BedHeight(dAp);
+        float3 bAm = dAm * BedHeight(dAm);
+        float3 bBp = dBp * BedHeight(dBp);
+        float3 bBm = dBm * BedHeight(dBm);
+        bn = normalize(cross(bBp - bBm, bAp - bAm));
+        if (dot(bn, dir) < 0.0) bn = -bn;
+    }
+    _VBedNrm[o] = bn.x; _VBedNrm[o + 1] = bn.y; _VBedNrm[o + 2] = bn.z;
 }
 
 // ---- anteprima GPU: riempie l'INDEX BUFFER sulla GPU ---------------------------------------------
