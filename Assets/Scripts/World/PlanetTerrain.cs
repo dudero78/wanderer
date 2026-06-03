@@ -86,6 +86,11 @@ public class PlanetTerrain : MonoBehaviour
                     if (p.dominant) cl.AddManual(p.dominantDir, p.dominantRadius);
                     layers.Add(cl);
                 }
+                else if (p.type == ProcessType.Tettonica)
+                {
+                    layers.Add(new TectonicTerrainLayer(Recipe.baseRadius, p.seed, p.plateCount, p.continentalFraction,
+                        p.elevationContrast, p.boundaryUplift, p.boundaryWidth, p.tectonicWarp, p.coastSlope));
+                }
                 else // Mare: allaga ciò che sta sotto il pelo dell'acqua (eventualmente increspato)
                 {
                     layers.Add(new SeaTerrainLayer(Recipe.baseRadius, p.seaLevel, p.seaRoughness, p.seaRoughScale, p.seaForma, p.seed));
@@ -111,6 +116,9 @@ public class PlanetTerrain : MonoBehaviour
 
     // Cambiare un parametro dall'inspector invalida la pipeline: si ricostruisce al prossimo sample.
     void OnValidate() { built = false; }
+
+    /// <summary>Stima del dislivello verticale (m): dimensiona lo skirt anti-cucitura della mesh singola.</summary>
+    public float ReliefEstimate() => Recipe != null ? Recipe.ReliefEstimate() : Amplitude * 2f + 50f;
 
     /// <summary>Distanza dal centro della superficie nella direzione (unitaria) data.</summary>
     public float SampleHeight(Vector3 unitDir)

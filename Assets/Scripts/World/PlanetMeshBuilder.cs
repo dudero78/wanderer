@@ -102,7 +102,10 @@ public static class PlanetMeshBuilder
         // superficie della faccia vicina e sigilla la fessura, senza toccare la superficie calpestabile (l'anello
         // interno resta a piena quota proprio sul bordo). Nessun triangolo/winding nuovo: solo posizioni.
         float margin = 1f / (res - 1);                         // ~1 cella di sovrapposizione nel vicino
-        float skirt = Mathf.Max(2f, terrain.Amplitude * 0.25f); // profondità del lembo nascosto
+        // profondità del lembo nascosto: proporzionata al RILIEVO totale del corpo (non solo all'ampiezza base),
+        // o con scogliere/catene tettoniche da decine di metri il lembo da 2 m non copre e si vedono i lembi
+        // strappati ai bordi delle facce. (Solo anteprima/proxy: il gioco usa il quadtree, con skirt suo.)
+        float skirt = Mathf.Clamp(terrain.ReliefEstimate() * 0.5f, 2f, terrain.BaseRadius * 0.25f);
 
         for (int y = 0; y < res; y++)
         {

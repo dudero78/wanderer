@@ -73,6 +73,22 @@ public class PlanetRecipe
         return sea;
     }
 
+    /// <summary>Stima il dislivello verticale totale del corpo (m): serve a dimensionare lo skirt anti-cucitura
+    /// dell'anteprima (mesh singola). Somma l'ampiezza base + il contributo di ogni processo attivo.</summary>
+    public float ReliefEstimate()
+    {
+        Normalize();
+        float r = amplitude;
+        foreach (var p in processes)
+        {
+            if (p == null || !p.enabled) continue;
+            if (p.type == ProcessType.Crateri) r += p.largestRadius * p.depthRatio;
+            else if (p.type == ProcessType.Tettonica) r += p.elevationContrast + p.boundaryUplift;
+            else if (p.type == ProcessType.Mare) r += p.seaRoughness;
+        }
+        return r;
+    }
+
     /// <summary>Il primo bombardamento ATTIVO, per il bake della normale-crateri. null se nessuno.</summary>
     public ProcessStep PrimaryCrater()
     {
@@ -107,6 +123,8 @@ public class PlanetRecipe
             p.dominantRadius *= k;
             p.seaLevel *= k;
             p.seaRoughness *= k;
+            p.elevationContrast *= k;
+            p.boundaryUplift *= k;
         }
         return c;
     }
@@ -137,7 +155,7 @@ public class PlanetRecipe
 }
 
 /// <summary>Tipo di processo nella pipeline ordinata.</summary>
-public enum ProcessType { Crateri, Mare }
+public enum ProcessType { Crateri, Mare, Tettonica }
 
 /// <summary>Un passo della pipeline: un bombardamento di crateri OPPURE un allagamento (mare). Tiene i
 /// parametri di ENTRAMBI; <see cref="type"/> decide quali si usano. Un'unica classe (niente polimorfismo)
@@ -163,6 +181,15 @@ public class ProcessStep
     public bool dominant = false;
     public Vector3 dominantDir = new Vector3(0.3f, 1f, 0.2f);
     public float dominantRadius = 230f;
+
+    // --- parametri TETTONICA ---
+    public int plateCount = 12;                 // numero di placche
+    public float continentalFraction = 0.4f;    // frazione di placche continentali (alte)
+    public float elevationContrast = 60f;       // dislivello continente↔oceano (m)
+    public float boundaryUplift = 40f;          // sollevamento/rift max ai confini (m)
+    public float boundaryWidth = 0.08f;         // ampiezza fascia di confine
+    public float tectonicWarp = 0.4f;           // irregolarità delle coste (domain warp)
+    public float coastSlope = 0.5f;             // 0 = coste a scogliera, 1 = piattaforme continentali dolci
 
     // --- parametri MARE ---
     public float seaLevel = 0f;                 // quota del pelo, metri relativi al baseRadius

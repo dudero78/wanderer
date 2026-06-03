@@ -110,7 +110,7 @@ public class PlanetEditor : MonoBehaviour
             var step = new ProcessStep { type = pendingAddType };   // default per tipo (crateri o mare)
             // un nuovo BOMBARDAMENTO è un evento diverso: seed casuale → crateri in posti diversi dai precedenti
             // (col default fisso finivano tutti nelle stesse celle). Lo slider "Distribuzione" lo ritocca a mano.
-            if (step.type == ProcessType.Crateri) step.seed = Random.Range(0, 10000);
+            if (step.type == ProcessType.Crateri || step.type == ProcessType.Tettonica) step.seed = Random.Range(0, 10000);
             P.Add(step); openProc.Add(true);
             pendingAddFlag = false; geomDirty = true;
         }
@@ -246,7 +246,7 @@ public class PlanetEditor : MonoBehaviour
         for (int i = 0; i < procs.Count; i++)
         {
             var p = procs[i];
-            string kind = p.type == ProcessType.Mare ? "MARE" : "CRATERI";
+            string kind = p.type == ProcessType.Mare ? "MARE" : p.type == ProcessType.Tettonica ? "TETTONICA" : "CRATERI";
             if (!p.enabled) kind += " (off)";
             GUILayout.BeginHorizontal();
             openProc[i] = Foldout(kind + "  " + (i + 1), openProc[i], ui, expand: true);
@@ -274,6 +274,17 @@ public class PlanetEditor : MonoBehaviour
                 p.rimSharpness = Slider("Nitidezza bordi", "Forma della parete: 1 = cono dolce, alto = fondo piatto + bordo a cresta netta.", p.rimSharpness, 1f, 4f, ui, ref geomDirty);
                 p.dominant = Toggle("Dominante", "Aggiunge un grande impatto piazzato a mano (tipo Stickney su Phobos).", p.dominant, ui, geometry: true, changed: out _);
                 if (p.dominant) p.dominantRadius = Slider("  raggio dominante", "Raggio del grande impatto dominante (m).", p.dominantRadius, 50f, 500f, ui, ref geomDirty);
+            }
+            else if (p.type == ProcessType.Tettonica)
+            {
+                if (Button("Rimescola", "Pesca nuove placche: continenti e catene in posti diversi.", ui)) { p.seed = Random.Range(0, 10000); geomDirty = true; }
+                p.plateCount = Mathf.RoundToInt(Slider("Placche", "Numero di placche: poche = continenti grandi, molte = frammentato.", p.plateCount, 3, 40, ui, ref geomDirty));
+                p.continentalFraction = Slider("Terre emerse", "Frazione di placche continentali (alte): 0 = quasi tutto oceano, 1 = quasi tutto continente.", p.continentalFraction, 0f, 1f, ui, ref geomDirty);
+                p.elevationContrast = Slider("Dislivello (m)", "Quanto i continenti stanno più in alto dei bacini oceanici.", p.elevationContrast, 0f, 200f, ui, ref geomDirty);
+                p.boundaryUplift = Slider("Catene/rift (m)", "Sollevamento ai confini convergenti (catene) e sprofondamento ai divergenti (rift).", p.boundaryUplift, 0f, 150f, ui, ref geomDirty);
+                p.boundaryWidth = Slider("Larghezza confini", "Quanto sono larghe le catene/rift lungo i confini di placca.", p.boundaryWidth, 0.02f, 0.3f, ui, ref geomDirty);
+                p.coastSlope = Slider("Dolcezza coste", "0 = coste a scogliera (pareti verticali); 1 = piattaforme continentali graduali.", p.coastSlope, 0f, 1f, ui, ref geomDirty);
+                p.tectonicWarp = Slider("Coste frastagliate", "Irregolarità di confini e coste: 0 = poligonali, su = molto frastagliate (warp frattale).", p.tectonicWarp, 0f, 1f, ui, ref geomDirty);
             }
             else // MARE
             {
@@ -314,10 +325,11 @@ public class PlanetEditor : MonoBehaviour
         {
             GUILayout.Label("Che tipo?", head);
             GUILayout.BeginHorizontal();
-            if (Button("Crateri", "Un bombardamento di crateri, sopra ai processi precedenti.", ui)) { pendingAddType = ProcessType.Crateri; pendingAddFlag = true; chooseType = false; }
+            if (Button("Tettonica", "Continenti, oceani e catene dalle placche.", ui)) { pendingAddType = ProcessType.Tettonica; pendingAddFlag = true; chooseType = false; }
+            if (Button("Crateri", "Un bombardamento di crateri.", ui)) { pendingAddType = ProcessType.Crateri; pendingAddFlag = true; chooseType = false; }
             if (Button("Mare", "Allaga ciò che sta sotto fino a una quota.", ui)) { pendingAddType = ProcessType.Mare; pendingAddFlag = true; chooseType = false; }
-            if (Button("Annulla", "", ui)) chooseType = false;
             GUILayout.EndHorizontal();
+            if (Button("Annulla", "", ui)) chooseType = false;
         }
         GUILayout.Space(12f * ui);
 
