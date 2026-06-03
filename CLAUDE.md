@@ -350,6 +350,14 @@ vicino all'origine di Unity → la precisione non degrada mai.
   della normale della mesh → distorsione dipendente dalla pendenza). Il segnale
   decisivo è stato di Dario: *"prima delle modifiche non committate non c'erano"*.
   Metodo giusto: partire da lì, fare `git diff`, bisezione.
+- **Le "crepe" della tettonica NON erano cuciture del cubo né aliasing: erano una DISCONTINUITÀ della funzione
+  altezza.** Inseguite per giri come cuciture (overlap/snap/skirt = tre toppe al rendering, tutte fallite → per la
+  lezione sopra, NON era lì). Bisezione decisiva: (1) **risoluzione 512→2048 non le cambiava** → non è
+  tessellazione/cucitura (un gradino di celle si assottiglierebbe); è un gradino di METRI, nella funzione. (2)
+  **azzerando `Catene/rift` sparivano** → è il termine confini. Causa: il ridge usava l'IDENTITÀ della 2ª placca
+  più vicina (`i2`) per `conv`; dove 2ª e 3ª placca sono equidistanti `i2` salta → `conv` salta → gradino. Fix:
+  **gate di continuità** `smoothstep((second−third)/boundaryWidth)` che azzera il ridge dove `i2` salterebbe.
+  Regola generale: **un artefatto indipendente dalla risoluzione vive nella funzione, non nella mesh.**
 - **Normali da heightfield: usa il bump tangente STANDARD** `float3(-dot(G,T),
   -dot(G,B), 1)` con i tangenti della mesh come base (T,B,N). La normale di mondo
   resta continua anche ai poli perché tangente e bitangente si ribaltano insieme.
