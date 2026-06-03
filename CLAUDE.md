@@ -368,14 +368,17 @@ vicino all'origine di Unity → la precisione non degrada mai.
   deve coprire l'influenza E i contributi truncati devono valere ~0; **(c) `min`/`max`/`if`** su quote → spigoli a
   V (usa somme di funzioni lisce o smin con cautela); **(d) DEGENERAZIONE RADIALE di un reticolo 3D proiettato sulla
   sfera** — celle a raggi diversi lungo la stessa direzione proiettano sullo stesso punto e contribuiscono tutte;
-  l'intorno ne tronca un numero arbitrario → pop. Test: allargando la finestra il valore NON converge. Cura: **peso
-  radiale liscio sul guscio unitario** (`Smooth01(1−|c|−1|/half)`, scarta i duplicati fuori-guscio) + finestra
-  abbastanza larga. **Checklist processo NUOVO:** continua attraversando confini di cella/identità? il contributo
-  va a 0 con finestra liscia prima di sparire? se proietta un reticolo 3D sulla sfera, ha la degenerazione (d)?
-  STORIA: `CraterTerrainLayer` sembrava "fatto bene" (SPACING dimensiona la cella, finestra C1 sull'ejecta) ma
-  AVEVA il caso (d) — crepe circolari che scalavano con "Raggio max" (il reticolo si riscala). Riprodotto in Python
-  (scan su cerchio → salto di 3.1 m), risolto col peso radiale + 5×5×5 (`5b8bc0b`). Lezione: NON dare per scontato
-  che un campo sia continuo — **misuralo** (scan + cerca i salti) prima di dire "è già a posto".
+  l'intorno ne tronca un numero arbitrario → pop. Test: allargando la finestra il valore NON converge. Cura GIUSTA:
+  **OWNED-CELL** — ogni feature appartiene a UNA sola cella, quella in cui ricade la sua direzione proiettata
+  (`floor(cdir·gscale) == cella`). Niente duplicati radiali a qualsiasi scala, intorno 3×3×3 sufficiente (influenza
+  < 1 cella). **Checklist processo NUOVO:** continua attraversando confini di cella/identità? il contributo va a 0
+  con finestra liscia prima di sparire? se proietta un reticolo 3D sulla sfera, ha la degenerazione (d) → usa owned-cell.
+  STORIA (doppia lezione): `CraterTerrainLayer` aveva il caso (d) — crepe circolari che scalavano con "Raggio max".
+  Primo tentativo: **peso radiale sul guscio** (`5b8bc0b`) — toglieva le crepe MA a celle grandi (raggio alto) il
+  guscio cade nell'origine e uccideva i crateri grandi (sopra ~205 m sparivano). Cioè un fix che ROMPEVA un
+  comportamento adiacente. Fix vero: **owned-cell** (`a94f9dc`) — crepe via (verificato in Python: salto 3.1→0.024 m)
+  E crateri grandi presenti a ogni raggio. Lezioni: (1) **misura** la continuità (scan + cerca i salti), non darla
+  per scontata; (2) verifica che un fix non ROMPA il comportamento vicino (qui: i crateri grandi).
 - **Normali da heightfield: usa il bump tangente STANDARD** `float3(-dot(G,T),
   -dot(G,B), 1)` con i tangenti della mesh come base (T,B,N). La normale di mondo
   resta continua anche ai poli perché tangente e bitangente si ribaltano insieme.
