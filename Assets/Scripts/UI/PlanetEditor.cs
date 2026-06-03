@@ -59,6 +59,15 @@ public class PlanetEditor : MonoBehaviour
     /// referenziarlo). (terrain, nome cartella) → ok. Null in build → il pulsante avvisa che serve l'editor.</summary>
     public static System.Func<PlanetTerrain, string, bool> BakeToDiskHook;
 
+    /// <summary>Rettangolo del pannello (coord. GUI, origine in alto). La camera orbitale lo usa per NON
+    /// zoomare quando la rotella gira sopra i settings (lì deve scorrere la lista, non il pianeta).</summary>
+    public static Rect PanelRect;
+    public static bool PointerOverPanel()
+    {
+        Vector2 m = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);   // GUI: y verso il basso
+        return PanelRect.Contains(m);
+    }
+
     string Dir => Path.Combine(Application.persistentDataPath, "planets");
 
     public void Init(PlanetTerrain t, SingleMeshPlanet s)
@@ -152,6 +161,7 @@ public class PlanetEditor : MonoBehaviour
 
         float w = 430f * ui, h = Screen.height - 40f * ui;
         var panel = new Rect(16f * ui, 20f * ui, w, h);
+        PanelRect = panel;   // la camera orbitale evita lo zoom quando la rotella è qui sopra
         GUI.Box(panel, GUIContent.none);
         GUILayout.BeginArea(new Rect(panel.x + 14f * ui, panel.y + 12f * ui, w - 28f * ui, h - 24f * ui));
 
@@ -182,15 +192,14 @@ public class PlanetEditor : MonoBehaviour
             int ns = GUILayout.Toolbar(curSoil, SoilGC, GUILayout.Height(24f * ui));
             if (ns >= 0 && ns != curSoil) { recipe.soilTexture = SoilTextures[ns]; colorDirty = true; }
             recipe.saturation = Slider("Saturazione", "Intensità del colore: 0 = grigio, 1 = naturale, oltre = carico.", recipe.saturation, 0f, 2f, ui, ref colorDirty);
-            recipe.mariaScale = Slider("Ombra bacini: scala", "Dimensione delle regioni scure nei bacini bassi (effetto di COLORE, non geometria).", recipe.mariaScale, 0.8f, 6f, ui, ref colorDirty);
-            recipe.mariaStrength = Slider("Ombra bacini: forza", "Quanto scuriscono i bacini bassi (velatura di colore).", recipe.mariaStrength, 0f, 1f, ui, ref colorDirty);
             GUILayout.Space(8f * ui);
         }
 
-        // === MARI (GEOMETRIA: allagamento) ===
-        if (openSea = Foldout("MARI (geometria)", openSea, ui))
+        // === MARI (tutto ciò che riguarda i mari: geometria + velatura di colore dei bacini) ===
+        if (openSea = Foldout("MARI", openSea, ui))
         {
-            bool seaOn = Toggle("Attiva mare", "Allaga il terreno fino alla quota scelta: copre i crateri bassi. È geometria vera (ci cammini sopra).", recipe.seaEnabled, ui, geometry: true, changed: out bool seaTog);
+            // mare GEOMETRICO (allagamento)
+            bool seaOn = Toggle("Attiva mare (allaga)", "Allaga il terreno fino alla quota scelta: copre i crateri bassi. È geometria vera (ci cammini sopra).", recipe.seaEnabled, ui, geometry: true, changed: out bool seaTog);
             if (seaTog) { recipe.seaEnabled = seaOn; geomDirty = true; colorDirty = true; }
             if (recipe.seaEnabled)
             {
@@ -201,6 +210,9 @@ public class PlanetEditor : MonoBehaviour
                 recipe.seaColor.g = Slider("Colore G", "Componente verde del colore dell'acqua.", recipe.seaColor.g, 0f, 1f, ui, ref colorDirty);
                 recipe.seaColor.b = Slider("Colore B", "Componente blu del colore dell'acqua.", recipe.seaColor.b, 0f, 1f, ui, ref colorDirty);
             }
+            // velatura di COLORE dei bacini bassi (mari lunari: scuriscono le conche), indipendente dal mare geometrico
+            recipe.mariaScale = Slider("Ombra bacini: scala", "Dimensione delle regioni scure nei bacini bassi (effetto di COLORE, non geometria).", recipe.mariaScale, 0.8f, 6f, ui, ref colorDirty);
+            recipe.mariaStrength = Slider("Ombra bacini: forza", "Quanto scuriscono i bacini bassi (velatura di colore).", recipe.mariaStrength, 0f, 1f, ui, ref colorDirty);
             GUILayout.Space(8f * ui);
         }
 

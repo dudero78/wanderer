@@ -23,7 +23,8 @@ public class EditorOrbitCam : MonoBehaviour
             pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * rotSpeed, -85f, 85f);
         }
         float scroll = Input.GetAxis("Mouse ScrollWheel");
-        if (Mathf.Abs(scroll) > 0.0001f)
+        // rotella: zooma il pianeta SOLO se non sei sopra il pannello dei settings (lì scorre la lista).
+        if (Mathf.Abs(scroll) > 0.0001f && !PlanetEditor.PointerOverPanel())
             distance = Mathf.Clamp(distance * (1f - scroll * zoomSpeed), minDistance, maxDistance);
 
         Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);

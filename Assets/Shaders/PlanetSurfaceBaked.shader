@@ -49,6 +49,8 @@ Shader "Wanderer/PlanetBaked"
         // contrasto della grana fotografica: 0 = superficie perfettamente liscia, alto = grana visibile.
         // Tenuto BASSO apposta: l'alta frequenza diffusa diventa "rumore"/"neve TV".
         _SandDetail ("Suolo: contrasto grana (0 = liscio)", Range(0,1)) = 0.18
+        // quanto la TINTA della texture del suolo colora la superficie (distingue Terra/Rosso/Roccia).
+        _SoilHue ("Suolo: forza tinta texture", Range(0,1)) = 0.55
 
         // regioni minerali (da _MaskMap bakeato): tinta larga calda (A) / fredda (B), bassa frequenza.
         // Tenuta tenue (Str basso): è una velatura regionale, non chiazze. Forte = pianeti più "vari".
@@ -108,7 +110,7 @@ Shader "Wanderer/PlanetBaked"
         fixed4 _PeakColor, _SoilTint, _SoilMean, _MineralA, _MineralB, _MariaColor;
         float _MineralStr, _PeakStr, _MariaScale, _MariaStr;
         float _BaseRadius, _Amplitude;
-        float _GrainStr, _DetailScale, _MacroVar, _MacroScale, _SandDetail;
+        float _GrainStr, _DetailScale, _MacroVar, _MacroScale, _SandDetail, _SoilHue;
         float _MorphRange;
         float _SeaOn, _SeaLevel;
         fixed4 _SeaColor;
@@ -194,6 +196,13 @@ Shader "Wanderer/PlanetBaked"
             // Niente alta frequenza diffusa = niente "rumore"/"neve TV". Pochissimo costo per pixel.
             float macroV = tex2D(_SoilSand, IN.texUV * _MacroScale).g;        // bassa freq → blob morbidi
             float3 sand = _SoilMean.rgb * lerp(1.0, 0.78 + macroV * 0.44, _MacroVar);
+
+            // TINTA dalla texture del suolo (Terra/Rosso/Roccia): colore a BASSA frequenza, sfocato (mip +3)
+            // → distingue i materiali senza alta frequenza, niente moiré. Normalizzato sul grigio medio →
+            // sposta la TINTA (hue), non la luminosità. _SoilHue regola quanto la texture colora.
+            float3 texMacro = tex2Dbias(_SoilSand, float4(IN.texUV * _MacroScale, 0.0, 3.0)).rgb;
+            float texLum = max(dot(texMacro, float3(0.333, 0.333, 0.333)), 0.05);
+            sand *= lerp(float3(1.0, 1.0, 1.0), texMacro / texLum, _SoilHue);
 
             // grana fotografica a basso contrasto, solo abbastanza vicino da risolverla (il mip la
             // smorza da lontano). Normalizzata sul suo grigio medio → MODULA la sabbia senza
