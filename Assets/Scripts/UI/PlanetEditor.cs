@@ -24,9 +24,8 @@ public class PlanetEditor : MonoBehaviour
     bool gpuPreview = true;            // true = sfera GPU (DEFAULT: più veloce ad aprirsi e mostra subito tutte le feature)
     PlanetRecipe recipe;
     MeshRenderer[] faceRenderers;
-    // mesh CPU costruita PIGRA: l'editor parte in GPU, la mesh CPU si crea solo al primo passaggio a CPU (tasto G)
-    // → apertura più veloce (niente campionamento del rumore sul main thread all'avvio). Parametri tenuti per allora.
-    Material[] cpuMats;
+    // mesh CPU costruita PIGRA: l'editor parte in GPU, la mesh CPU (e il suo BAKE, ~1.9s, il vero costo d'avvio)
+    // si creano solo al primo passaggio a CPU (tasto G) → apertura veloce. La GPU usa il proprio shader procedurale.
     int cpuMeshRes;
     bool cpuBuilt;
     RenderTexture[] craterRTs;         // normale-crateri per faccia: liberate e rifatte a ogni assestamento
@@ -108,10 +107,9 @@ public class PlanetEditor : MonoBehaviour
 
     string Dir => Path.Combine(Application.persistentDataPath, "planets");
 
-    public void Init(PlanetTerrain t, SingleMeshPlanet s, Material[] cpuMaterials, int meshRes)
+    public void Init(PlanetTerrain t, SingleMeshPlanet s, int meshRes)
     {
-        terrain = t; smp = s;
-        cpuMats = cpuMaterials; cpuMeshRes = meshRes;
+        terrain = t; smp = s; cpuMeshRes = meshRes;
         recipe = t != null ? t.Recipe : PlanetRecipe.SmoothSphere();
         recipe.Normalize();
         Directory.CreateDirectory(Dir);
@@ -130,8 +128,10 @@ public class PlanetEditor : MonoBehaviour
     /// al primo passaggio a CPU o come fallback senza GPU). È il lavoro pesante che prima si pagava all'apertura.</summary>
     void EnsureCpuBuilt()
     {
-        if (cpuBuilt || smp == null || cpuMats == null) return;
-        smp.Build(terrain, cpuMats, cpuMeshRes, 48);
+        if (cpuBuilt || smp == null) return;
+        var mats = PlanetBaker.BakeFaceMaterials(terrain, 64);   // bake DIFFERITO (era il ~1.9s d'avvio)
+        if (mats == null) { Debug.LogError("PlanetEditor: bake/shader non disponibili — niente mesh CPU."); return; }
+        smp.Build(terrain, mats, cpuMeshRes, 48);
         faceRenderers = smp.GetComponentsInChildren<MeshRenderer>();
         cpuBuilt = true;
         PushColors();   // applica i colori correnti alla mesh appena creata

@@ -44,34 +44,23 @@ public class PlanetEditorBootstrap : MonoBehaviour
         var terrain = planetGo.AddComponent<PlanetTerrain>();
         terrain.ApplyRecipe(PlanetRecipe.SmoothSphere());
 
-        // I materiali bakeati servono alla mesh CPU (la GPU usa il proprio shader procedurale). Il bake è anche il
-        // test di capacità: se fallisce, shader/bake non disponibili.
-        SingleMeshPlanet smp = null;
-        GpuPlanetSurface gpu = null;
-        var mats = PlanetBaker.BakeFaceMaterials(terrain, 64);
-        if (mats != null)
-        {
-            // La mesh CPU NON viene costruita qui: l'editor parte in GPU e la crea pigra al primo passaggio a CPU
-            // (apertura più veloce — niente campionamento del rumore sul main thread all'avvio). La normale-crateri
-            // bakeata segue la RICETTA; l'editor la ri-bakea quando un edit si assesta.
-            smp = planetGo.AddComponent<SingleMeshPlanet>();
-            // --- anteprima GPU (render-dai-buffer senza readback): è il path di default, completo (geometria+colore+
-            //     normali+acqua). Convive con la mesh CPU; il tasto G commuta per il confronto A/B. ---
-            gpu = planetGo.AddComponent<GpuPlanetSurface>();
-            gpu.Setup(terrain, gpuRes);
-        }
-        else
-        {
-            Debug.LogError("PlanetEditor: shader/bake non disponibili — impossibile mostrare il pianeta.");
-        }
+        // NIENTE bake né mesh CPU all'avvio: erano il costo d'apertura (il bake dei materiali ~1.9s + il
+        // campionamento del rumore per la mesh). Servono SOLO alla mesh CPU, che è pigra (build al primo G o come
+        // fallback). La GPU usa il proprio shader procedurale, indipendente dal bake → l'avvio fa solo gpu.Setup
+        // (dispatch GPU, niente readback). Creare i componenti è gratis (l'AddComponent non costruisce niente).
+        var smp = planetGo.AddComponent<SingleMeshPlanet>();
+        // --- anteprima GPU (render-dai-buffer senza readback): path di default, completo (geometria+colore+normali+
+        //     acqua). Convive con la mesh CPU; il tasto G commuta per il confronto A/B. ---
+        var gpu = planetGo.AddComponent<GpuPlanetSurface>();
+        gpu.Setup(terrain, gpuRes);
 
         // --- modo luce (L): ancorata (default) / libera (sole agganciato alla vista, da destra) ---
         var lm = camGo.AddComponent<EditorLightMode>();
         lm.sun = dl; lm.cam = camGo.transform; lm.gpu = gpu;
 
-        // --- UI editor --- (Init prima di SetGpuSurface: la build pigra/fallback CPU usa mats+meshRes)
+        // --- UI editor --- (Init prima di SetGpuSurface: la build pigra/fallback CPU usa meshRes)
         var ed = gameObject.AddComponent<PlanetEditor>();
-        ed.Init(terrain, smp, mats, meshRes);
+        ed.Init(terrain, smp, meshRes);
         ed.SetGpuSurface(gpu);
     }
 }
