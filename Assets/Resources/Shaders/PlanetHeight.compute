@@ -354,13 +354,15 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
 {
     int seed = (int)t.seed;
 
-    // domain-warp frattale (due scale) → coste frastagliate (= TectonicTerrainLayer.Apply)
+    // domain-warp frattale (due scale) → coste frastagliate (= TectonicTerrainLayer.Apply). Ampiezza scalata con
+    // la dimensione placca (√(8/n)) per non ripiegare le celle piccole (→ "bolle"/lobi ai confini). Parità col C#.
     float3 d = unitDir;
     if (t.warp > 0.0)
     {
+        float warpAmp = t.warp * min(1.5, sqrt(8.0 / t.plateCount));
         float3 w1 = float3(NoiseValue(unitDir * 3.0, seed + 101), NoiseValue(unitDir * 3.0, seed + 202), NoiseValue(unitDir * 3.0, seed + 303));
         float3 w2 = float3(NoiseValue(unitDir * 7.3, seed + 404), NoiseValue(unitDir * 7.3, seed + 505), NoiseValue(unitDir * 7.3, seed + 606));
-        d = normalize(unitDir + (w1 * 0.7 + w2 * 0.35) * t.warp);
+        d = normalize(unitDir + (w1 * 0.7 + w2 * 0.35) * warpAmp);
     }
 
     float sharp = lerp(40.0, 5.0, t.coastSlope);

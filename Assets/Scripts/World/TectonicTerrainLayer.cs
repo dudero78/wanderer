@@ -87,9 +87,14 @@ public class TectonicTerrainLayer : TerrainLayer
     {
         // domain-warp FRATTALE (due scale): piega lo spazio prima di trovare le placche → coste molto più
         // frastagliate, irregolari a più frequenze. Più alto = più frastagliato.
+        // L'ampiezza è SCALATA con la dimensione della placca (√(8/n), ancorata al default 8 → a 8 placche il
+        // look è invariato): con molte placche le celle sono piccole e un warp grande le RIPIEGAVA, chiudendo
+        // anse → grappoli di "bolle"/lobi ai confini. Tenendo lo spostamento proporzionato alla cella, il warp
+        // frastaglia la costa senza ripiegarla. Clamp a 1.5 per non esagerare con pochissime placche.
         Vector3 d = unitDir;
         if (warp > 0f)
         {
+            float warpAmp = warp * Mathf.Min(1.5f, Mathf.Sqrt(8f / n));
             Vector3 w1 = new Vector3(
                 Noise3D.Value(unitDir * 3f, seed + 101),
                 Noise3D.Value(unitDir * 3f, seed + 202),
@@ -98,7 +103,7 @@ public class TectonicTerrainLayer : TerrainLayer
                 Noise3D.Value(unitDir * 7.3f, seed + 404),
                 Noise3D.Value(unitDir * 7.3f, seed + 505),
                 Noise3D.Value(unitDir * 7.3f, seed + 606));
-            d = (unitDir + (w1 * 0.7f + w2 * 0.35f) * warp).normalized;
+            d = (unitDir + (w1 * 0.7f + w2 * 0.35f) * warpAmp).normalized;
         }
 
         // SOFT VORONOI: la quota base è la media PESATA di TUTTE le placche (peso che sfuma con la distanza
