@@ -110,6 +110,7 @@ public class PlanetRecipe
             p.seaClarity *= k;
             p.elevationContrast *= k;
             p.boundaryUplift *= k;
+            p.continentalRelief *= k;
         }
         return c;
     }
@@ -168,13 +169,14 @@ public class ProcessStep
     public float dominantRadius = 230f;
 
     // --- parametri TETTONICA ---
-    public int plateCount = 12;                 // numero di placche
+    public int plateCount = 8;                  // numero di placche (poche = continenti grandi, tante = guscio incrinato)
     public float continentalFraction = 0.4f;    // frazione di placche continentali (alte)
     public float elevationContrast = 60f;       // dislivello continente↔oceano (m)
     public float boundaryUplift = 40f;          // sollevamento/rift max ai confini (m)
     public float boundaryWidth = 0.08f;         // ampiezza fascia di confine
-    public float tectonicWarp = 0.4f;           // irregolarità delle coste (domain warp)
+    public float tectonicWarp = 0.45f;          // irregolarità delle coste (domain warp); 0 = archi geometrici finti
     public float coastSlope = 0.5f;             // 0 = coste a scogliera, 1 = piattaforme continentali dolci
+    public float continentalRelief = 18f;       // ampiezza (m) del rilievo INTERNO dei continenti (colline); oceani lisci
 
     // --- parametri MARE ---
     public float seaLevel = 0f;                 // quota del pelo, metri relativi al baseRadius

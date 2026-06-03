@@ -99,6 +99,10 @@ Dettaglio tecnico nel `CLAUDE.md`.
 
 ## Accantonato (deciso ma rimandato)
 
+- ⏸️ **Cuciture agli spigoli del cubo nell'anteprima GPU** ("lamette"/striature scure verticali ai bordi delle
+  facce, visibili all'orizzonte specie con tettonica/mare ad alto contrasto). Le facce si sovrappongono di una
+  cella per coprire le micro-fessure, ma sui versanti ripidi al bordo resta una banda scura. Da affrontare:
+  capire se è la normale al bordo (sovrapposizione) o l'estrapolazione della cella di padding. Rimandato.
 - ⏸️ **Stitch di LOD** (transizioni di shading "scalini" ai confini): niente fessure/buchi, ma restano i salti
   di shading (peggio coi salti di 2+ livelli). Fix definitivo = **quadtree bilanciato 2:1** (vicini ≤ 1 livello
   → il morph di un livello basta, si possono togliere gli skirt). Rimandato: troppo tempo, avanti col gioco.

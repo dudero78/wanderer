@@ -79,4 +79,22 @@ public static class Noise3D
         }
         return Mathf.Clamp01(sum / norm * 0.5f + 0.5f);   // Perlin ~[-1,1] -> [0,1]
     }
+
+    /// <summary>fBm "ridged": ogni ottava è (1−|noise|)² → CRINALI affilati invece di gobbe tonde. Dà terreno
+    /// dissezionato (catene/valli) invece della "pelle d'arancia" del fBm normale. [0,1].</summary>
+    public static float Ridged(Vector3 p, int octaves, float lacunarity, float gain, int seed)
+    {
+        float sum = 0f, amp = 0.5f, freq = 1f, norm = 0f;
+        Vector3 q = p;
+        for (int i = 0; i < octaves; i++)
+        {
+            float r = 1f - Mathf.Abs(Value(q * freq, seed + i * 1013));
+            sum += amp * r * r;
+            norm += amp;
+            freq *= lacunarity;
+            amp *= gain;
+            q = Rotate(q);
+        }
+        return sum / norm;
+    }
 }

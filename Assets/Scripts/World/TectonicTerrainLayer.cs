@@ -29,9 +29,17 @@ public class TectonicTerrainLayer : TerrainLayer
     readonly float boundaryWidth;   // ampiezza della fascia di confine (in unità di differenza-di-coseno)
     readonly float warp;            // intensità del domain-warp dei confini
     readonly float coastSlope;      // 0 = costa a scogliera, 1 = piattaforma continentale dolce
+    readonly float continentalRelief; // ampiezza (m) del rilievo INTERNO dei continenti (gli oceani restano lisci)
+
+    // scale dei campi di rumore: COSTANTI condivise con PlanetHeight.compute (TectonicApply) per la parità.
+    // Cambiarle qui = cambiarle lì identiche, o GPU e CPU divergono.
+    const float ContReliefScale = 3.0f;   // rilievo continentale: scala dei crinali (basso = forme larghe)
+    const float RidgeAlongScale = 1.8f;   // variazione di quota LUNGO la catena (passi/picchi)
+    const float RidgeRoughScale = 9.0f;   // ruvidità FINE della cresta (frastagliata, non liscia)
 
     public TectonicTerrainLayer(float baseRadius, int seed, int plateCount, float continentalFraction,
-                                float elevationContrast, float boundaryUplift, float boundaryWidth, float warp, float coastSlope)
+                                float elevationContrast, float boundaryUplift, float boundaryWidth, float warp, float coastSlope,
+                                float continentalRelief)
     {
         this.seed = seed;
         n = Mathf.Clamp(plateCount, 2, 64);
@@ -40,6 +48,7 @@ public class TectonicTerrainLayer : TerrainLayer
         this.boundaryWidth = Mathf.Max(0.005f, boundaryWidth);
         this.warp = Mathf.Max(0f, warp);
         this.coastSlope = Mathf.Clamp01(coastSlope);
+        this.continentalRelief = Mathf.Max(0f, continentalRelief);
 
         seedDir = new Vector3[n];
         motion = new Vector3[n];
@@ -72,6 +81,7 @@ public class TectonicTerrainLayer : TerrainLayer
     public float BoundaryWidth => boundaryWidth;
     public float Warp => warp;
     public float CoastSlope => coastSlope;
+    public float ContinentalRelief => continentalRelief;
 
     public override float Apply(Vector3 unitDir, float height)
     {
@@ -109,7 +119,32 @@ public class TectonicTerrainLayer : TerrainLayer
         }
         float elev = esum / wsum;
 
+        // RILIEVO INTERNO DEI CONTINENTI. Senza, i continenti sono altopiani biliardo (look CGI); con un fBm
+        // piatto diventa "grana uniforme / guscio di noce". La cura è MULTI-SCALA: (1) 'contW' lo confina ai
+        // continenti (oceani lisci); (2) 'mtn' (campo a bassa freq) lo MODULA nello spazio → alcune regioni
+        // pianeggianti, altre montuose (rompe l'uniformità); (3) 'ridge' (ridged noise) dà CRINALI dissezionati
+        // invece di gobbe tonde. Scale/seed IDENTICI a PlanetHeight.compute per la parità.
+        // PERF: il lavoro è proporzionale a DOVE c'è rilievo. Gli oceani (contW≈0) saltano tutto; le pianure
+        // (mtn≈0) saltano il 'ridge' (4 campioni). Le stesse soglie nei due path → parità intatta (il termine
+        // saltato vale ~0, ha fattore contW·mtn). Così metà pianeta (oceano) non paga il rumore extra.
+        if (continentalRelief > 0f)
+        {
+            float contW = Mathf.Clamp01((elev + contrast * 0.5f) / Mathf.Max(contrast, 1e-3f));
+            if (contW > 0.01f)
+            {
+                float mtn = Mathf.Clamp01(Noise3D.Fbm(unitDir * 1.4f, 3, 2f, 0.5f, seed + 831) * 1.7f - 0.35f);
+                if (mtn > 0.001f)
+                {
+                    float ridge = Noise3D.Ridged(unitDir * ContReliefScale, 4, 2f, 0.5f, seed + 821);   // [0,1] crinali
+                    elev += continentalRelief * contW * mtn * (ridge - 0.30f) * 1.8f;
+                }
+            }
+        }
+
         // CONFINI: catene (placche convergenti) / rift (divergenti), localizzati sulla fascia del confine i1↔i2.
+        // La gobba liscia di prima dava "welt" di argilla a quota costante. Ora il profilo è MODULATO: 'along'
+        // (bassa freq lungo il confine) fa salire/scendere la catena → picchi e valichi; 'rough' (ridged, freq
+        // alta) la rende frastagliata invece di liscia. Insieme: catene vere, non vermi incollati.
         float tu = Mathf.Clamp01((best - second) / boundaryWidth);
         float boundary = 1f - tu * tu * (3f - 2f * tu);
         if (boundary > 0.001f && uplift > 0f)
@@ -119,8 +154,11 @@ public class TectonicTerrainLayer : TerrainLayer
             if (bm > 1e-5f)
             {
                 bn /= bm;
-                float conv = Vector3.Dot(motion[i2] - motion[i1], bn);   // >0 convergono → catena; <0 → rift
-                elev += uplift * boundary * Mathf.Clamp(conv, -1f, 1f);
+                float conv = Mathf.Clamp(Vector3.Dot(motion[i2] - motion[i1], bn), -1f, 1f);   // >0 catena; <0 rift
+                float along = Noise3D.Fbm(d * RidgeAlongScale, 3, 2f, 0.5f, seed + 711);        // [0,1]
+                float rough = 1f - Mathf.Abs(Noise3D.Value(d * RidgeRoughScale, seed + 712));   // [0,1] picchi dove |n|~0
+                float profile = boundary * (0.30f + 0.70f * along) * (0.45f + 0.55f * rough);
+                elev += uplift * profile * conv;
             }
         }
 

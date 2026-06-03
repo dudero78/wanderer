@@ -56,7 +56,7 @@ StructuredBuffer<SeaGPU> _Seas;
 // seedDir.w = continentale (0/1); motion.w = elevJitter.
 struct PlateGPU { float4 seedDir; float4 motion; };
 StructuredBuffer<PlateGPU> _Plates;
-struct TectonicGPU { float seed; float contrast; float uplift; float boundaryWidth; float warp; float coastSlope; float plateOffset; float plateCount; };
+struct TectonicGPU { float seed; float contrast; float uplift; float boundaryWidth; float warp; float coastSlope; float plateOffset; float plateCount; float continentalRelief; };
 StructuredBuffer<TectonicGPU> _Tectonics;
 
 // ---- pipeline ORDINATA: (type, index) per processo. type 0=cratere 1=mare 2=tettonica ----
@@ -160,6 +160,23 @@ float Fbm(float3 p, int octaves, float lacunarity, float gain, int seed)
         q = RotateDomain(q);
     }
     return saturate(sum / norm * 0.5 + 0.5);
+}
+
+// fBm "ridged" (= Noise3D.Ridged): crinali affilati invece di gobbe. [0,1]. Parità col C#.
+float Ridged(float3 p, int octaves, float lacunarity, float gain, int seed)
+{
+    float sum = 0.0, amp = 0.5, freq = 1.0, norm = 0.0;
+    float3 q = p;
+    for (int i = 0; i < octaves; i++)
+    {
+        float r = 1.0 - abs(NoiseValue(q * freq, seed + i * 1013));
+        sum += amp * r * r;
+        norm += amp;
+        freq *= lacunarity;
+        amp *= gain;
+        q = RotateDomain(q);
+    }
+    return sum / norm;
 }
 
 // =================================================================================================
@@ -365,7 +382,25 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
     }
     float elev = esum / wsum;
 
-    // confini: catene (convergenti) / rift (divergenti) sulla fascia del confine i1↔i2
+    // rilievo INTERNO dei continenti (= TectonicTerrainLayer): fBm pesato sulla continentalità (oceani lisci).
+    // Scale e seed IDENTICI al C# per la parità.
+    // PERF: oceani (contW≈0) e pianure (mtn≈0) saltano il rumore extra; soglie identiche al C# → parità.
+    if (t.continentalRelief > 0.0)
+    {
+        float contW = saturate((elev + t.contrast * 0.5) / max(t.contrast, 1e-3));
+        if (contW > 0.01)
+        {
+            float mtn = saturate(Fbm(unitDir * 1.4, 3, 2.0, 0.5, seed + 831) * 1.7 - 0.35);
+            if (mtn > 0.001)
+            {
+                float ridge = Ridged(unitDir * 3.0, 4, 2.0, 0.5, seed + 821);
+                elev += t.continentalRelief * contW * mtn * (ridge - 0.30) * 1.8;
+            }
+        }
+    }
+
+    // confini: catene (convergenti) / rift (divergenti) sulla fascia del confine i1↔i2, profilo MODULATO
+    // (along = quota variabile lungo il confine; rough = cresta frastagliata) — identico al C#.
     float tu = saturate((best - second) / t.boundaryWidth);
     float boundary = 1.0 - tu * tu * (3.0 - 2.0 * tu);
     if (boundary > 0.001 && t.uplift > 0.0)
@@ -375,8 +410,11 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
         if (bm > 1e-5)
         {
             bn /= bm;
-            float conv = dot(_Plates[i2].motion.xyz - _Plates[i1].motion.xyz, bn);
-            elev += t.uplift * boundary * clamp(conv, -1.0, 1.0);
+            float conv = clamp(dot(_Plates[i2].motion.xyz - _Plates[i1].motion.xyz, bn), -1.0, 1.0);
+            float along = Fbm(d * 1.8, 3, 2.0, 0.5, seed + 711);
+            float rough = 1.0 - abs(NoiseValue(d * 9.0, seed + 712));
+            float profile = boundary * (0.30 + 0.70 * along) * (0.45 + 0.55 * rough);
+            elev += t.uplift * profile * conv;
         }
     }
     return elev;

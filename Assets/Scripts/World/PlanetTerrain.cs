@@ -89,7 +89,7 @@ public class PlanetTerrain : MonoBehaviour
                 else if (p.type == ProcessType.Tettonica)
                 {
                     layers.Add(new TectonicTerrainLayer(Recipe.baseRadius, p.seed, p.plateCount, p.continentalFraction,
-                        p.elevationContrast, p.boundaryUplift, p.boundaryWidth, p.tectonicWarp, p.coastSlope));
+                        p.elevationContrast, p.boundaryUplift, p.boundaryWidth, p.tectonicWarp, p.coastSlope, p.continentalRelief));
                 }
                 else // Mare: allaga ciò che sta sotto il pelo dell'acqua (eventualmente increspato)
                 {
