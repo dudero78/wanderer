@@ -56,7 +56,7 @@ StructuredBuffer<SeaGPU> _Seas;
 // seedDir.w = continentale (0/1); motion.w = elevJitter.
 struct PlateGPU { float4 seedDir; float4 motion; };
 StructuredBuffer<PlateGPU> _Plates;
-struct TectonicGPU { float seed; float contrast; float uplift; float boundaryWidth; float warp; float coastSlope; float plateOffset; float plateCount; float continentalRelief; };
+struct TectonicGPU { float seed; float contrast; float uplift; float boundaryWidth; float warp; float coastSlope; float plateOffset; float plateCount; float continentalRelief; float riftBalance; };
 StructuredBuffer<TectonicGPU> _Tectonics;
 
 // ---- pipeline ORDINATA: (type, index) per processo. type 0=cratere 1=mare 2=tettonica ----
@@ -422,7 +422,7 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
             float rough = 1.0 - abs(NoiseValue(d * 9.0, seed + 712));
             // D: rift (conv<0) meno profondi (×0.35) e meno affilati (meno rough) delle catene — identico al C#.
             bool rift = conv < 0.0;
-            float convEff = rift ? conv * 0.35 : conv;
+            float convEff = rift ? conv * t.riftBalance : conv;
             float rg = rift ? (0.70 + 0.30 * rough) : (0.45 + 0.55 * rough);
             float profile = boundary * gate * (0.30 + 0.70 * along) * rg;
             elev += t.uplift * profile * convEff;

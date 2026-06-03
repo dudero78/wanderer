@@ -177,6 +177,7 @@ public class ProcessStep
     public float tectonicWarp = 0.45f;          // irregolarità delle coste (domain warp); 0 = archi geometrici finti
     public float coastSlope = 0.5f;             // 0 = coste a scogliera, 1 = piattaforme continentali dolci
     public float continentalRelief = 18f;       // ampiezza (m) del rilievo INTERNO dei continenti (colline); oceani lisci
+    public float riftBalance = 0.55f;            // carattere confini: 0 = solo catene in rilievo; 1 = i divergenti scavano canyon profondi come le catene
 
     // --- parametri MARE ---
     public float seaLevel = 0f;                 // quota del pelo, metri relativi al baseRadius

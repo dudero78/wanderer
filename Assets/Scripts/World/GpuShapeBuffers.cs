@@ -31,14 +31,14 @@ public class GpuShapeBuffers : System.IDisposable
     struct SeaGPU { public float seaRadius, roughness, roughScale, forma, seed; }
 
     [StructLayout(LayoutKind.Sequential)]
-    struct TectonicGPU { public float seed, contrast, uplift, boundaryWidth, warp, coastSlope, plateOffset, plateCount, continentalRelief; }
+    struct TectonicGPU { public float seed, contrast, uplift, boundaryWidth, warp, coastSlope, plateOffset, plateCount, continentalRelief, riftBalance; }
 
     // float4 (non float3) per evitare il disallineamento dei float3 negli StructuredBuffer su Metal.
     // seedDir.w = continentale (0/1); motion.w = elevJitter.
     [StructLayout(LayoutKind.Sequential)]
     struct PlateGPU { public Vector4 seedDir, motion; }
 
-    const int ProcStride = 2 * 4, CraterStride = 16 * 4, SeaStride = 5 * 4, TectStride = 9 * 4, PlateStride = 8 * 4;
+    const int ProcStride = 2 * 4, CraterStride = 16 * 4, SeaStride = 5 * 4, TectStride = 10 * 4, PlateStride = 8 * 4;
 
     ComputeBuffer procBuf, craterBuf, seaBuf, tectBuf, plateBuf;
 
@@ -84,7 +84,7 @@ public class GpuShapeBuffers : System.IDisposable
                     procs.Add(new ProcessGPU { type = 2, index = tects.Count });
                     // genera le placche con lo STESSO codice della CPU, poi le carica
                     var tl = new TectonicTerrainLayer(baseRadius, p.seed, p.plateCount, p.continentalFraction,
-                        p.elevationContrast, p.boundaryUplift, p.boundaryWidth, p.tectonicWarp, p.coastSlope, p.continentalRelief);
+                        p.elevationContrast, p.boundaryUplift, p.boundaryWidth, p.tectonicWarp, p.coastSlope, p.continentalRelief, p.riftBalance);
                     int off = plates.Count;
                     for (int i = 0; i < tl.PlateCount; i++)
                     {
@@ -99,7 +99,7 @@ public class GpuShapeBuffers : System.IDisposable
                     {
                         seed = tl.Seed, contrast = tl.Contrast, uplift = tl.Uplift, boundaryWidth = tl.BoundaryWidth,
                         warp = tl.Warp, coastSlope = tl.CoastSlope, plateOffset = off, plateCount = tl.PlateCount,
-                        continentalRelief = tl.ContinentalRelief
+                        continentalRelief = tl.ContinentalRelief, riftBalance = tl.RiftBalance
                     });
                 }
             }

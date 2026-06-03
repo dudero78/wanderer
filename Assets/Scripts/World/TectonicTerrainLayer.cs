@@ -30,17 +30,17 @@ public class TectonicTerrainLayer : TerrainLayer
     readonly float warp;            // intensità del domain-warp dei confini
     readonly float coastSlope;      // 0 = costa a scogliera, 1 = piattaforma continentale dolce
     readonly float continentalRelief; // ampiezza (m) del rilievo INTERNO dei continenti (gli oceani restano lisci)
+    readonly float riftBalance;       // 0 = solo catene; 1 = rift (divergenti) profondi quanto le catene
 
     // scale dei campi di rumore: COSTANTI condivise con PlanetHeight.compute (TectonicApply) per la parità.
     // Cambiarle qui = cambiarle lì identiche, o GPU e CPU divergono.
     const float ContReliefScale = 3.0f;   // rilievo continentale: scala dei crinali (basso = forme larghe)
     const float RidgeAlongScale = 1.8f;   // variazione di quota LUNGO la catena (passi/picchi)
     const float RidgeRoughScale = 9.0f;   // ruvidità FINE della cresta (frastagliata, non liscia)
-    const float RiftScale = 0.35f;        // profondità dei rift (divergenti) come frazione delle catene (convergenti)
 
     public TectonicTerrainLayer(float baseRadius, int seed, int plateCount, float continentalFraction,
                                 float elevationContrast, float boundaryUplift, float boundaryWidth, float warp, float coastSlope,
-                                float continentalRelief)
+                                float continentalRelief, float riftBalance)
     {
         this.seed = seed;
         n = Mathf.Clamp(plateCount, 2, 64);
@@ -50,6 +50,7 @@ public class TectonicTerrainLayer : TerrainLayer
         this.warp = Mathf.Max(0f, warp);
         this.coastSlope = Mathf.Clamp01(coastSlope);
         this.continentalRelief = Mathf.Max(0f, continentalRelief);
+        this.riftBalance = Mathf.Clamp01(riftBalance);
 
         seedDir = new Vector3[n];
         motion = new Vector3[n];
@@ -83,6 +84,7 @@ public class TectonicTerrainLayer : TerrainLayer
     public float Warp => warp;
     public float CoastSlope => coastSlope;
     public float ContinentalRelief => continentalRelief;
+    public float RiftBalance => riftBalance;
 
     public override float Apply(Vector3 unitDir, float height)
     {
@@ -177,7 +179,7 @@ public class TectonicTerrainLayer : TerrainLayer
                 // meno affilati (meno peso al rough). Sulla Terra i rift continentali sono tenui; le dorsali profonde
                 // stanno sott'acqua. Evita le "crepe nere" affilate che tagliavano i continenti.
                 bool rift = conv < 0f;
-                float convEff = rift ? conv * RiftScale : conv;
+                float convEff = rift ? conv * riftBalance : conv;
                 float rg = rift ? (0.70f + 0.30f * rough) : (0.45f + 0.55f * rough);
                 float profile = boundary * gate * (0.30f + 0.70f * along) * rg;
                 elev += uplift * profile * convEff;

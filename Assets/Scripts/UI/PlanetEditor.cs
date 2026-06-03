@@ -386,7 +386,8 @@ public class PlanetEditor : MonoBehaviour
                 p.continentalFraction = Slider("Terre emerse", "Frazione di placche continentali (alte): 0 = quasi tutto oceano, 1 = quasi tutto continente.", p.continentalFraction, 0f, 1f, ui, ref geomDirty);
                 p.elevationContrast = Slider("Dislivello (m)", "Quanto i continenti stanno più in alto dei bacini oceanici.", p.elevationContrast, 0f, 200f, ui, ref geomDirty);
                 p.continentalRelief = Slider("Rilievo continenti (m)", "Colline e terreno irregolare DENTRO i continenti (gli oceani restano lisci): 0 = altopiani piatti, su = continenti accidentati.", p.continentalRelief, 0f, 80f, ui, ref geomDirty);
-                p.boundaryUplift = Slider("Catene/rift (m)", "Sollevamento ai confini convergenti (catene) e sprofondamento ai divergenti (rift).", p.boundaryUplift, 0f, 150f, ui, ref geomDirty);
+                p.boundaryUplift = Slider("Catene/rift (m)", "Ampiezza del rilievo ai confini di placca (catene + rift).", p.boundaryUplift, 0f, 150f, ui, ref geomDirty);
+                p.riftBalance = Slider("Catene ↔ Canyon", "Carattere dei confini: a sinistra solo catene in rilievo; a destra i confini divergenti scavano canyon (a 1 profondi quanto le catene).", p.riftBalance, 0f, 1f, ui, ref geomDirty);
                 p.boundaryWidth = Slider("Larghezza confini", "Quanto sono larghe le catene/rift lungo i confini di placca.", p.boundaryWidth, 0.02f, 0.3f, ui, ref geomDirty);
                 p.coastSlope = Slider("Dolcezza coste", "0 = coste a scogliera (pareti verticali); 1 = piattaforme continentali graduali.", p.coastSlope, 0f, 1f, ui, ref geomDirty);
                 p.tectonicWarp = Slider("Coste frastagliate", "Irregolarità di confini e coste: 0 = poligonali, su = molto frastagliate (warp frattale).", p.tectonicWarp, 0f, 1f, ui, ref geomDirty);
