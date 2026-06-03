@@ -46,13 +46,15 @@ public class CraterTerrainLayer : TerrainLayer
     const float SPACING = 10f;
     const float OUTER = 2.2f;        // oltre 2.2 raggi il cratere non influenza più (ejecta esaurita)
     const float JITTER_MAX = 1.4f;   // raggio jitterato fino a 1.4× quello dell'ottava
-    // OWNED-CELL (fix delle "crepe circolari"). Il reticolo 3D proiettato sulla sfera ha una degenerazione: celle
-    // a raggi diversi lungo la stessa direzione proiettano sullo stesso punto. Per evitarlo, ogni cratere
-    // appartiene a UNA sola cella: quella in cui ricade la SUA direzione (floor(cdir·gscale)). Così non ci sono
-    // duplicati radiali (niente crepe) E funziona a qualsiasi scala (i crateri grandi non spariscono più — il
-    // vecchio "peso sul guscio" li uccideva a celle grandi). L'influenza è < 1 cella → basta l'intorno 3×3×3.
-    // Verificato in Python: crepe max 0.024 m, crateri grandi presenti a ogni raggio.
-    const int RANGE = 1;             // intorno ±1 = 3×3×3
+    // Due modalità anti-crepa per la degenerazione radiale del reticolo-3D-su-sfera (celle a raggi diversi lungo
+    // la stessa direzione proiettano sullo stesso punto), scelte dal flag "Crateri grandi" (ownedCell):
+    //  - OFF (default): PESO RADIALE sul guscio (SHELL_HALF) — sfuma i duplicati fuori-guscio. Disposizione
+    //    organica/abbondante, NIENTE crepe (verificato), ma a celle grandi (raggio alto) i grandi si diradano.
+    //  - ON: OWNED-CELL — ogni cratere appartiene alla sola cella in cui ricade la sua direzione (floor(cdir·gscale)).
+    //    Niente crepe E grandi affidabili a ogni scala, ma disposizione più regolare. Verificato: crepe max 0.024 m.
+    // Finestra ±2 (5×5×5): basta a entrambe (l'owned-cell userebbe ±1, ma ±2 va bene — l'ownership scarta gli extra).
+    const float SHELL_HALF = 0.6f;   // mezza-larghezza del guscio (modalità peso radiale)
+    const int RANGE = 2;             // intorno ±2 = 5×5×5
 
     // Soglie di morfologia (raggio, metri): sotto SIMPLE = ciotola semplice; sopra COMPLEX =
     // pienamente complesso (fondo piatto + picco centrale). In mezzo si interpola.
@@ -132,7 +134,7 @@ public class CraterTerrainLayer : TerrainLayer
         // --- crateri a mano (dominante): nel frame del MONDO, NON ruotano con la distribuzione. Profilo proprio. ---
         for (int i = 0; i < manual.Count; i++)
             Accumulate(unitDir, manual[i].dir, manual[i].radius, manual[i].depthRatio, manual[i].rimRatio,
-                       manual[i].rimSharp, manual[i].irregular, manual[i].irregScale, ref total);
+                       manual[i].rimSharp, manual[i].irregular, manual[i].irregScale, 1f, ref total);   // piazzato sulla sfera: peso 1
 
         // --- campo procedurale per ottave di taglia ---
         float radius = largestRadius;
@@ -162,15 +164,24 @@ public class CraterTerrainLayer : TerrainLayer
                 float cm = c.magnitude;
                 if (cm < 1e-6f) continue;
                 Vector3 cdir = c / cm;
-                // OWNED-CELL (flag "crateri grandi"): il cratere appartiene a QUESTA cella solo se la sua DIREZIONE
-                // ci ricade → assegnato a una cella sola, niente duplicati radiali (= niente crepe), grandi a ogni
-                // scala. Flag OFF (default) = placement classico (più organico/abbondante, ma con la degenerazione).
-                if (ownedCell && (Mathf.FloorToInt(cdir.x * gscale) != X || Mathf.FloorToInt(cdir.y * gscale) != Y || Mathf.FloorToInt(cdir.z * gscale) != Z)) continue;
+                // anti-crepa: owned-cell (flag ON) o peso radiale sul guscio (flag OFF) — vedi commento alle costanti
+                float weight;
+                if (ownedCell)
+                {
+                    if (Mathf.FloorToInt(cdir.x * gscale) != X || Mathf.FloorToInt(cdir.y * gscale) != Y || Mathf.FloorToInt(cdir.z * gscale) != Z) continue;
+                    weight = 1f;
+                }
+                else
+                {
+                    float radOff = Mathf.Abs(cm - 1f) / SHELL_HALF;
+                    if (radOff >= 1f) continue;
+                    weight = Smooth01(1f - radOff);
+                }
 
                 // raggio jitterato attorno al raggio dell'ottava, simmetrico: [2−JITTER_MAX .. JITTER_MAX]
                 float lo = 2f - JITTER_MAX;
                 float rad = radius * (lo + (JITTER_MAX - lo) * U01(h * 0x27D4EB2Fu + 4u));
-                Accumulate(unitDir, cdir, rad, depthRatio, rimRatio, rimSharpness, 0f, 1f, ref total);   // campo: profilo del layer, niente irregolarità
+                Accumulate(unitDir, cdir, rad, depthRatio, rimRatio, rimSharpness, 0f, 1f, weight, ref total);   // campo: profilo del layer, niente irregolarità
             }
 
             radius *= 0.5f;
@@ -181,7 +192,7 @@ public class CraterTerrainLayer : TerrainLayer
 
     /// <summary>Profilo del cratere (conca + bordo + ejecta + picco) sommato al totale.</summary>
     void Accumulate(Vector3 dir, Vector3 cdir, float radius, float depthRatio, float rimRatio, float rimSharpness,
-                    float irregular, float irregScale, ref float total)
+                    float irregular, float irregScale, float weight, ref float total)
     {
         // distanza sulla superficie ≈ corda × raggio del corpo (errore trascurabile per crateri << corpo)
         float distM = baseRadius * (dir - cdir).magnitude;
@@ -226,8 +237,8 @@ public class CraterTerrainLayer : TerrainLayer
         // finestra C1 al bordo esterno (ejecta): porta off a 0 con CONTINUITÀ. Senza, il taglio netto
         // a r=OUTER è un gradino di altezza → lame verticali sulla mesh lungo gli anelli di ejecta.
         off *= Smooth01(Mathf.Clamp01((OUTER - r) / 0.6f));
-        // ADDITIVO: somma del contributo. Niente min/max (spigoli a V) né smin/smax (gobbe fantasma).
-        total += off;
+        // ADDITIVO: somma del contributo (× peso, dal peso radiale quando il flag è OFF). Niente min/max.
+        total += off * weight;
     }
 
     // smoothstep [0,1]: pendenza 0 ai due estremi → raccordi C1, niente spigoli che aliasano
