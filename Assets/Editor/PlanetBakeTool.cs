@@ -20,6 +20,10 @@ public static class PlanetBakeTool
     const int MaskMeshRes = 64;     // = bake runtime (qualità identica; alzarle rovina i crateri, vedi storia)
     const int CraterMeshRes = 48;
     const int HeightRes = 1024;     // heightmap per faccia (~0.77 m/texel su 500 m): backbone per CDLOD
+    // Le heightmap NON sono usate a runtime (TryLoadBakedMaterials carica solo Mask/Crater/Detail): erano il
+    // backbone per un futuro CDLOD-da-heightmap. Disattivate di default per non zavorrare la cartella (~64 MB).
+    // Riaccendi quando si implementerà quel percorso.
+    const bool BakeHeightmaps = false;
 
     [MenuItem("Wanderer/Bake planet assets")]
     public static void BakePlanetAssets()
@@ -109,11 +113,13 @@ public static class PlanetBakeTool
             }
 
             // HEIGHTMAP per faccia (Stage 1): displacement float mippato, dalla VERA SampleHeight (CPU, offline).
-            for (int f = 0; f < 6; f++)
-            {
-                EditorUtility.DisplayProgressBar("Bake " + bakedDirName, "Heightmap faccia " + (f + 1) + "/6", 0.5f + f / 12f);
-                SaveHeightmap(terrain, f, dir + "/Height" + f + ".asset");
-            }
+            // Disattivata di default (non usata a runtime): vedi BakeHeightmaps.
+            if (BakeHeightmaps)
+                for (int f = 0; f < 6; f++)
+                {
+                    EditorUtility.DisplayProgressBar("Bake " + bakedDirName, "Heightmap faccia " + (f + 1) + "/6", 0.5f + f / 12f);
+                    SaveHeightmap(terrain, f, dir + "/Height" + f + ".asset");
+                }
         }
         finally
         {
@@ -165,6 +171,10 @@ public static class PlanetBakeTool
         tex.Apply(true);     // genera i mipmap
         RenderTexture.active = prev;
         rt.Release();
+        // COMPRESSIONE BC7 (alta qualità, ~4× più piccolo di RGBA32): le texture di superficie bakeate sono
+        // dati/normali MIPPATI a uso sottile → gli artefatti di BC7 sono trascurabili, ma la cartella passa da
+        // ~150 MB a ~15-20 MB (e altrettanto in VRAM e nella build). Metal desktop supporta BC7. Offline → costo ok.
+        EditorUtility.CompressTexture(tex, TextureFormat.BC7, TextureCompressionQuality.Normal);
         AssetDatabase.CreateAsset(tex, path);
     }
 }
