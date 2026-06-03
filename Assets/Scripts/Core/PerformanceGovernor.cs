@@ -1,32 +1,20 @@
 using UnityEngine;
 
 /// <summary>
-/// Governa il frame rate per contenere il calore senza toccare la resa.
+/// Governa il frame rate di RENDERING. Bersaglio: 60 fps quando c'è movimento (mouse, tasti, o il
+/// giocatore che sfreccia), dove la fluidità si sente; scende quando la scena è ferma, dove a occhio
+/// non cambia nulla ma si risparmiano giri di rendering.
 ///
-/// Il costo pesante della scena è lo shader procedurale del pianeta, che gira per
-/// ogni pixel a ogni fotogramma. Ridisegnare un'immagine FERMA 60 volte al secondo
-/// è lavoro sprecato: a occhio è identica a 30 fps. Quindi:
-///   - 60 fps quando c'è movimento (mouse, tasti, o il giocatore che si muove davvero),
-///     dove la fluidità si sente;
-///   - 30 fps quando la scena è immobile, dove non si vede la differenza ma la GPU
-///     lavora la metà → molto meno calore.
+/// La fisica resta a 60 Hz (Time.fixedDeltaTime, dal bootstrap) a prescindere dal frame rate di
+/// rendering: precisione delle orbite e reattività dei comandi non cambiano mai. Il governo tocca
+/// SOLO quante volte ridisegniamo.
 ///
-/// La fisica resta a 60 Hz (Time.fixedDeltaTime, impostato nel bootstrap) a
-/// prescindere dal frame rate di rendering: precisione delle orbite e reattività dei
-/// comandi non cambiano mai. Abbassare gli fps tocca SOLO quante volte ridisegniamo.
-///
-/// Tutte le soglie sono manopole pubbliche: per girare sempre a 30 basta activeFps=30,
-/// per disattivare il governo idleFps=activeFps.
+/// Manopole pubbliche: per disattivare il governo metti idleFps = activeFps.
 /// </summary>
 public class PerformanceGovernor : MonoBehaviour
 {
-    // I profili (Stats) dicono che la GPU finisce il frame in ~1 ms: il collo di bottiglia e il
-    // CALORE sono il MAIN THREAD CPU, che a 60 fps rifà il loop completo 60 volte/s per niente
-    // (la GPU avrebbe finito comunque). Quindi il cap fps qui è la leva DIRETTA sul calore: meno
-    // fps = meno giri di CPU al secondo = meno watt. 30 attivi è il registro di Outer Wilds e con
-    // questa GPU si disegna senza sforzo. Per più fluidità rimetti 60 (più caldo, è il prezzo).
-    public int activeFps = 30;      // quando ti muovi o guardi intorno
-    public int idleFps = 15;        // quando la scena è ferma: a occhio identica, metà CPU
+    public int activeFps = 60;      // quando ti muovi o guardi intorno
+    public int idleFps = 30;        // quando la scena è ferma: a occhio quasi identica, meno lavoro
     public float idleDelay = 0.3f;  // secondi di immobilità prima di scendere
     public float moveThreshold = 2f; // m/s sopra cui il giocatore è "in movimento" (volo balistico)
 

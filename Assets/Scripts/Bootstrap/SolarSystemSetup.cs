@@ -93,7 +93,7 @@ public static class SolarSystemSetup
 
     /// <summary>Costruisce stella + pianeta-casa + corpi in orbita, registra tutto nel SolarSystem, ancora
     /// l'origine alla casa e posiziona i corpi al tempo 0. Ritorna i riferimenti chiave.</summary>
-    public static Built Build(SolarSystem solar, bool useQuadtree, int singleMeshRes)
+    public static Built Build(SolarSystem solar, bool useQuadtree, int singleMeshRes, bool useGpuSurface = false, int gpuSurfaceRes = 256)
     {
         // --- Stella (corpo centrale, fisso all'origine dell'universo) ---
         var starGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -132,8 +132,8 @@ public static class SolarSystemSetup
         if (faceMats != null)
         {
             sw.Restart();
-            AddSurface(planetGo, terrain, faceMats, useQuadtree, singleMeshRes, 40);
-            Debug.Log($"[load] superficie pianeta ({(useQuadtree ? "quadtree" : "mesh singola")}): {sw.ElapsedMilliseconds} ms");
+            AddSurface(planetGo, terrain, faceMats, useQuadtree, singleMeshRes, 40, useGpuSurface, gpuSurfaceRes);
+            Debug.Log($"[load] superficie pianeta ({(useGpuSurface ? "GPU" : useQuadtree ? "quadtree" : "mesh singola")}): {sw.ElapsedMilliseconds} ms");
         }
         else
         {
@@ -153,7 +153,7 @@ public static class SolarSystemSetup
 
         // --- Corpi in orbita (data-driven): identici a meno dei parametri ---
         foreach (var def in Orbiting)
-            BuildOrbitBody(def, solar, def.AroundStar ? star : planet, useQuadtree);
+            BuildOrbitBody(def, solar, def.AroundStar ? star : planet, useQuadtree, useGpuSurface, gpuSurfaceRes);
 
         // origine ancorata alla casa: resta a ~(0,0,0), il resto dell'universo si muove. Posiziona i corpi al tempo 0
         // PRIMA che GameBootstrap legga la posizione del pianeta per lo spawn del giocatore.
@@ -169,7 +169,7 @@ public static class SolarSystemSetup
 
     /// <summary>Costruisce un corpo in orbita dalla sua descrizione. Walker/mappa/viaggio lo gestiscono "gratis"
     /// (leggono PlanetTerrain/CelestialBody). Se la ricetta manca, salta il corpo (il resto del gioco parte).</summary>
-    static void BuildOrbitBody(OrbitBody def, SolarSystem solar, CelestialBody parent, bool useQuadtree)
+    static void BuildOrbitBody(OrbitBody def, SolarSystem solar, CelestialBody parent, bool useQuadtree, bool useGpuSurface, int gpuSurfaceRes)
     {
         var go = new GameObject(def.Name);
         var terrain = go.AddComponent<PlanetTerrain>();
@@ -184,7 +184,7 @@ public static class SolarSystemSetup
         // PRIMA gli asset bakeati offline (cartella dedicata), poi bake a runtime.
         var faceMats = PlanetBaker.TryLoadBakedMaterials(terrain, def.BakedDir) ?? PlanetBaker.BakeFaceMaterials(terrain, 64);
         if (faceMats != null)
-            AddSurface(go, terrain, faceMats, useQuadtree, 256, def.ProxyRes);
+            AddSurface(go, terrain, faceMats, useQuadtree, 256, def.ProxyRes, useGpuSurface, gpuSurfaceRes);
         else Debug.LogWarning($"{def.Name}: bake non riuscito, niente superficie (corpo comunque presente per gravità/mappa).");
 
         solar.Register(body);
@@ -193,9 +193,20 @@ public static class SolarSystemSetup
     /// <summary>Aggiunge la superficie renderizzata a un corpo roccioso: quadtree CDLOD (geometria view-dependent
     /// → crateri nitidi calpestabili) oppure mesh singola a risoluzione fissa (fallback). Walker/gravità/collisione
     /// NON dipendono da questa scelta (leggono PlanetTerrain.SampleHeight).</summary>
-    static void AddSurface(GameObject go, PlanetTerrain terrain, Material[] faceMats, bool quadtree, int singleRes, int proxyRes)
+    static void AddSurface(GameObject go, PlanetTerrain terrain, Material[] faceMats, bool quadtree, int singleRes, int proxyRes,
+                           bool gpuSurface = false, int gpuRes = 256)
     {
         terrain.FaceMaterials = faceMats;   // li riusa il proxy del corpo reale in mappa (stesso aspetto, niente ri-bake)
+        if (gpuSurface)
+        {
+            // percorso B1: geometria+colore sulla GPU, 1 draw indirect. Se la GPU non regge i compute, Ready
+            // resta false → si butta il componente e si ripiega sul quadtree (niente pianeta invisibile).
+            var gpu = go.AddComponent<GpuPlanetRenderer>();
+            gpu.Setup(terrain, gpuRes);
+            if (gpu.Ready) return;
+            Object.Destroy(gpu);
+            Debug.LogWarning("Superficie GPU non disponibile → ripiego sul quadtree.");
+        }
         if (quadtree)
         {
             var qt = go.AddComponent<PlanetQuadtree>();

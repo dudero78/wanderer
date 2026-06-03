@@ -1,12 +1,13 @@
 # Wanderer — TODO
 
-Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **3 giugno 2026** (sessione GPU-editor, Tappe 1-3).
+Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **4 giugno 2026** (sessione B1 — resa GPU in gioco).
 Dettaglio tecnico nel `CLAUDE.md`.
 
-> **PROSSIMA SESSIONE — PARTI DA QUI:** l'anteprima GPU dell'editor è COMPLETA (geometria+colore+normali,
-> Tappe 1-3 fatte). Prossimi bivi: (a) portare la resa GPU **IN GIOCO** (B1, sostituire quadtree/SingleMeshPlanet);
-> (b) **materiali per pendenza/quota/curvatura** + tiling triplanare + PBR (roadmap SC/ED, [[wanderer-rendering-roadmap]]);
-> (c) tornare al GIOCO (teletrasporto, il VERBO). Tutto su `main`.
+> **PARTI DA QUI:** siamo dentro **B1 — resa GPU IN GIOCO** (vedi sezione dedicata sotto). Tappa 1 SCRITTA, in
+> attesa di test su schermo. Bersaglio deciso con Dario: scaricare la CPU + qualità + **≥60 fps**, con
+> indirect/instancing **dall'inizio**. Misura: a finestra piccola si è GIÀ a 60 fps (GPU 0.8–3 ms); il solo caso
+> che rompeva i 60 era a schermo intero/2× = **fragment + overdraw** (costo per-pixel, NON CPU → B1 non lo
+> sistema, è un fronte GPU separato). Cap fps alzato da 30 a **60** (`PerformanceGovernor`).
 
 ## Fatto (milestone)
 
@@ -112,15 +113,63 @@ Dettaglio tecnico nel `CLAUDE.md`.
   usa mesh a res fissa. Fix = far usare all'editor il quadtree (rebuild + switch drag/zoom). RIMANDATO: il GPU per
   l'editor (sotto) lo risolve gratis (res altissima a costo nullo). Verificare se il gioco già le rende pulite.
 
+## B1 — resa GPU in gioco (IN CORSO)
+
+Obiettivo: la superficie dei corpi rocciosi calcolata e disegnata **sulla GPU**, come nell'editor, ma con **LOD**
+view-dependent e **1 draw indirect** (niente Mesh Unity, niente upload sul main thread, niente readback, niente
+draw call per-nodo). Il walker resta analitico su CPU (`SampleHeight` in 1 punto) → collisione intatta. La parità
+GPU↔CPU fa da rete. Componenti nuovi: `GpuPlanetRenderer.cs`, shader `Wanderer/PlanetSurfaceGPU`, include condiviso
+`PlanetProceduralShade.cginc` (colore = una sola copia, editor+gioco). Toggle `useGpuSurface` su `GameBootstrap`.
+
+- ✅ **Tappa 1 — pool GPU + 1 draw indirect (FATTA, in gioco, 60 fps).** 6 facce a risoluzione FISSA in un solo
+  `RenderPrimitivesIndexedIndirect` istanziato (istanza = fetta del pool, `SV_InstanceID`→fetta), colore procedurale
+  nel fragment, piazzamento con matrice oggetto→mondo (floating origin). Niente LOD ancora: tris alto e COSTANTE,
+  crateri morbidi da vicino — atteso. Struttura indirect già definitiva (Tappa 2 non riscrive il draw).
+  - ✅ **Geometria CONFERMATA** (test diagnostico `debugView` = colore radiale: sfera pulita, ben piazzata).
+  - ✅ **CAUSA VERA del "pianeta nero": Properties VUOTE nello shader in gioco** → gli uniform che `ApplyColor`
+    non imposta valgono 0; in particolare `_SoilTint=(0,0,0)` azzera l'albedo (`alb = _SoilMean × … × _SoilTint`)
+    → nero a prescindere dalla luce (sole/torcia ininfluenti, perché `col = 0 × luce`). I debug si vedevano perché
+    BYPASSANO `PlanetShade`. Fix: `PlanetSurfaceGPU` ha gli STESSI default Properties di `PlanetProcedural`.
+    LEZIONE: uno shader disegnato dai buffer non eredita né luci né default — ogni uniform letto dal fragment
+    deve avere un valore (default Properties o set da codice). (Le mie diagnosi "luce sbagliata" e "terminatore"
+    erano errate: la geometria/normali erano OK e la luce era agganciata, ma l'albedo era zero.)
+  - ✅ **LUCE A MANO** (lo shader GPU non riceve le luci di Unity): **SOLE** via `SunLight.Instance` (statico in
+    Awake) + **TORCIA** spot (pos/dir/cono/range per-frame; `_TorchColor=0` da spenta → costo nullo).
+  - ⬜ **ECLISSI** ancora da portare nel path GPU: altra luce/ombra che `PlanetBaked` aveva e questo no.
+  - ⬜ verificare la resa LIT vera (sole di giorno + torcia di notte).
+  - ⬜ **Mappa**: la superficie GPU si disegna in TUTTE le camere (anche la mappa → si vede al posto del proxy).
+    `RenderPrimitivesIndexedIndirect` non filtra per camera → filtrare (layer/camera) o disattivare in MapMode.
+  - ⬜ GPU Frametime alto già ora (10–35 ms @2× con fragment di DEBUG cheap) → conferma il fronte fragment/overdraw
+    (Tappa 4); il fragment vero sarà più caro.
+- ⬜ **Tappa 2 — LOD agganciato al pool.** Il cervello del quadtree (split/merge/orizzonte, già esistente) gira su
+  struct leggere (niente GameObject): split → alloca+riempi una fetta (compute, dal kernel `CSNodeGrid`), merge →
+  libera; lista visibile → buffer di indirezione; **geomorph nel vertex shader** dal buffer; **skirt nel compute**.
+  Qui la CPU crolla: misurare col **Profiler** (non solo Stats) e verificare la tabella "dove va ogni costo CPU".
+- ⬜ **Tappa 3 — spegnere il bake in gioco.** Colore tutto procedurale → via la dipendenza da `PlanetBaked` per la
+  superficie. NB: i **proxy della mappa** usano ancora i materiali bakeati → "togliere gli 1.9 s" è parziale, da
+  ragionare (serve un materiale per i proxy comunque).
+- ⬜ **Tappa 4 (fronte GPU, pari rango) — 60 fps a SCHERMO INTERO.** È il vero collo per "fluido a meraviglia":
+  fragment più snello + taglio **overdraw** (disegno fronte→retro, meno/niente skirt col 2:1) + `RenderScaler` < 1.
+  ⚠️ rischio: il colore procedurale nel fragment può essere **più caro** del texture-lookup → tenerlo leggero per
+  non peggiorare proprio questo caso. Misurare a schermo intero (il caso 29.9 ms).
+
+**Da non dimenticare (B1):**
+- ⬜ **Always Included Shaders**: aggiungere `Wanderer/PlanetSurfaceGPU` (è creato via `Shader.Find` → in build
+  sarebbe strippato = pianeta magenta/invisibile). In Play dall'editor funziona già. Vale anche per ogni nuovo
+  shader del percorso.
+- ⬜ **Eclissi nel path GPU**: `PlanetSurfaceGPU` non ha l'ombra di eclissi (ce l'ha solo `PlanetBaked`/proxy mappa).
+  Portarla nell'include/shader quando la superficie GPU è il renderer in gioco.
+- ⬜ **Cap fps**: alzato a 60 (`PerformanceGovernor`). Quando la CPU è scarica (post-B1) valutare di toglierlo del
+  tutto: il cap era la pezza per il costo CPU che B1 rimuove (performance = architettura, non patch).
+- ⬜ **Dedup shader**: oggi `PlanetProcedural` (editor) e `PlanetSurfaceGPU` (gioco) condividono SOLO l'include del
+  colore. Quando il path in gioco è provato, l'editor potrà passare a `PlanetSurfaceGPU` (un solo shader).
+- ⏸️ **B2 — readback** (GPU→CPU→Mesh) resta PARCHEGGIATO: TRASCINA (i nodi compaiono in ritardo). B1 lo bypassa.
+
 ## Prossimo
 
 L'anteprima GPU dell'editor è COMPLETA (Tappe 1-3: geometria + colore + normali analitiche, a parità col walker).
 Bivi possibili (da decidere con Dario):
 
-- ⬜ **Resa GPU IN GIOCO (B1)**: usare il render-dai-buffer (`GpuPlanetSurface`/`PlanetHeight.compute`) anche per i
-  corpi in gioco, sostituendo quadtree/SingleMeshPlanet → elimina pure il bake da 1.9 s all'avvio. Va aggiunto il
-  LOD (l'editor è a faccia singola full-res; in gioco serve view-dependent). Fondazione pronta; il readback (B2)
-  resta parcheggiato (TRASCINA), si usa il render-dai-buffer.
 - ⬜ **Look SC/ED — materiali per pendenza/quota/curvatura** (roccia su bordi cratere, sedimento nel fondo,
   pinnacolo a parte, neve in quota) + tiling **triplanare** + **PBR**, sopra `PlanetProcedural`. Aggiungere anche
   la **grana del suolo** (texture tileabile) che ora manca sulla GPU (sfera liscia troppo "pulita"). Vedi

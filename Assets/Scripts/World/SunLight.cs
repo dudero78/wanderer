@@ -8,8 +8,14 @@ using UnityEngine;
 /// </summary>
 public class SunLight : MonoBehaviour
 {
+    /// <summary>Riferimento deterministico al sole, per chi deve illuminare a mano (es. GpuPlanetRenderer):
+    /// FindAnyObjectByType non è affidabile con più luci in scena. Impostato in Awake, prima di ogni Update.</summary>
+    public static SunLight Instance { get; private set; }
+
     public Transform star;
     public Transform planet;
+
+    void Awake() { Instance = this; }
 
     void LateUpdate()
     {

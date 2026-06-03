@@ -10,6 +10,12 @@ using UnityEngine;
 public class GameBootstrap : MonoBehaviour
 {
     [Header("Rendering dei corpi rocciosi")]
+    [Tooltip("ON = resa GPU (percorso B1): geometria calcolata sulla GPU, 1 draw indirect, colore procedurale, "
+           + "niente bake. Tappa 1 = risoluzione fissa, ancora niente LOD. Ha la precedenza su useQuadtree. "
+           + "Se la GPU non supporta i compute, ripiega sul quadtree.")]
+    public bool useGpuSurface = true;
+    [Tooltip("Solo se useGpuSurface=ON: vertici interni per lato di ogni faccia (fisso, Tappa 1).")]
+    public int gpuSurfaceRes = 256;
     [Tooltip("ON = quadtree CDLOD (geometria view-dependent, crateri nitidi calpestabili, look Elite/SC). "
            + "OFF = mesh singola a risoluzione fissa (fallback, niente LOD).")]
     public bool useQuadtree = true;
@@ -41,7 +47,7 @@ public class GameBootstrap : MonoBehaviour
         // --- SISTEMA SOLARE: stella + pianeta-casa + corpi in orbita (composizione isolata in SolarSystemSetup).
         //     Registra tutto, ancora l'origine alla casa e posiziona i corpi al tempo 0. Restituisce i riferimenti
         //     che servono qui sotto per piazzare giocatore/luce/mappa. Aggiungere un corpo = una voce là, non qui. ---
-        var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes);
+        var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes);
         var starGo = sys.StarTransform.gameObject;
         var star = sys.Star;
         var planetGo = sys.HomePlanetGo;
