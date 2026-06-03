@@ -83,7 +83,7 @@ public class PlanetTerrain : MonoBehaviour
                     var cl = new CraterTerrainLayer(Recipe.baseRadius, p.seed, p.octaves,
                         p.largestRadius, p.density, p.depthRatio, p.rimRatio, p.rimSharpness,
                         p.wLarge, p.wMedium, p.wSmall, p.distribution);
-                    if (p.dominant) cl.AddManual(p.dominantDir, p.dominantRadius, p.domDepthRatio, p.domRimRatio, p.domRimSharp, p.domIrregular);
+                    if (p.dominant) cl.AddManual(p.dominantDir, p.dominantRadius, p.domDepthRatio, p.domRimRatio, p.domRimSharp, p.domIrregular, p.domIrregScale);
                     layers.Add(cl);
                 }
                 else if (p.type == ProcessType.Tettonica)
@@ -106,7 +106,7 @@ public class PlanetTerrain : MonoBehaviour
         {
             var craters = new CraterTerrainLayer(BaseRadius, CraterSeed, CraterOctaves,
                 CraterLargestRadius, CraterDensity, CraterDepthRatio, CraterRimRatio, CraterRimSharpness);
-            if (DominantCrater) craters.AddManual(DominantCraterDir, DominantCraterRadius, CraterDepthRatio, CraterRimRatio, CraterRimSharpness, 0f);
+            if (DominantCrater) craters.AddManual(DominantCraterDir, DominantCraterRadius, CraterDepthRatio, CraterRimRatio, CraterRimSharpness, 0f, 6f);
             layers.Add(craters);
         }
         built = true;

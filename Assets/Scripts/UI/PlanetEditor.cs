@@ -379,11 +379,18 @@ public class PlanetEditor : MonoBehaviour
                 p.dominant = Toggle("Dominante", "Aggiunge un grande impatto piazzato a mano (tipo Stickney su Phobos), con profilo PROPRIO indipendente dagli altri crateri.", p.dominant, ui, geometry: true, changed: out _);
                 if (p.dominant)
                 {
-                    p.dominantRadius = Slider("  raggio dominante", "Raggio del grande impatto dominante (m).", p.dominantRadius, 50f, 500f, ui, ref geomDirty);
-                    p.domDepthRatio  = Slider("  dom: profondità/raggio", "Profondità del dominante in frazione del raggio (solo lui).", p.domDepthRatio, 0.02f, 0.5f, ui, ref geomDirty);
-                    p.domRimRatio    = Slider("  dom: bordo/profondità", "Altezza del bordo rialzato del dominante (solo lui).", p.domRimRatio, 0f, 0.8f, ui, ref geomDirty);
-                    p.domRimSharp    = Slider("  dom: nitidezza bordo", "Nitidezza del bordo del dominante: 1 = cono dolce, alto = cresta netta + fondo piatto.", p.domRimSharp, 1f, 4f, ui, ref geomDirty);
-                    p.domIrregular   = Slider("  dom: irregolarità", "0 = circolare e liscio; su = rim frastagliato e forma asimmetrica (impatto antico, battuto da impatti successivi).", p.domIrregular, 0f, 1f, ui, ref geomDirty);
+                    if (Button(p.domUiOpen ? "  ▾ impostazioni dominante" : "  ▸ impostazioni dominante", "Mostra/nascondi i parametri del dominante.", ui))
+                        p.domUiOpen = !p.domUiOpen;
+                    if (p.domUiOpen)
+                    {
+                        p.dominantRadius = Slider("  raggio", "Raggio del grande impatto dominante (m).", p.dominantRadius, 50f, 500f, ui, ref geomDirty);
+                        p.domDepthRatio  = Slider("  profondità/raggio", "Profondità del dominante in frazione del raggio.", p.domDepthRatio, 0.02f, 0.5f, ui, ref geomDirty);
+                        p.domRimRatio    = Slider("  bordo/profondità", "Altezza del bordo rialzato (cresta esterna ripida) del dominante.", p.domRimRatio, 0f, 0.8f, ui, ref geomDirty);
+                        p.domRimSharp    = Slider("  nitidezza bordo", "Nitidezza del bordo: 1 = cono dolce, alto = cresta netta + fondo piatto.", p.domRimSharp, 1f, 4f, ui, ref geomDirty);
+                        p.domIrregular   = Slider("  irregolarità", "0 = circolare e liscio; su = rim frastagliato e forma asimmetrica (impatto antico, battuto).", p.domIrregular, 0f, 1f, ui, ref geomDirty);
+                        if (p.domIrregular > 0f)
+                            p.domIrregScale = Slider("  scala irregolarità", "Dimensione delle deformazioni: bassa = pochi lobi larghi (forma deformata), alta = bordo ruvido fine.", p.domIrregScale, 2f, 16f, ui, ref geomDirty);
+                    }
                 }
             }
             else if (p.type == ProcessType.Tettonica)

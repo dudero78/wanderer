@@ -172,6 +172,8 @@ public class ProcessStep
     public float domRimRatio = 0.30f;           // altezza bordo / profondità
     public float domRimSharp = 2f;              // nitidezza bordo (1=cono … alto=cresta netta)
     public float domIrregular = 0f;             // 0 = circolare liscio; su = rim frastagliato e forma asimmetrica (impatto antico/battuto)
+    public float domIrregScale = 6f;            // scala dell'irregolarità: bassa = lobi larghi (forma deformata), alta = rim ruvido fine
+    [System.NonSerialized] public bool domUiOpen = true;   // stato UI: sezione dominante espansa/collassata (non salvato)
 
     // --- parametri TETTONICA ---
     public int plateCount = 8;                  // numero di placche (poche = continenti grandi, tante = guscio incrinato)

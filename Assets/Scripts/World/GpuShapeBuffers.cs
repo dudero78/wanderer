@@ -25,7 +25,7 @@ public class GpuShapeBuffers : System.IDisposable
         public Vector3 dominantDir;
         public float dominantRadius;
         public float wLarge, wMedium, wSmall, distribution;
-        public float domDepthRatio, domRimRatio, domRimSharp, domIrregular;   // profilo+irregolarità PROPRI del dominante
+        public float domDepthRatio, domRimRatio, domRimSharp, domIrregular, domIrregScale;   // profilo+irregolarità PROPRI del dominante
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -39,7 +39,7 @@ public class GpuShapeBuffers : System.IDisposable
     [StructLayout(LayoutKind.Sequential)]
     struct PlateGPU { public Vector4 seedDir, motion; }
 
-    const int ProcStride = 2 * 4, CraterStride = 20 * 4, SeaStride = 5 * 4, TectStride = 10 * 4, PlateStride = 8 * 4;
+    const int ProcStride = 2 * 4, CraterStride = 21 * 4, SeaStride = 5 * 4, TectStride = 10 * 4, PlateStride = 8 * 4;
 
     ComputeBuffer procBuf, craterBuf, seaBuf, tectBuf, plateBuf;
 
@@ -121,7 +121,7 @@ public class GpuShapeBuffers : System.IDisposable
                     dominantDir = terrain.DominantCraterDir.normalized, dominantRadius = terrain.DominantCraterRadius,
                     wLarge = 1f, wMedium = 1f, wSmall = 1f, distribution = 0f,
                     domDepthRatio = terrain.CraterDepthRatio, domRimRatio = terrain.CraterRimRatio,
-                    domRimSharp = terrain.CraterRimSharpness, domIrregular = 0f   // legacy: profilo del campo, niente irregolarità
+                    domRimSharp = terrain.CraterRimSharpness, domIrregular = 0f, domIrregScale = 6f   // legacy: profilo del campo, niente irregolarità
                 });
             }
         }
@@ -155,7 +155,8 @@ public class GpuShapeBuffers : System.IDisposable
         wLarge = Mathf.Clamp01(p.wLarge), wMedium = Mathf.Clamp01(p.wMedium),
         wSmall = Mathf.Clamp01(p.wSmall), distribution = p.distribution,
         domDepthRatio = p.domDepthRatio, domRimRatio = p.domRimRatio,
-        domRimSharp = Mathf.Max(1f, p.domRimSharp), domIrregular = Mathf.Max(0f, p.domIrregular)
+        domRimSharp = Mathf.Max(1f, p.domRimSharp), domIrregular = Mathf.Max(0f, p.domIrregular),
+        domIrregScale = Mathf.Max(0.5f, p.domIrregScale)
     };
 
     static void SetBase(ComputeShader cs, float baseRadius, float amplitude, float frequency, int octaves,

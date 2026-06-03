@@ -48,6 +48,7 @@ struct CraterGPU
     float domRimRatio;
     float domRimSharp;
     float domIrregular;
+    float domIrregScale;
 };
 StructuredBuffer<CraterGPU> _Craters;
 
@@ -247,14 +248,14 @@ float SizeWeight(int o, int octaves, float wL, float wM, float wS)
 
 // profilo di un singolo cratere sommato a 'total', scalato per 'weight' (peso radiale sul guscio) (= Accumulate C#)
 void Accumulate(float3 dir, float3 cdir, float radius, float baseRadius,
-                float depthRatio, float rimRatio, float rimSharpness, float irregular, int irrSeed, float weight, inout float total)
+                float depthRatio, float rimRatio, float rimSharpness, float irregular, float irregScale, int irrSeed, float weight, inout float total)
 {
     float distM = baseRadius * length(dir - cdir);
     float r = distM / radius;
     // IRREGOLARITÀ (= CraterTerrainLayer): warp del raggio per-direzione → rim frastagliato/asimmetrico. Solo dominante.
     if (irregular > 0.0)
     {
-        float n = Fbm(dir * 6.0, 4, 2.0, 0.5, irrSeed);
+        float n = Fbm(dir * irregScale, 4, 2.0, 0.5, irrSeed);
         r *= 1.0 + irregular * 0.5 * (n * 2.0 - 1.0);
     }
     if (r >= CR_OUTER) return;
@@ -270,7 +271,7 @@ void Accumulate(float3 dir, float3 cdir, float radius, float baseRadius,
     else cav = 0.0;
 
     float dr = r - 1.0;
-    float wid = (r <= 1.0) ? 0.42 : 0.7;
+    float wid = (r <= 1.0) ? 0.42 : 0.40;   // coda esterna ristretta (era 0.70): bordo = cresta ripida, non bulge largo
     float ring = exp(-(dr * dr) / (wid * wid));
 
     float peak = 0.0;
@@ -293,7 +294,7 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
     // cratere dominante (piazzato a mano): nel frame del MONDO, NON scivola con la distribuzione
     if (c.hasDominant > 0.5)
         Accumulate(unitDir, c.dominantDir, c.dominantRadius, baseRadius, c.domDepthRatio, c.domRimRatio,
-                   max(1.0, c.domRimSharp), c.domIrregular, seed + 4242, 1.0, total);   // profilo+irregolarità propri
+                   max(1.0, c.domRimSharp), c.domIrregular, c.domIrregScale, seed + 4242, 1.0, total);   // profilo+irregolarità propri
 
     float dist = c.distribution;
 
@@ -331,7 +332,7 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
 
             float lo = 2.0 - CR_JITTER_MAX;
             float rad = radius * (lo + (CR_JITTER_MAX - lo) * U01(h * 0x27D4EB2Fu + 4u));
-            Accumulate(unitDir, cdir, rad, baseRadius, depthRatio, rimRatio, rimSharp, 0.0, 0, radialW, total);   // campo: niente irregolarità
+            Accumulate(unitDir, cdir, rad, baseRadius, depthRatio, rimRatio, rimSharp, 0.0, 1.0, 0, radialW, total);   // campo: niente irregolarità
         }
         radius *= 0.5;
     }

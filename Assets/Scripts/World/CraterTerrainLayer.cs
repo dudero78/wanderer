@@ -33,7 +33,7 @@ public class CraterTerrainLayer : TerrainLayer
 
     // Crateri "a mano" (es. il dominante tipo Stickney): valutati sempre, fuori dal campo. Hanno PROFILO proprio
     // (profondità/bordo/nitidezza) + irregolarità, indipendenti dai crateri di campo.
-    struct Manual { public Vector3 dir; public float radius, depthRatio, rimRatio, rimSharp, irregular; }
+    struct Manual { public Vector3 dir; public float radius, depthRatio, rimRatio, rimSharp, irregular, irregScale; }
     readonly List<Manual> manual = new List<Manual>();
 
     // Spaziatura fra crateri della stessa ottava, in raggi. Il centro è jitterato di UNA cella
@@ -114,10 +114,11 @@ public class CraterTerrainLayer : TerrainLayer
 
     /// <summary>Aggiunge un cratere piazzato a mano (il dominante) col suo PROFILO proprio + irregolarità. dir non
     /// serve normalizzata.</summary>
-    public void AddManual(Vector3 dir, float radius, float depthRatio, float rimRatio, float rimSharp, float irregular)
+    public void AddManual(Vector3 dir, float radius, float depthRatio, float rimRatio, float rimSharp, float irregular, float irregScale)
     {
         manual.Add(new Manual { dir = dir.normalized, radius = radius,
-            depthRatio = depthRatio, rimRatio = rimRatio, rimSharp = Mathf.Max(1f, rimSharp), irregular = Mathf.Max(0f, irregular) });
+            depthRatio = depthRatio, rimRatio = rimRatio, rimSharp = Mathf.Max(1f, rimSharp),
+            irregular = Mathf.Max(0f, irregular), irregScale = Mathf.Max(0.5f, irregScale) });
     }
 
     public override float Apply(Vector3 unitDir, float height)
@@ -130,7 +131,7 @@ public class CraterTerrainLayer : TerrainLayer
         // --- crateri a mano (dominante): nel frame del MONDO, NON ruotano con la distribuzione. Profilo proprio. ---
         for (int i = 0; i < manual.Count; i++)
             Accumulate(unitDir, manual[i].dir, manual[i].radius, manual[i].depthRatio, manual[i].rimRatio,
-                       manual[i].rimSharp, manual[i].irregular, 1f, ref total);   // piazzato sulla sfera: peso 1
+                       manual[i].rimSharp, manual[i].irregular, manual[i].irregScale, 1f, ref total);   // piazzato sulla sfera: peso 1
 
         // --- campo procedurale per ottave di taglia ---
         float radius = largestRadius;
@@ -168,7 +169,7 @@ public class CraterTerrainLayer : TerrainLayer
                 // raggio jitterato attorno al raggio dell'ottava, simmetrico: [2−JITTER_MAX .. JITTER_MAX]
                 float lo = 2f - JITTER_MAX;
                 float rad = radius * (lo + (JITTER_MAX - lo) * U01(h * 0x27D4EB2Fu + 4u));
-                Accumulate(unitDir, cdir, rad, depthRatio, rimRatio, rimSharpness, 0f, radialW, ref total);   // campo: profilo del layer, niente irregolarità
+                Accumulate(unitDir, cdir, rad, depthRatio, rimRatio, rimSharpness, 0f, 1f, radialW, ref total);   // campo: profilo del layer, niente irregolarità
             }
 
             radius *= 0.5f;
@@ -180,17 +181,17 @@ public class CraterTerrainLayer : TerrainLayer
     /// <summary>Profilo del cratere (conca + bordo + ejecta + picco) sommato al totale, scalato per 'weight'
     /// (peso radiale sul guscio: 1 per i crateri a mano, &lt;1 per le celle fuori-guscio).</summary>
     void Accumulate(Vector3 dir, Vector3 cdir, float radius, float depthRatio, float rimRatio, float rimSharpness,
-                    float irregular, float weight, ref float total)
+                    float irregular, float irregScale, float weight, ref float total)
     {
         // distanza sulla superficie ≈ corda × raggio del corpo (errore trascurabile per crateri << corpo)
         float distM = baseRadius * (dir - cdir).magnitude;
         float r = distM / radius;                        // distanza normalizzata: 0 centro, 1 bordo
         // IRREGOLARITÀ: il raggio effettivo varia con la direzione (fbm continua) → rim frastagliato e forma
-        // asimmetrica (impatto antico/battuto). Solo per i crateri con irregular>0 (il dominante); i crateri di
-        // campo passano 0 → invariati. Continua → niente gradini.
+        // asimmetrica (impatto antico/battuto). 'irregScale' = frequenza (lobi larghi ↔ ruvidità fine). Solo per i
+        // crateri con irregular>0 (il dominante); i crateri di campo passano 0 → invariati. Continua → niente gradini.
         if (irregular > 0f)
         {
-            float n = Noise3D.Fbm(dir * IRREG_FREQ, 4, 2f, 0.5f, seed + 4242);   // [0,1]
+            float n = Noise3D.Fbm(dir * irregScale, 4, 2f, 0.5f, seed + 4242);   // [0,1]
             r *= 1f + irregular * 0.5f * (n * 2f - 1f);
         }
         if (r >= OUTER) return;
@@ -211,9 +212,11 @@ public class CraterTerrainLayer : TerrainLayer
         else if (r < 1f) { float t = (r - floorR) / (1f - floorR); cav = -(1f - Mathf.Pow(t, rimSharpness)); }
         else cav = 0f;
 
-        // bordo + ejecta: cresta più STRETTA (crestina marcata sul bordo), coda esterna più corta
+        // bordo + ejecta: cresta STRETTA al bordo. La coda esterna (r>1) è ristretta (0.40, era 0.70) → il bordo
+        // legge come una CRESTA/montagna ripida appena fuori dall'anello, non come un bulge largo a cupola (che
+        // su un cratere grande/profondo come il dominante diventava innaturale). I crateri piccoli quasi invariati.
         float dr = r - 1f;
-        float w = (r <= 1f) ? 0.42f : 0.7f;
+        float w = (r <= 1f) ? 0.42f : 0.40f;
         float ring = Mathf.Exp(-(dr * dr) / (w * w));
 
         // picco centrale: solo crateri complessi. Pinnacolo che si alza dal fondo piatto.
