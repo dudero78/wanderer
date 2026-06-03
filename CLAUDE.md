@@ -40,12 +40,17 @@ risultato** (un cratere DOPO un mare scava una buca asciutta nell'acqua). Tipi: 
 quote per taglia, "distribuzione" = ruota il campo e li fa scorrere), **Mari GEOMETRICI** (allagamento solido
 walkable: livello/saturazione/rilievo-fondale con "forma" creste↔liscio↔gobbe; lo shader ricostruisce il pelo via
 `n3_fbm` per tingere seguendo la geometria), **Tettonica** (placche **soft Voronoi** → quota CONTINUA, continenti/
-oceani + catene/rift ai confini, coste frastagliate; col Mare = look terrestre). UI a fisarmonica + tooltip,
+oceani + catene/rift ai confini, coste frastagliate; col Mare = look terrestre). **Catene MODULATE** (`along` bassa
+freq lungo il confine → picchi/valichi + `ridge` ridged → cresta frastagliata, non gobba liscia). **Rilievo
+continentale** (`continentalRelief`): rilievo INTERNO dei continenti pesato sulla continentalità (oceani lisci),
+**multi-scala** (`mtn` modula l'ampiezza nello spazio = pianure vs montagne, `Noise3D.Ridged` = crinali) per
+evitare la "grana uniforme". Perf: oceani/pianure saltano il rumore extra (parità intatta). UI a fisarmonica + tooltip,
 riordino Su/Giù, "+ Nuova pipeline" sceglie il tipo. Texture suolo + saturazione. **Anteprima ASINCRONA su thread**
 (`SingleMeshPlanet.RebuildAsync`: slider fluidi, bassa res nel drag → full res al rilascio). **Bake dal pulsante**
 (hook iniettato dall'assembly Editor); **"Carica" = file picker**. Salva in `persistentDataPath/planets`; le ricette
 "ufficiali" in `Assets/Resources/Planets/<nome>.json` (→ build). `ScaledTo(raggio)` scala le misure assolute.
-**GPU PER L'EDITOR — TAPPE 1-3 FATTE (anteprima GPU completa):** l'anteprima editor gira sulla GPU (toggle **G**),
+**GPU PER L'EDITOR — TAPPE 1-3 FATTE (anteprima GPU completa):** l'editor **parte in GPU** (default; la mesh CPU è
+costruita PIGRA solo al primo **G** o come fallback senza compute → apertura più veloce). L'anteprima gira sulla GPU (toggle **G**),
 geometria+normali calcolate in `PlanetHeight.compute` e disegnate **dai buffer senza readback** (`GpuPlanetSurface`
 + shader `Wanderer/PlanetProcedural`, `Graphics.RenderPrimitivesIndexed`). Full-res LIVE (512), rigenera a ogni edit.
 **Pipeline ORDINATA** (`GpuShapeBuffers`: buffer ordinato di processi + buffer per-tipo): crateri (pesi per taglia +
