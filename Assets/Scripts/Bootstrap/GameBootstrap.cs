@@ -111,6 +111,9 @@ public class GameBootstrap : MonoBehaviour
         // --- Cetra: piccola luna craterizzata in orbita attorno al pianeta (ricetta creata nell'editor) ---
         BuildCetra(solar, planet, useQuadtree);
 
+        // --- Luna: pianeta creato nell'editor (crateri + mare) in orbita attorno al SOLE, raggio 800 m ---
+        BuildLuna(solar, star, useQuadtree);
+
         // origine ancorata al pianeta: resta a ~(0,0,0), il resto dell'universo si muove
         solar.Anchor = planet;
         planet.UpdatePosition(0);
@@ -274,6 +277,10 @@ public class GameBootstrap : MonoBehaviour
     public const float CetraRadius = 300f;          // raggio (m). Grande rispetto al pianeta (500 m): luna "vicina e vistosa".
     public const string CetraBakedDir = "BakedPlanet_Cetra";
 
+    // Luna: corpo creato nell'editor (crateri + mare), in orbita attorno al SOLE. Raggio 800 m.
+    public const float LunaRadius = 800f;
+    public const string LunaBakedDir = "BakedPlanet_Luna";
+
     /// <summary>Applica la ricetta di Cetra (caricata dagli asset, scalata al raggio) a un PlanetTerrain. Una sola
     /// fonte di verità per gioco e bake offline. Ritorna false se la ricetta manca.</summary>
     public static bool ApplyCetraRecipe(PlanetTerrain terrain)
@@ -308,6 +315,43 @@ public class GameBootstrap : MonoBehaviour
         if (faceMats != null)
             AddSurface(go, terrain, faceMats, useQuadtree, 256, 32);   // mesh singola: res 256 (corpo piccolo), proxy 32
         else Debug.LogWarning("Cetra: bake non riuscito, niente superficie (corpo comunque presente per gravità/mappa).");
+
+        solar.Register(body);
+    }
+
+    /// <summary>Applica la ricetta di Luna (Resources/Planets/Luna.json, creata nell'editor), scalata al raggio.</summary>
+    public static bool ApplyLunaRecipe(PlanetTerrain terrain)
+    {
+        var recipe = PlanetRecipe.LoadResource("Luna");
+        if (recipe == null) return false;
+        terrain.ApplyRecipe(recipe.ScaledTo(LunaRadius));   // baseRadius della ricetta → raggio target: mesh e gravità in scala
+        terrain.RebuildLayers();
+        return true;
+    }
+
+    /// <summary>Luna: pianeta dell'editor in orbita attorno al SOLE (come il Pianeta, su un'orbita diversa).</summary>
+    static void BuildLuna(SolarSystem solar, CelestialBody star, bool useQuadtree)
+    {
+        var go = new GameObject("Luna");
+        var terrain = go.AddComponent<PlanetTerrain>();
+        if (!ApplyLunaRecipe(terrain)) { Destroy(go); return; }   // ricetta assente: salta Luna, il resto parte comunque
+
+        var body = go.AddComponent<CelestialBody>();
+        body.Radius = LunaRadius;
+        body.SurfaceGravity = 6.0;                  // corpo medio (800 m): ~0.6 g (tarabile)
+        body.Parent = star;
+        body.Orbit = new KeplerOrbit
+        {
+            SemiMajorAxis = 95000,   // più esterna del Pianeta (60000): separata, raggiungibile col viaggio
+            Eccentricity = 0.08,
+            Period = 1150,           // più lenta del Pianeta (600), coerente con l'orbita più larga
+            Inclination = 0.25       // piano diverso dal Pianeta (~14°)
+        };
+
+        var faceMats = PlanetBaker.TryLoadBakedMaterials(terrain, LunaBakedDir) ?? PlanetBaker.BakeFaceMaterials(terrain, 64);
+        if (faceMats != null)
+            AddSurface(go, terrain, faceMats, useQuadtree, 256, 40);   // corpo più grande del pianeta: proxy 40
+        else Debug.LogWarning("Luna: bake non riuscito, niente superficie (corpo comunque presente per gravità/mappa).");
 
         solar.Register(body);
     }

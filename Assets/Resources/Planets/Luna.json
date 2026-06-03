@@ -1,0 +1,88 @@
+{
+    "name": "Luna",
+    "baseRadius": 500.0,
+    "surfaceGravity": 9.8100004196167,
+    "amplitude": 4.0,
+    "frequency": 1.600000023841858,
+    "octaves": 4,
+    "lacunarity": 2.0,
+    "gain": 0.5,
+    "seed": 1,
+    "processes": [
+        {
+            "type": 0,
+            "enabled": true,
+            "seed": 7777,
+            "octaves": 5,
+            "largestRadius": 110.0,
+            "density": 0.550000011920929,
+            "depthRatio": 0.20000000298023225,
+            "rimRatio": 0.30000001192092898,
+            "rimSharpness": 2.0,
+            "dominant": false,
+            "dominantDir": {
+                "x": 0.30000001192092898,
+                "y": 1.0,
+                "z": 0.20000000298023225
+            },
+            "dominantRadius": 230.0,
+            "seaLevel": 0.0,
+            "seaColor": {
+                "r": 0.12999999523162843,
+                "g": 0.33000001311302187,
+                "b": 0.5199999809265137,
+                "a": 1.0
+            }
+        },
+        {
+            "type": 1,
+            "enabled": true,
+            "seed": 7777,
+            "octaves": 5,
+            "largestRadius": 110.0,
+            "density": 0.550000011920929,
+            "depthRatio": 0.20000000298023225,
+            "rimRatio": 0.30000001192092898,
+            "rimSharpness": 2.0,
+            "dominant": false,
+            "dominantDir": {
+                "x": 0.30000001192092898,
+                "y": 1.0,
+                "z": 0.20000000298023225
+            },
+            "dominantRadius": 230.0,
+            "seaLevel": 2.777777671813965,
+            "seaColor": {
+                "r": 0.414722204208374,
+                "g": 0.37166666984558108,
+                "b": 0.35333332419395449,
+                "a": 1.0
+            }
+        }
+    ],
+    "soilMean": {
+        "r": 0.4399999976158142,
+        "g": 0.4399999976158142,
+        "b": 0.44999998807907107,
+        "a": 1.0
+    },
+    "mariaColor": {
+        "r": 0.5199999809265137,
+        "g": 0.5199999809265137,
+        "b": 0.5600000023841858,
+        "a": 1.0
+    },
+    "mariaScale": 2.200000047683716,
+    "mariaStrength": 0.699999988079071,
+    "soilTexture": "soil_dirt",
+    "saturation": 0.6527777910232544,
+    "craters": [],
+    "seaEnabled": false,
+    "seaLevel": 0.0,
+    "seaColor": {
+        "r": 0.12999999523162843,
+        "g": 0.33000001311302187,
+        "b": 0.5199999809265137,
+        "a": 1.0
+    }
+}
