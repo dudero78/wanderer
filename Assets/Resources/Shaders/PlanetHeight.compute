@@ -186,6 +186,7 @@ float Ridged(float3 p, int octaves, float lacunarity, float gain, int seed)
 static const float CR_SPACING    = 10.0;
 static const float CR_OUTER      = 2.2;
 static const float CR_JITTER_MAX = 1.4;
+static const float CR_SHELL_HALF = 0.6;   // peso radiale sul guscio (fix crepe circolari) — vedi CraterTerrainLayer
 static const float CR_SIMPLE_MAX = 60.0;
 static const float CR_COMPLEX_MAX= 160.0;
 static const float CR_PEAK_HEIGHT= 0.8;
@@ -240,9 +241,9 @@ float SizeWeight(int o, int octaves, float wL, float wM, float wS)
     return w;
 }
 
-// profilo di un singolo cratere sommato a 'total' (= Accumulate in C#)
+// profilo di un singolo cratere sommato a 'total', scalato per 'weight' (peso radiale sul guscio) (= Accumulate C#)
 void Accumulate(float3 dir, float3 cdir, float radius, float baseRadius,
-                float depthRatio, float rimRatio, float rimSharpness, inout float total)
+                float depthRatio, float rimRatio, float rimSharpness, float weight, inout float total)
 {
     float distM = baseRadius * length(dir - cdir);
     float r = distM / radius;
@@ -267,7 +268,7 @@ void Accumulate(float3 dir, float3 cdir, float radius, float baseRadius,
 
     float off = depth * cav + rim * ring + peak;
     off *= Smooth01(saturate((CR_OUTER - r) / 0.6));
-    total += off;
+    total += off * weight;
 }
 
 // contributo di UNA pipeline di crateri su una direzione (= CraterTerrainLayer.Apply, parte additiva)
@@ -281,7 +282,7 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
 
     // cratere dominante (piazzato a mano): nel frame del MONDO, NON scivola con la distribuzione
     if (c.hasDominant > 0.5)
-        Accumulate(unitDir, c.dominantDir, c.dominantRadius, baseRadius, depthRatio, rimRatio, rimSharp, total);
+        Accumulate(unitDir, c.dominantDir, c.dominantRadius, baseRadius, depthRatio, rimRatio, rimSharp, 1.0, total);
 
     float dist = c.distribution;
 
@@ -296,9 +297,9 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
         float3 g = unitDir * gscale;
         int cx = (int)floor(g.x), cy = (int)floor(g.y), cz = (int)floor(g.z);
 
-        for (int dz = -1; dz <= 1; dz++)
-        for (int dy = -1; dy <= 1; dy++)
-        for (int dx = -1; dx <= 1; dx++)
+        for (int dz = -2; dz <= 2; dz++)
+        for (int dy = -2; dy <= 2; dy++)
+        for (int dx = -2; dx <= 2; dx++)
         {
             int X = cx + dx, Y = cy + dy, Z = cz + dz;
             uint h = CHash(X, Y, Z, seed + o * 9176);
@@ -311,11 +312,15 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
                 (Z + Jitter(h * 0xC2B2AE3Du + 3u, h * 0xC2B2AE3Du + 13u, dist)) / gscale);
             float cm = length(cc);
             if (cm < 1e-6) continue;
+            // peso radiale sul guscio (= CraterTerrainLayer): sfuma a 0 i duplicati fuori-guscio
+            float radOff = abs(cm - 1.0) / CR_SHELL_HALF;
+            if (radOff >= 1.0) continue;
+            float radialW = Smooth01(1.0 - radOff);
             float3 cdir = cc / cm;
 
             float lo = 2.0 - CR_JITTER_MAX;
             float rad = radius * (lo + (CR_JITTER_MAX - lo) * U01(h * 0x27D4EB2Fu + 4u));
-            Accumulate(unitDir, cdir, rad, baseRadius, depthRatio, rimRatio, rimSharp, total);
+            Accumulate(unitDir, cdir, rad, baseRadius, depthRatio, rimRatio, rimSharp, radialW, total);
         }
         radius *= 0.5;
     }
