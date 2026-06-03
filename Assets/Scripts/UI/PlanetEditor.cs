@@ -163,7 +163,7 @@ public class PlanetEditor : MonoBehaviour
     void PushColors()
     {
         if (faceRenderers == null) return;
-        bool hasSea = recipe.TryGetSea(out float seaR, out Color seaCol);   // ultimo mare attivo della pipeline
+        var sea = recipe.LastSea();   // ultimo mare attivo della pipeline
         var st = Resources.Load<Texture2D>("Textures/" + recipe.soilTexture);
         foreach (var r in faceRenderers)
         {
@@ -173,8 +173,14 @@ public class PlanetEditor : MonoBehaviour
             m.SetColor("_MariaColor", recipe.mariaColor);
             m.SetFloat("_MariaScale", recipe.mariaScale);
             m.SetFloat("_MariaStr", recipe.mariaStrength);
-            m.SetFloat("_SeaOn", hasSea ? 1f : 0f);
-            if (hasSea) { m.SetFloat("_SeaLevel", seaR); m.SetColor("_SeaColor", seaCol); }
+            m.SetFloat("_SeaOn", sea != null ? 1f : 0f);
+            if (sea != null)
+            {
+                m.SetFloat("_SeaLevel", recipe.baseRadius + sea.seaLevel);
+                m.SetColor("_SeaColor", sea.seaColor);
+                m.SetFloat("_SeaSat", sea.seaSaturation);
+                m.SetFloat("_SeaRough", sea.seaRoughness);
+            }
             m.SetFloat("_Saturation", recipe.saturation);
             if (st != null) m.SetTexture("_SoilSand", st);
         }
@@ -245,13 +251,17 @@ public class PlanetEditor : MonoBehaviour
             p.enabled = Toggle("Attiva", "Accende/spegne il processo senza rimuoverlo.", p.enabled, ui, geometry: true, changed: out _);
             if (p.type == ProcessType.Crateri)
             {
-                if (Button("Rimescola", "Pesca un nuovo seme: ridistribuisce i crateri in posti diversi.", ui)) { p.seed = Random.Range(0, 10000); geomDirty = true; }
+                GUILayout.BeginHorizontal();
+                if (Button("Rimescola", "Pesca un nuovo seme: stessi crateri, posti diversi.", ui)) { p.seed = Random.Range(0, 10000); geomDirty = true; }
+                if (Button("Casuale", "Genera una combinazione casuale di TUTTE le impostazioni di questo bombardamento.", ui)) { RandomizeCrater(p); geomDirty = true; }
+                GUILayout.EndHorizontal();
                 p.largestRadius = Slider("Raggio max (m)", "Raggio del cratere più grande del campo.", p.largestRadius, 10f, 400f, ui, ref geomDirty);
                 p.octaves = Mathf.RoundToInt(Slider("Fasce di taglia", "Quante bande di dimensione (dal raggio max, dimezzando): più fasce = gamma di taglie più ampia.", p.octaves, 1, 7, ui, ref geomDirty));
                 p.density = Slider("Quantità", "Quanti crateri in totale: probabilità che una cella ne contenga uno. 0 = nessuno, 1 = fittissimi.", p.density, 0f, 1f, ui, ref geomDirty);
                 p.wLarge = Slider("  Grandi", "Quota di crateri GRANDI (1 = pieni, 0 = nessuno).", p.wLarge, 0f, 1f, ui, ref geomDirty);
                 p.wMedium = Slider("  Medi", "Quota di crateri MEDI.", p.wMedium, 0f, 1f, ui, ref geomDirty);
                 p.wSmall = Slider("  Piccoli", "Quota di crateri PICCOLI.", p.wSmall, 0f, 1f, ui, ref geomDirty);
+                p.clustering = Slider("Distribuzione", "0 = crateri uniformi su tutta la superficie; su = si raggruppano in regioni (bacini di bombardamento).", p.clustering, 0f, 1f, ui, ref geomDirty);
                 p.depthRatio = Slider("Profondità/raggio", "Quanto è profonda la conca rispetto al suo raggio.", p.depthRatio, 0.05f, 0.5f, ui, ref geomDirty);
                 p.rimRatio = Slider("Bordo/profondità", "Altezza del bordo rialzato rispetto alla profondità.", p.rimRatio, 0.1f, 0.6f, ui, ref geomDirty);
                 p.rimSharpness = Slider("Nitidezza bordi", "Forma della parete: 1 = cono dolce, alto = fondo piatto + bordo a cresta netta.", p.rimSharpness, 1f, 4f, ui, ref geomDirty);
@@ -260,9 +270,18 @@ public class PlanetEditor : MonoBehaviour
             }
             else // MARE
             {
+                // range del livello adattato al corpo (l'ampiezza del terreno): prima era ±250 fissi → con corpi
+                // piccoli ogni millimetro cambiava tutto. Ora la corsa è proporzionata → regolazione fine.
+                float seaRange = Mathf.Max(recipe.amplitude * 2f, 60f);
                 float prevLevel = p.seaLevel;
-                p.seaLevel = Slider("Livello (m)", "Quota del pelo dell'acqua: negativo riempie solo i bacini, positivo sommerge sempre di più.", p.seaLevel, -250f, 150f, ui, ref geomDirty);
+                p.seaLevel = Slider("Livello (m)", "Quota del pelo dell'acqua: negativo riempie solo i bacini, positivo sommerge sempre di più.", p.seaLevel, -seaRange, seaRange, ui, ref geomDirty);
                 if (p.seaLevel != prevLevel) colorDirty = true;   // anche lo shader segue il pelo
+                float prevRough = p.seaRoughness;
+                p.seaRoughness = Slider("Increspatura (m)", "Increspa il pelo dell'acqua: 0 = piatto, su = colline/dune.", p.seaRoughness, 0f, 40f, ui, ref geomDirty);
+                if (p.seaRoughness != prevRough) colorDirty = true;   // lo shader allarga la banda del mare
+                if (p.seaRoughness > 0f)
+                    p.seaRoughScale = Slider("  forma increspatura", "Frequenza: bassa = colline larghe, alta = dune fitte.", p.seaRoughScale, 1f, 12f, ui, ref geomDirty);
+                p.seaSaturation = Slider("Saturazione mare", "Intensità del colore dell'acqua, indipendente dalla saturazione globale.", p.seaSaturation, 0f, 2f, ui, ref colorDirty);
                 p.seaColor.r = Slider("Colore R", "Componente rossa dell'acqua.", p.seaColor.r, 0f, 1f, ui, ref colorDirty);
                 p.seaColor.g = Slider("Colore G", "Componente verde dell'acqua.", p.seaColor.g, 0f, 1f, ui, ref colorDirty);
                 p.seaColor.b = Slider("Colore B", "Componente blu dell'acqua.", p.seaColor.b, 0f, 1f, ui, ref colorDirty);
@@ -333,6 +352,23 @@ public class PlanetEditor : MonoBehaviour
             case 1: recipe.soilMean = new Color(0.52f, 0.33f, 0.22f); recipe.mariaColor = new Color(0.40f, 0.26f, 0.18f); break; // Marziano
             case 2: recipe.soilMean = new Color(0.80f, 0.84f, 0.90f); recipe.mariaColor = new Color(0.62f, 0.72f, 0.86f); break; // Ghiacciato
         }
+    }
+
+    /// <summary>Combinazione CASUALE di tutte le impostazioni di un bombardamento (tranne il dominante, che
+    /// resta una scelta dell'utente). Per esplorare in fretta look diversi.</summary>
+    void RandomizeCrater(ProcessStep p)
+    {
+        p.seed = Random.Range(0, 10000);
+        p.largestRadius = Random.Range(20f, 300f);
+        p.octaves = Random.Range(2, 7);
+        p.density = Random.Range(0.2f, 0.9f);
+        p.wLarge = Random.Range(0f, 1f);
+        p.wMedium = Random.Range(0f, 1f);
+        p.wSmall = Random.Range(0f, 1f);
+        p.clustering = Random.Range(0f, 1f);
+        p.depthRatio = Random.Range(0.1f, 0.45f);
+        p.rimRatio = Random.Range(0.15f, 0.55f);
+        p.rimSharpness = Random.Range(1f, 4f);
     }
 
     // ---- widget (con tooltip: l'etichetta porta la spiegazione mostrata nel riquadro in basso) ----

@@ -12,12 +12,25 @@ using UnityEngine;
 /// </summary>
 public class SeaTerrainLayer : TerrainLayer
 {
-    readonly float seaRadius;   // raggio assoluto del pelo dell'acqua
+    readonly float seaRadius;   // raggio assoluto del pelo (a riposo, senza increspatura)
+    readonly float roughness;   // ampiezza dell'increspatura (m): 0 = piatto
+    readonly float roughScale;  // frequenza dell'increspatura (colline larghe ↔ dune fitte)
+    readonly int seed;
 
-    public SeaTerrainLayer(float baseRadius, float seaLevel)
+    public SeaTerrainLayer(float baseRadius, float seaLevel, float roughness = 0f, float roughScale = 3f, int seed = 4242)
     {
         seaRadius = baseRadius + seaLevel;
+        this.roughness = Mathf.Max(0f, roughness);
+        this.roughScale = Mathf.Max(0.1f, roughScale);
+        this.seed = seed;
     }
 
-    public override float Apply(Vector3 unitDir, float height) => Mathf.Max(height, seaRadius);
+    public override float Apply(Vector3 unitDir, float height)
+    {
+        // il pelo dell'acqua può essere increspato (colline/dune): fBm centrato su 0, scalato dall'ampiezza.
+        float surface = seaRadius;
+        if (roughness > 0f)
+            surface += (Noise3D.Fbm(unitDir * roughScale, 4, 2f, 0.5f, seed) - 0.5f) * 2f * roughness;
+        return Mathf.Max(height, surface);
+    }
 }

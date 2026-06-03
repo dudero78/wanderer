@@ -62,16 +62,15 @@ public class PlanetRecipe
         seaEnabled = false;
     }
 
-    /// <summary>L'ultimo mare ATTIVO (= la superficie d'acqua finale), per la tinta dello shader. false se
-    /// nessun mare. Restituisce il raggio assoluto del pelo e il colore.</summary>
-    public bool TryGetSea(out float seaRadius, out Color color)
+    /// <summary>L'ultimo mare ATTIVO della pipeline (= la superficie d'acqua finale), per la tinta dello
+    /// shader; null se nessuno.</summary>
+    public ProcessStep LastSea()
     {
-        seaRadius = 0f; color = default; bool found = false;
+        ProcessStep sea = null;
         if (processes != null)
             foreach (var p in processes)
-                if (p != null && p.enabled && p.type == ProcessType.Mare)
-                { seaRadius = baseRadius + p.seaLevel; color = p.seaColor; found = true; }
-        return found;
+                if (p != null && p.enabled && p.type == ProcessType.Mare) sea = p;
+        return sea;
     }
 
     /// <summary>Il primo bombardamento ATTIVO, per il bake della normale-crateri. null se nessuno.</summary>
@@ -107,6 +106,7 @@ public class PlanetRecipe
             p.largestRadius *= k;
             p.dominantRadius *= k;
             p.seaLevel *= k;
+            p.seaRoughness *= k;
         }
         return c;
     }
@@ -159,6 +159,7 @@ public class ProcessStep
     // quota relativa di crateri per FASCIA di taglia (moltiplica la densità): 1 = piena, 0 = nessuno.
     // Le ottave vanno dalla più grande (grandi) alla più piccola (piccoli); 'medi' è la fascia centrale.
     public float wLarge = 1f, wMedium = 1f, wSmall = 1f;
+    public float clustering = 0f;               // 0 = uniforme; >0 = raggruppa i crateri in regioni (distribuzione)
     public bool dominant = false;
     public Vector3 dominantDir = new Vector3(0.3f, 1f, 0.2f);
     public float dominantRadius = 230f;
@@ -166,6 +167,9 @@ public class ProcessStep
     // --- parametri MARE ---
     public float seaLevel = 0f;                 // quota del pelo, metri relativi al baseRadius
     public Color seaColor = new Color(0.13f, 0.33f, 0.52f);
+    public float seaSaturation = 1f;            // saturazione del colore del mare (indipendente dal globale)
+    public float seaRoughness = 0f;             // ampiezza dell'increspatura (m): 0 = piatto, su = colline/dune
+    public float seaRoughScale = 3f;            // frequenza dell'increspatura: bassa = colline larghe, alta = dune
 
     public static ProcessStep FromCrater(CraterRecipe c) => new ProcessStep
     {

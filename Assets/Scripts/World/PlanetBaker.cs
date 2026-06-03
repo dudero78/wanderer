@@ -95,11 +95,14 @@ public static class PlanetBaker
             mat.SetFloat("_MariaStr", rec.mariaStrength);
             // MARE geometrico: il pelo dell'acqua (ultimo mare attivo) è a raggio assoluto; lo shader tinge
             // i punti a quel livello (la mesh li ha già allagati via SeaTerrainLayer).
-            if (rec.TryGetSea(out float seaR, out Color seaCol))
+            var sea = rec.LastSea();
+            if (sea != null)
             {
                 mat.SetFloat("_SeaOn", 1f);
-                mat.SetFloat("_SeaLevel", seaR);
-                mat.SetColor("_SeaColor", seaCol);
+                mat.SetFloat("_SeaLevel", rec.baseRadius + sea.seaLevel);
+                mat.SetColor("_SeaColor", sea.seaColor);
+                mat.SetFloat("_SeaSat", sea.seaSaturation);
+                mat.SetFloat("_SeaRough", sea.seaRoughness);
             }
             else mat.SetFloat("_SeaOn", 0f);
             mat.SetFloat("_Saturation", rec.saturation);

@@ -29,6 +29,7 @@ public class CraterTerrainLayer : TerrainLayer
     readonly float rimRatio;        // altezza bordo   = rimRatio × profondità
     readonly float rimSharpness;    // esponente della parete: 1 = cono, >1 = fondo piatto + bordo a cresta netta
     readonly float wLarge, wMedium, wSmall;   // quota relativa per fascia di taglia (modula la densità per ottava)
+    readonly float clustering;                // 0 = uniforme; >0 = raggruppa i crateri in regioni (campo a bassa freq)
 
     // Crateri "a mano" (es. il dominante tipo Stickney): valutati sempre, fuori dal campo.
     struct Manual { public Vector3 dir; public float radius; }
@@ -55,7 +56,7 @@ public class CraterTerrainLayer : TerrainLayer
 
     public CraterTerrainLayer(float baseRadius, int seed, int octaves, float largestRadius,
                               float density, float depthRatio, float rimRatio, float rimSharpness = 2f,
-                              float wLarge = 1f, float wMedium = 1f, float wSmall = 1f)
+                              float wLarge = 1f, float wMedium = 1f, float wSmall = 1f, float clustering = 0f)
     {
         this.baseRadius = baseRadius;
         this.seed = seed;
@@ -68,7 +69,13 @@ public class CraterTerrainLayer : TerrainLayer
         this.wLarge = Mathf.Clamp01(wLarge);
         this.wMedium = Mathf.Clamp01(wMedium);
         this.wSmall = Mathf.Clamp01(wSmall);
+        this.clustering = Mathf.Clamp01(clustering);
     }
+
+    // campo di RAGGRUPPAMENTO: rumore a bassa frequenza in [0,1] valutato al centro della cella (deterministico
+    // per cella → il cratere non sfarfalla). clustering interpola fra "uniforme" (1) e questo campo: nelle
+    // regioni a campo basso i crateri si diradano → si concentrano in "bacini di bombardamento".
+    float ClusterField(Vector3 cellDir) => Noise3D.Fbm(cellDir * 2.5f, 3, 2f, 0.5f, seed + 555);
 
     /// <summary>Peso della densità per l'ottava o (0 = taglia più grande … octaves-1 = più piccola): interpola
     /// fra grandi→medi→piccoli lungo la gamma di taglie. Una sola ottava = trattata come "grandi".</summary>
@@ -115,7 +122,13 @@ public class CraterTerrainLayer : TerrainLayer
             {
                 int X = cx + dx, Y = cy + dy, Z = cz + dz;
                 uint h = Hash(X, Y, Z, seed + o * 9176);
-                if (U01(h) > octDensity) continue;       // questa cella non ha cratere di questa fascia
+                float thr = octDensity;
+                if (clustering > 0f)                     // dirada i crateri nelle regioni a campo basso
+                {
+                    Vector3 cellDir = new Vector3((X + 0.5f) / gscale, (Y + 0.5f) / gscale, (Z + 0.5f) / gscale).normalized;
+                    thr *= Mathf.Lerp(1f, ClusterField(cellDir), clustering);
+                }
+                if (U01(h) > thr) continue;              // questa cella non ha cratere di questa fascia
 
                 // centro jitterato dentro la cella, proiettato sulla sfera
                 Vector3 c = new Vector3(

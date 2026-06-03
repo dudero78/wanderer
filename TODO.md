@@ -50,9 +50,16 @@ Dettaglio tecnico nel `CLAUDE.md`.
 
 ## Prossimo
 
-- ⬜ **Migliorie editor + ricette (FOCUS prossima sessione, deciso con Dario):** swap/scala texture, più tipi di
-  pipeline (mari, tettonica, montagne, ghiaccio…), editing per-feature (cancella/modifica singolo cratere),
-  più preset, bake da dentro l'editor.
+- ⬜ **B1 — geometria su GPU, render diretto dai buffer (deciso con Dario):** spostare TUTTA la pipeline su GPU e
+  disegnarla dai buffer GPU **senza readback** (era il blocco di B2). Vale perché **non ci sono collisioni della
+  mesh**: il walker è analitico (`SampleHeight` su CPU solo al punto del giocatore), la mesh è puramente visiva.
+  Tappe: (1) portare l'INTERA pipeline in HLSL (base + crateri ordinati + mari + pesi-taglia + rugosità +
+  clustering); (2) render dai buffer (vertex/compute), parametri ricetta come uniform → anteprima editor full-res
+  LIVE, niente thread/bassa-res; (3) **parità** contro il bake CPU (menu già esistente) — l'anteprima DEVE
+  combaciare col baked. Iniziare dall'**editor** (nessun walker = beachhead), poi sostituire SingleMeshPlanet/quadtree
+  in gioco. Reintroduce il mantenere la pipeline in 2 lingue (C#+HLSL), con la parità a fare da guardia.
+- ⬜ **Migliorie editor + ricette:** swap/scala texture (fatto), più tipi di pipeline (montagne/tettonica/ghiaccio),
+  editing per-feature (cancella/modifica singolo cratere), più preset.
 - ⏸️ **Perf/load del quadtree — strada GPU (PARCHEGGIATA il 3 giu, non cancellata):** spostare il calcolo della
   forma sulla GPU (compute shader), walker analitico su CPU. La **parità C#↔HLSL è PROVATA** (menu "Test parità
   altezza GPU↔CPU", verde anche sulla griglia del nodo; bug Metal `float3` chiuso → buffer piatto di float). Codice

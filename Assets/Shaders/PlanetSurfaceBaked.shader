@@ -35,6 +35,8 @@ Shader "Wanderer/PlanetBaked"
         _SeaOn ("Mare attivo", Float) = 0
         _SeaLevel ("Mare: raggio del pelo dell'acqua", Float) = 0
         _SeaColor ("Mare: colore", Color) = (0.13, 0.33, 0.52, 1)
+        _SeaSat ("Mare: saturazione", Range(0,2)) = 1
+        _SeaRough ("Mare: ampiezza increspatura (m)", Float) = 0
 
         // saturazione del colore finale: 0 = grigio, 1 = naturale, >1 = carico.
         _Saturation ("Saturazione", Range(0,2)) = 1
@@ -112,7 +114,7 @@ Shader "Wanderer/PlanetBaked"
         float _BaseRadius, _Amplitude;
         float _GrainStr, _DetailScale, _MacroVar, _MacroScale, _SandDetail, _SoilHue;
         float _MorphRange;
-        float _SeaOn, _SeaLevel;
+        float _SeaOn, _SeaLevel, _SeaSat, _SeaRough;
         fixed4 _SeaColor;
         float _Saturation;
         float _CraterNormalApply, _CraterFadeNear, _CraterFadeFar;
@@ -183,8 +185,10 @@ Shader "Wanderer/PlanetBaked"
             // MARE: tinge solo il PELO dell'acqua (mesh allagata e piatta a _SeaLevel). NON le buche scavate
             // sotto: un cratere DOPO il mare nella pipeline rimane sotto il pelo → resta ASCIUTTO (l'ordine
             // dei processi cambia l'effetto). 'above' = fino al pelo; 'below' = esclude i fondi ben sotto.
-            float seaAbove = 1.0 - smoothstep(_SeaLevel, _SeaLevel + 2.0, h);     // 1 al pelo, 0 sulla terra emersa
-            float seaBelow = smoothstep(_SeaLevel - 4.0, _SeaLevel - 1.0, h);     // 0 nelle buche profonde, 1 al pelo
+            // banda allargata dall'ampiezza dell'increspatura (_SeaRough): il pelo ondulato va da
+            // _SeaLevel−rough a _SeaLevel+rough; le buche scavate DOPO il mare (più profonde) restano escluse.
+            float seaAbove = 1.0 - smoothstep(_SeaLevel + _SeaRough, _SeaLevel + _SeaRough + 2.0, h);
+            float seaBelow = smoothstep(_SeaLevel - _SeaRough - 5.0, _SeaLevel - _SeaRough - 1.0, h);
             float seaMask = (_SeaOn > 0.5) ? seaAbove * seaBelow : 0.0;
 
             float dist = distance(IN.worldPos, _WorldSpaceCameraPos);
@@ -275,9 +279,11 @@ Shader "Wanderer/PlanetBaked"
             // sull'acqua liscia la normale: niente grana/crateri, è un pelo piatto (riflette uniforme).
             o.Normal = normalize(float3(nxy * (1.0 - seaMask), 1.0));
 
-            // tinta del MARE: copre suolo e crateri sommersi col colore dell'acqua. Prima dell'eclissi così
-            // l'ombra scurisce anche il mare.
-            alb = lerp(alb, _SeaColor.rgb, seaMask);
+            // tinta del MARE: copre suolo e crateri sommersi col colore dell'acqua (saturazione propria, _SeaSat,
+            // indipendente dal globale). Prima dell'eclissi così l'ombra scurisce anche il mare.
+            float seaLuma = dot(_SeaColor.rgb, float3(0.2126, 0.7152, 0.0722));
+            float3 seaCol = lerp(float3(seaLuma, seaLuma, seaLuma), _SeaColor.rgb, _SeaSat);
+            alb = lerp(alb, seaCol, seaMask);
 
             // === ECLISSI: ombra analitica di un altro corpo ===
             // Dal punto P guardo verso il sole (L) e calcolo quanto del DISCO solare è coperto dal disco
