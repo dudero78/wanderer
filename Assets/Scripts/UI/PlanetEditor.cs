@@ -161,7 +161,7 @@ public class PlanetEditor : MonoBehaviour
             }
         }
 
-        if (colorDirty) { PushColors(); colorDirty = false; }
+        if (colorDirty) { PushColors(); if (gpuPreview && gpu != null) gpu.RefreshColor(terrain); colorDirty = false; }
     }
 
     /// <summary>Ri-bakea la normale dei crateri (bordi nitidi) dalla ricetta corrente, per faccia. Fatto solo

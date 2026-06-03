@@ -96,14 +96,19 @@ public class GpuPlanetSurface : MonoBehaviour
 
         float radius = terrain.Recipe != null ? terrain.Recipe.baseRadius : terrain.BaseRadius;
         bounds = new Bounds(Vector3.zero, Vector3.one * (radius * 2.5f));
-        ApplySun();
+        ApplyColor(terrain);
     }
 
-    /// <summary>Passa allo shader la luce della scena (deterministico, non dipende dal binding del forward
-    /// pass) + il colore del suolo dalla ricetta.</summary>
-    void ApplySun()
+    /// <summary>Aggiorna SOLO gli uniform di colore (edit di colore: niente rigenerazione della geometria).</summary>
+    public void RefreshColor(PlanetTerrain terrain) { if (Ready) ApplyColor(terrain); }
+
+    /// <summary>Passa allo shader la luce della scena + gli uniform di colore dalla RICETTA (stessa mappa di
+    /// PlanetBaker.BuildMaterial: suolo/bacini/mare/saturazione). Gli altri (minerali/vette/macro/tinta) usano i
+    /// default dello shader, come fa la CPU. Il colore è ricalcolato nel fragment, niente texture bakate.</summary>
+    void ApplyColor(PlanetTerrain terrain)
     {
         if (mat == null) return;
+
         var sun = FindAnyObjectByType<Light>();
         Vector3 dir = sun != null ? -sun.transform.forward : Vector3.up;
         Color sc = sun != null ? sun.color * sun.intensity : Color.white;
@@ -112,9 +117,30 @@ public class GpuPlanetSurface : MonoBehaviour
         Color amb = RenderSettings.ambientLight;
         mat.SetVector("_Ambient", new Vector4(amb.r, amb.g, amb.b, 1f));
 
-        var terrain = GetComponent<PlanetTerrain>();
-        Color soil = (terrain != null && terrain.Recipe != null) ? terrain.Recipe.soilMean : new Color(0.44f, 0.44f, 0.45f);
-        mat.SetColor("_Color", soil);
+        var rec = terrain.Recipe;
+        mat.SetFloat("_BaseRadius", rec != null ? rec.baseRadius : terrain.BaseRadius);
+        mat.SetFloat("_Amplitude", rec != null ? rec.amplitude : terrain.Amplitude);
+        if (rec != null)
+        {
+            mat.SetColor("_SoilMean", rec.soilMean);
+            mat.SetColor("_MariaColor", rec.mariaColor);
+            mat.SetFloat("_MariaScale", rec.mariaScale);
+            mat.SetFloat("_MariaStr", rec.mariaStrength);
+            mat.SetFloat("_Saturation", rec.saturation);
+            var sea = rec.LastSea();   // ultimo mare attivo = il pelo finale (come PlanetBaker)
+            if (sea != null)
+            {
+                mat.SetFloat("_SeaOn", 1f);
+                mat.SetFloat("_SeaLevel", rec.baseRadius + sea.seaLevel);
+                mat.SetColor("_SeaColor", sea.seaColor);
+                mat.SetFloat("_SeaSat", sea.seaSaturation);
+                mat.SetFloat("_SeaRough", sea.seaRoughness);
+                mat.SetFloat("_SeaRoughScale", sea.seaRoughScale);
+                mat.SetFloat("_SeaForma", sea.seaForma);
+                mat.SetFloat("_SeaSeed", sea.seed);
+            }
+            else mat.SetFloat("_SeaOn", 0f);
+        }
     }
 
     /// <summary>Triangoli dei soli vertici INTERNI (1..res) di ogni faccia. Costruito una volta: la topologia
