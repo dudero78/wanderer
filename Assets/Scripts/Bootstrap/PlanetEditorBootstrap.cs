@@ -67,6 +67,10 @@ public class PlanetEditorBootstrap : MonoBehaviour
             gpu.Setup(terrain, gpuRes);
         }
 
+        // --- modo luce (L): ancorata (default) / libera (sole agganciato alla vista, da destra) ---
+        var lm = camGo.AddComponent<EditorLightMode>();
+        lm.sun = dl; lm.cam = camGo.transform; lm.gpu = gpu;
+
         // --- UI editor ---
         var ed = gameObject.AddComponent<PlanetEditor>();
         ed.Init(terrain, smp);

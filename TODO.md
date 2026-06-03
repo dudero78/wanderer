@@ -85,6 +85,15 @@ Dettaglio tecnico nel `CLAUDE.md`.
   fragment), non i crateri (altrimenti ogni cratere faceva grandi blob). **Normali ANALITICHE** (gradiente di
   SampleHeight, eps≈1 cella). Cuciture agli spigoli del cubo chiuse facendo **sovrapporre le facce di una cella**
   (lo snap a lattice, provato prima, terrazzava i versanti dei crateri → crepe → rimosso).
+- ✅ **Rifiniture editor (sessione 3 giu):**
+  - **Modo luce, `L`** (`EditorLightMode`): ancorata (sole fisso, default) / libera (sole agganciato alla vista, da
+    destra-alto, ~1/8 in ombra → orbiti = ruoti il pianeta sotto il sole, ispezioni ogni faccia illuminata).
+  - **Mare LIQUIDO** (flag `liquid`, toggle nella sezione Mare): resa acqua (glint speculare + fresnel sul lato
+    illuminato), larghezza del glint **legata alla rugosità** (liscio = punto da specchio). Solo visivo.
+  - **Dettaglio anteprima GPU** (512/1024/2048 + **Auto** opt-in legato allo zoom con isteresi). Default 512 fisso.
+    **Index buffer generato sulla GPU** (kernel `CSIndices`, dispatch 2D in `uint`, buffer `Index|Structured`,
+    cache per livello) → niente alloc/upload da ~600 MB sul main thread. Lo scatto residuo del 2048 (alloc VRAM)
+    si paga solo scegliendolo.
 
 ## Accantonato (deciso ma rimandato)
 
@@ -113,7 +122,8 @@ Bivi possibili (da decidere con Dario):
   [[wanderer-rendering-roadmap]].
 - ⬜ **Residuo minore**: forse restano marcature di shading molto tenui qua e là sull'anteprima GPU (da indagare
   solo se danno fastidio).
-- ⬜ **Acqua liquida** (toggle "liquido" sul Mare): resa trasparente + nuoto/affondamento. Condivide l'allagamento.
+- ⬜ **Acqua liquida — resto**: il toggle "liquido" + il look acqua (glint+fresnel) sono FATTI; restano la resa
+  **trasparente/depth** (vedere il fondale sommerso) e il **nuoto/affondamento** del walker (gameplay).
 - ⬜ **Altri processi**: montagne (ridged noise per la texture delle catene), ghiaccio, erosione (bake?).
 - ⬜ **Migliorie editor**: editing per-feature (cancella/modifica singolo cratere), più preset.
 

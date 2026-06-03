@@ -23,8 +23,12 @@ public class GpuPlanetSurface : MonoBehaviour
     int indexCount;
 
     ComputeShader cs;
-    int kFace, kNorm;
+    int kFace, kNorm, kIdx;
     GraphicsBuffer posBuf, nrmBuf, idxBuf;   // posizioni/normali (3 float per vertice) + index buffer
+    // index buffer in CACHE per lato-griglia (gp): la topologia dipende solo dalla risoluzione e l'array a
+    // 2048 è enorme (~600 MB) → costruirlo UNA volta per livello, poi riusarlo (niente scatti ripetuti sullo zoom).
+    readonly System.Collections.Generic.Dictionary<int, GraphicsBuffer> idxCache = new System.Collections.Generic.Dictionary<int, GraphicsBuffer>();
+    readonly System.Collections.Generic.Dictionary<int, int> idxCountCache = new System.Collections.Generic.Dictionary<int, int>();
     GpuShapeBuffers shape;                    // base + pipeline ordinata (crateri/mare/tettonica)
     Material mat;
     Bounds bounds;
@@ -32,6 +36,10 @@ public class GpuPlanetSurface : MonoBehaviour
     public bool Ready { get; private set; }
     /// <summary>Quando true, Update disegna la superficie GPU. L'editor lo accende/spegne col toggle.</summary>
     public bool Active { get; set; }
+
+    /// <summary>Vertici interni per lato di ogni faccia (la "risoluzione" dell'anteprima). Lo slider "Dettaglio
+    /// anteprima" dell'editor la cambia a runtime con <see cref="SetResolution"/>.</summary>
+    public int Resolution => res;
 
     /// <summary>Alloca i buffer, costruisce l'index buffer (una volta) e fa il primo dispatch. res = vertici
     /// interni per lato di ogni faccia (la GPU ha margine: si può tenere alta).</summary>
@@ -51,6 +59,7 @@ public class GpuPlanetSurface : MonoBehaviour
         }
         kFace = cs.FindKernel("CSFaceGrid");
         kNorm = cs.FindKernel("CSFaceNormals");
+        kIdx = cs.FindKernel("CSIndices");
 
         int totalVerts = vertsPerFace * 6;
         posBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
@@ -59,7 +68,7 @@ public class GpuPlanetSurface : MonoBehaviour
         cs.SetBuffer(kNorm, "_VPos", posBuf);
         cs.SetBuffer(kNorm, "_VNrm", nrmBuf);
 
-        BuildIndexBuffer();
+        UseIndexBuffer();
 
         mat = new Material(sh);
         mat.SetBuffer("_VPos", posBuf);
@@ -102,13 +111,36 @@ public class GpuPlanetSurface : MonoBehaviour
     /// <summary>Aggiorna SOLO gli uniform di colore (edit di colore: niente rigenerazione della geometria).</summary>
     public void RefreshColor(PlanetTerrain terrain) { if (Ready) ApplyColor(terrain); }
 
-    /// <summary>Passa allo shader la luce della scena + gli uniform di colore dalla RICETTA (stessa mappa di
-    /// PlanetBaker.BuildMaterial: suolo/bacini/mare/saturazione). Gli altri (minerali/vette/macro/tinta) usano i
-    /// default dello shader, come fa la CPU. Il colore è ricalcolato nel fragment, niente texture bakate.</summary>
-    void ApplyColor(PlanetTerrain terrain)
+    /// <summary>Cambia la risoluzione dell'anteprima a runtime (slider "Dettaglio anteprima"): rialloca i buffer
+    /// e ricostruisce l'index buffer e la geometria. Da vicino una res più alta toglie la sfaccettatura; sulla GPU
+    /// (largamente scarica) costa poco. Niente readback, resta tutto sulla GPU.</summary>
+    public void SetResolution(int newRes, PlanetTerrain terrain)
+    {
+        if (cs == null || !Ready) return;
+        newRes = Mathf.Clamp(newRes, 2, 4096);
+        if (newRes == res) return;
+
+        posBuf?.Release(); nrmBuf?.Release();   // l'index buffer NON si rilascia: è in cache (riusato per livello)
+        res = newRes; gp = res + 2; vertsPerFace = gp * gp;
+
+        int totalVerts = vertsPerFace * 6;
+        posBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
+        nrmBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
+        cs.SetBuffer(kFace, "_VPos", posBuf);
+        cs.SetBuffer(kNorm, "_VPos", posBuf);
+        cs.SetBuffer(kNorm, "_VNrm", nrmBuf);
+        UseIndexBuffer();
+        mat.SetBuffer("_VPos", posBuf);
+        mat.SetBuffer("_VNrm", nrmBuf);
+
+        Rebuild(terrain);
+    }
+
+    /// <summary>Aggiorna SOLO gli uniform di luce (direzione/colore del sole + ambiente) dalla scena. Chiamato
+    /// ogni frame in modalità "luce libera" (il sole è agganciato alla camera): è leggero, niente colore/geometria.</summary>
+    public void RefreshLighting()
     {
         if (mat == null) return;
-
         var sun = FindAnyObjectByType<Light>();
         Vector3 dir = sun != null ? -sun.transform.forward : Vector3.up;
         Color sc = sun != null ? sun.color * sun.intensity : Color.white;
@@ -116,6 +148,16 @@ public class GpuPlanetSurface : MonoBehaviour
         mat.SetVector("_SunColor", new Vector4(sc.r, sc.g, sc.b, 1f));
         Color amb = RenderSettings.ambientLight;
         mat.SetVector("_Ambient", new Vector4(amb.r, amb.g, amb.b, 1f));
+    }
+
+    /// <summary>Passa allo shader la luce della scena + gli uniform di colore dalla RICETTA (stessa mappa di
+    /// PlanetBaker.BuildMaterial: suolo/bacini/mare/saturazione). Gli altri (minerali/vette/macro/tinta) usano i
+    /// default dello shader, come fa la CPU. Il colore è ricalcolato nel fragment, niente texture bakate.</summary>
+    void ApplyColor(PlanetTerrain terrain)
+    {
+        if (mat == null) return;
+
+        RefreshLighting();
 
         var rec = terrain.Recipe;
         mat.SetFloat("_BaseRadius", rec != null ? rec.baseRadius : terrain.BaseRadius);
@@ -144,6 +186,7 @@ public class GpuPlanetSurface : MonoBehaviour
                 mat.SetFloat("_SeaRoughScale", sea.seaRoughScale);
                 mat.SetFloat("_SeaForma", sea.seaForma);
                 mat.SetFloat("_SeaSeed", sea.seed);
+                mat.SetFloat("_SeaLiquid", sea.liquid ? 1f : 0f);
             }
             else mat.SetFloat("_SeaOn", 0f);
         }
@@ -152,29 +195,34 @@ public class GpuPlanetSurface : MonoBehaviour
     /// <summary>Triangoli di TUTTA la griglia padded (gp×gp) di ogni faccia: i vertici di bordo estendono la
     /// faccia di una cella oltre [0,1] → le 6 facce si SOVRAPPONGONO di una cella, coprendo le micro-fessure agli
     /// spigoli del cubo (le zone sovrapposte sono geometria identica → coincidono, niente z-fighting). Costruito
-    /// una volta: la topologia non cambia, solo le posizioni (sulla GPU) variano con la ricetta.</summary>
-    void BuildIndexBuffer()
+    /// una volta PER LIVELLO di risoluzione (cache su gp): la topologia non cambia, solo le posizioni (sulla
+    /// GPU) variano con la ricetta. Riusato quando lo zoom torna a un livello già costruito → niente scatti.</summary>
+    void UseIndexBuffer()
     {
-        int quadsPerFace = (gp - 1) * (gp - 1);
-        indexCount = quadsPerFace * 6 * 6;
-        var idx = new int[indexCount];
-        int k = 0;
-        for (int f = 0; f < 6; f++)
+        if (idxCache.TryGetValue(gp, out var cached))
         {
-            int baseV = f * vertsPerFace;
-            for (int py = 0; py < gp - 1; py++)
-                for (int px = 0; px < gp - 1; px++)
-                {
-                    int i00 = baseV + px + py * gp;
-                    int i10 = baseV + (px + 1) + py * gp;
-                    int i01 = baseV + px + (py + 1) * gp;
-                    int i11 = baseV + (px + 1) + (py + 1) * gp;
-                    idx[k++] = i00; idx[k++] = i01; idx[k++] = i11;   // Cull Off → il verso non conta
-                    idx[k++] = i00; idx[k++] = i11; idx[k++] = i10;
-                }
+            idxBuf = cached; indexCount = idxCountCache[gp];
+            return;
         }
-        idxBuf = new GraphicsBuffer(GraphicsBuffer.Target.Index, indexCount, 4);
-        idxBuf.SetData(idx);
+        int quadsPerFace = (gp - 1) * (gp - 1);
+        int quadsTotal = quadsPerFace * 6;
+        int count = quadsTotal * 6;
+        // buffer Index + Structured: lo RIEMPIE il compute (kernel CSIndices, RWStructuredBuffer<int>), poi viene
+        // usato come index buffer dal RenderPrimitivesIndexed. Niente array gestito né upload → niente scatto a 2048.
+        var buf = new GraphicsBuffer(GraphicsBuffer.Target.Index | GraphicsBuffer.Target.Structured, count, 4);
+        // dispatch 2D: a 2048 i gruppi su un solo asse supererebbero 65535 → si spalmano su (x,y)
+        int totalGroups = (quadsTotal + 63) / 64;
+        int gx = Mathf.Min(totalGroups, 32768);
+        int gy = (totalGroups + gx - 1) / gx;
+        cs.SetBuffer(kIdx, "_Indices", buf);
+        cs.SetInt("_IdxGp", gp);
+        cs.SetInt("_IdxVertsPerFace", vertsPerFace);
+        cs.SetInt("_IdxQuadsPerFace", quadsPerFace);
+        cs.SetInt("_IdxQuadsTotal", quadsTotal);
+        cs.SetInt("_IdxThreadW", gx * 64);
+        cs.Dispatch(kIdx, gx, gy, 1);
+        idxCache[gp] = buf; idxCountCache[gp] = count;
+        idxBuf = buf; indexCount = count;
     }
 
     void Update()
@@ -186,7 +234,9 @@ public class GpuPlanetSurface : MonoBehaviour
 
     void OnDestroy()
     {
-        posBuf?.Release(); nrmBuf?.Release(); idxBuf?.Release();
+        posBuf?.Release(); nrmBuf?.Release();
+        foreach (var b in idxCache.Values) b?.Release();   // idxBuf punta a una di queste: non rilasciarlo a parte
+        idxCache.Clear(); idxCountCache.Clear();
         shape?.Dispose();
         if (mat != null) Destroy(mat);
     }

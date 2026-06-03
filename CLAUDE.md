@@ -56,6 +56,23 @@ Cuciture agli spigoli del cubo chiuse facendo **sovrapporre le facce di una cell
 versanti dei crateri → rimosso). **PROSSIMO:** resa GPU IN GIOCO (B1) · materiali per pendenza/quota + triplanare + PBR
 (look SC/ED) · il GIOCO (teletrasporto, VERBO). Vedi `TODO.md`, [[wanderer-rendering-roadmap]], [[wanderer-terreno-strategia]].
 
+**Rifiniture editor (sessione 3 giu):**
+- **Modo luce, tasto `L`** (`EditorLightMode`): **ancorata** (default — sole fisso, il pianeta non gira → orbiti
+  ma resta illuminata la stessa faccia) / **libera** (il sole resta agganciato alla vista, da destra e dall'alto,
+  ~1/8 in ombra → orbitare è come ruotare il pianeta sotto il sole: ispezioni ogni faccia illuminata). Non tocca i
+  controlli: cambia solo se `_SunDir` è ancorato al mondo o al frame della camera. Vale per mesh CPU (ruota la luce
+  vera) e anteprima GPU (`RefreshLighting`).
+- **Mare LIQUIDO** (flag `liquid` su `ProcessStep`, toggle nella sezione Mare): resa come acqua — riflesso speculare
+  del sole + schiarita di Fresnel ai bordi (solo lato illuminato), in entrambi gli shader. La **larghezza del glint
+  è legata alla rugosità del mare** (liscio = punto netto da specchio; mosso = scia larga). Solo aspetto: la
+  geometria resta il pelo piatto, il nuoto sarà gameplay.
+- **Dettaglio anteprima GPU** (toolbar 512/1024/2048 + **Auto**): la risoluzione della mesh GPU. Default **512**
+  fisso (niente scatti durante l'editing). **Auto** = opt-in (lo attiva chi zooma sui dettagli senza editare): segue
+  lo zoom con ISTERESI (soglie relative al raggio) — vicino 2048, lontano 512. L'**index buffer è generato sulla
+  GPU** (kernel `CSIndices`, dispatch 2D in `uint`, buffer `Index|Structured`) per non allocare/caricare ~600 MB sul
+  main thread; cache per livello (`GpuPlanetSurface`). Lo scatto residuo del 2048 (allocazione VRAM) si paga solo
+  scegliendolo. `SetResolution` rialloca i buffer a runtime.
+
 **Tre corpi**: il **Pianeta** (lunare, raggio 500), **Cetra** (luna marziana craterizzata, raggio 300, g 3.0,
 in orbita attorno al pianeta — ricetta creata nell'editor) e **Luna** (creato nell'editor, raggio 800, in orbita
 al SOLE; ricetta `Resources/Planets/Luna.json`). Aggiungere un corpo roccioso = una `CelestialBody`
@@ -275,17 +292,18 @@ Items/     SuitPickup
 UI/        SettingsMenu   — schermata impostazioni (à): congela i comandi, regola le facilitazioni
            PlanetEditor   — UI dell'editor di pianeti (scena separata): modifica la RICETTA, anteprima live, salva/carica
            EditorOrbitCam — camera orbitale dell'editor (tasto destro ruota, rotella zoom)
+           EditorLightMode— modo luce dell'editor (L): ancorata (sole fisso) / libera (sole agganciato alla vista)
 Bootstrap/ GameBootstrap        — costruisce la scena di gioco (parametri qui; toggle useQuadtree; ApplyCetraRecipe + BuildCetra)
            PlanetEditorBootstrap— costruisce la scena editor (pianeta da SmoothSphere + camera orbitale + UI)
 Editor/    SceneSetup (menu "Crea scena di gioco" / "Apri editor pianeti"), PlanetBakeTool ("Bake planet assets": bake offline pianeta + Cetra, #13)
 Debug/     DebugHud
-Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta + GEOMORPH CDLOD nel vert (quadtree) + ECLISSI analitiche nel surf
+Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta + GEOMORPH CDLOD nel vert (quadtree) + ECLISSI analitiche nel surf + mare liquido (_SeaLiquid)
            CraterNormalBake (Wanderer/CraterNormalBake) — bake normale crateri per faccia (mippata)
            PlanetBake (Wanderer/PlanetBake)          — bake maschera minerale
            DetailNormalBake                          — bake grana → normal map tileable
            OrbitLine (Wanderer/OrbitLine)            — filo d'orbita: additivo, spessore costante in px (espansione screen-space nel vert), glow + coda al pianeta
-           PlanetProcedural (Wanderer/PlanetProcedural) — anteprima GPU: legge pos+normali dai buffer via SV_VertexID; COLORE procedurale dalla ricetta (no texture bakate)
-           PlanetHeight.compute                      — altezze sulla GPU = walker, PIPELINE ORDINATA (base+crateri/mari/tettonica). Kernel: CSParity, CSNodeGrid, CSFaceGrid/CSFaceNormals. Parità col CPU
+           PlanetProcedural (Wanderer/PlanetProcedural) — anteprima GPU: legge pos+normali dai buffer via SV_VertexID; COLORE procedurale dalla ricetta (no texture bakate); mare liquido (_SeaLiquid: glint+fresnel, larghezza ∝ rugosità)
+           PlanetHeight.compute                      — altezze sulla GPU = walker, PIPELINE ORDINATA (base+crateri/mari/tettonica). Kernel: CSParity, CSNodeGrid, CSFaceGrid/CSFaceNormals, CSIndices (index buffer su GPU). Parità col CPU
            PlanetSurface (Wanderer/Planet)           — vecchio shader procedurale, solo fallback
            PlanetNoise.cginc                         — libreria noise condivisa (vnoise, fbm...)
 ```

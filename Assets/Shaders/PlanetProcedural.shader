@@ -44,6 +44,7 @@ Shader "Wanderer/PlanetProcedural"
         _SeaRoughScale ("Mare: scala rugosità", Float) = 3
         _SeaForma ("Mare: forma fondale", Range(-1,1)) = 0
         _SeaSeed ("Mare: seme", Float) = 4242
+        _SeaLiquid ("Mare: liquido (acqua)", Float) = 0
 
         _Saturation ("Saturazione", Range(0,2)) = 1
     }
@@ -68,7 +69,7 @@ Shader "Wanderer/PlanetProcedural"
             int _Octaves, _Seed;
             float4 _SoilMean, _SoilTint, _MineralA, _MineralB, _PeakColor, _MariaColor, _SeaColor;
             float _MacroVar, _MacroScale, _MineralStr, _MineralScale, _PeakStr, _MariaScale, _MariaStr;
-            float _SeaOn, _SeaLevel, _SeaSat, _SeaRough, _SeaRoughScale, _SeaForma, _SeaSeed, _Saturation;
+            float _SeaOn, _SeaLevel, _SeaSat, _SeaRough, _SeaRoughScale, _SeaForma, _SeaSeed, _SeaLiquid, _Saturation;
             float3 _SunDir, _SunColor, _Ambient;
 
             struct v2f
@@ -150,6 +151,21 @@ Shader "Wanderer/PlanetProcedural"
                 float3 nrm = normalize(IN.nrm);
                 float ndl = saturate(dot(nrm, _SunDir));
                 float3 col = alb * (ndl * _SunColor + _Ambient);
+
+                // MARE LIQUIDO: aspetto d'ACQUA invece di superficie opaca. Riflesso speculare del sole (glint) +
+                // schiarita di Fresnel ai bordi radenti (il pelo riflette il cielo all'orizzonte). Additivo, solo
+                // sul mare (× seaMask): la geometria resta il pelo, cambia solo la resa. Il nuoto sarà nel gioco.
+                if (_SeaLiquid > 0.5 && seaMask > 0.0)
+                {
+                    float3 V = normalize(_WorldSpaceCameraPos - P);
+                    float3 H = normalize(_SunDir + V);
+                    // la larghezza del riflesso = quanto è mossa l'acqua: liscia (rugosità 0) → glint stretto
+                    // quasi puntiforme (specchio); più mossa → si allarga nella scia di sunglint.
+                    float gloss = lerp(2200.0, 90.0, saturate(_SeaRough / 12.0));
+                    float spec = pow(saturate(dot(nrm, H)), gloss);
+                    float fres = pow(1.0 - saturate(dot(nrm, V)), 5.0) * ndl;      // bordi radenti più chiari (solo se illuminati)
+                    col += (_SunColor * spec * 1.1 + _SeaColor.rgb * fres * 0.3) * seaMask;
+                }
                 return fixed4(col, 1);
             }
             ENDCG

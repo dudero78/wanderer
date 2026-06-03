@@ -40,6 +40,8 @@ Shader "Wanderer/PlanetBaked"
         _SeaRoughScale ("Mare: scala rugosità", Float) = 3
         _SeaForma ("Mare: forma fondale (-1 dune .. +1 gobbe)", Float) = 0
         _SeaSeed ("Mare: seme rugosità", Float) = 4242
+        // LIQUIDO: rende il pelo come acqua (riflesso del sole + schiarita radente) invece di superficie opaca.
+        _SeaLiquid ("Mare: liquido (acqua)", Float) = 0
 
         // saturazione del colore finale: 0 = grigio, 1 = naturale, >1 = carico.
         _Saturation ("Saturazione", Range(0,2)) = 1
@@ -117,7 +119,7 @@ Shader "Wanderer/PlanetBaked"
         float _BaseRadius, _Amplitude;
         float _GrainStr, _DetailScale, _MacroVar, _MacroScale, _SandDetail, _SoilHue;
         float _MorphRange;
-        float _SeaOn, _SeaLevel, _SeaSat, _SeaRough, _SeaRoughScale, _SeaForma, _SeaSeed;
+        float _SeaOn, _SeaLevel, _SeaSat, _SeaRough, _SeaRoughScale, _SeaForma, _SeaSeed, _SeaLiquid;
         fixed4 _SeaColor;
 
         // forma del fondale del mare: deve combaciare con SeaTerrainLayer.Shape (C#).
@@ -329,6 +331,23 @@ Shader "Wanderer/PlanetBaked"
             // SATURAZIONE: modula verso il grigio (luminanza) o esalta. Ultimo passo sul colore.
             float luma = dot(alb, float3(0.2126, 0.7152, 0.0722));
             alb = lerp(float3(luma, luma, luma), alb, _Saturation);
+
+            // MARE LIQUIDO: aspetto d'ACQUA invece di superficie opaca. Riflesso speculare del sole (glint) +
+            // schiarita di Fresnel ai bordi radenti, additivi via Emission, solo sul pelo (× seaMask). La
+            // normale di mondo viene dalla radiale in spazio oggetto (robusta anche con floating origin in gioco).
+            if (_SeaLiquid > 0.5 && seaMask > 0.0)
+            {
+                float3 Nw = normalize(mul((float3x3)unity_ObjectToWorld, N));
+                float3 V  = normalize(_WorldSpaceCameraPos - IN.worldPos);
+                float3 Lw = normalize(_WorldSpaceLightPos0.xyz);
+                float3 H  = normalize(Lw + V);
+                float ndl  = saturate(dot(Nw, Lw));                     // solo dove il sole illumina (niente glint notturno)
+                // larghezza del riflesso ∝ quanto è mossa l'acqua: liscia → glint stretto (specchio); mossa → largo
+                float gloss = lerp(2200.0, 90.0, saturate(_SeaRough / 12.0));
+                float spec = pow(saturate(dot(Nw, H)), gloss);
+                float fres = pow(1.0 - saturate(dot(Nw, V)), 5.0) * ndl;
+                o.Emission += (float3(1.0, 0.98, 0.92) * spec * 1.1 + _SeaColor.rgb * fres * 0.3) * seaMask;
+            }
 
             o.Albedo = alb;
         }

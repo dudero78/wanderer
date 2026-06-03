@@ -16,6 +16,7 @@
 #pragma kernel CSParity
 #pragma kernel CSFaceGrid
 #pragma kernel CSFaceNormals
+#pragma kernel CSIndices
 
 // ---- parametri della forma base (uniform, una volta per pianeta) ----
 float  _BaseRadius;
@@ -480,4 +481,38 @@ void CSFaceNormals(uint3 id : SV_DispatchThreadID)
     if (dot(n, dir) < 0.0) n = -n;                 // verso l'esterno
     int o = (_FaceOffset + px + py * gp) * 3;
     _VNrm[o] = n.x; _VNrm[o + 1] = n.y; _VNrm[o + 2] = n.z;
+}
+
+// ---- anteprima GPU: riempie l'INDEX BUFFER sulla GPU ---------------------------------------------
+// La topologia (6 triangoli per quad, su 6 facce di griglia padded) dipende solo dalla risoluzione. A
+// 2048 l'array è ~150M indici (~600 MB): costruirlo su CPU e caricarlo faceva uno scatto sul main thread.
+// Qui ogni thread scrive i 6 indici del suo quad → niente array gestito, niente upload, niente readback.
+RWStructuredBuffer<uint> _Indices;
+uint _IdxGp;             // lato della griglia padded (res+2)
+uint _IdxVertsPerFace;   // gp*gp
+uint _IdxQuadsPerFace;   // (gp-1)*(gp-1)
+uint _IdxQuadsTotal;     // quadsPerFace*6 (bound del dispatch)
+uint _IdxThreadW;        // larghezza in thread della griglia di dispatch (per linearizzare id 2D)
+
+// Dispatch 2D: a 2048 i quad sono ~25M → i gruppi su un solo asse supererebbero il limite di 65535. Si spalma
+// su (x,y) e si linearizza con _IdxThreadW (= gruppi_x · 64). Il bound _IdxQuadsTotal scarta i thread in eccesso.
+// Tutto in uint: gli indici sono non negativi e su Metal le divisioni/moduli uint sono più veloci degli int.
+[numthreads(64, 1, 1)]
+void CSIndices(uint3 id : SV_DispatchThreadID)
+{
+    uint q = id.x + id.y * _IdxThreadW;
+    if (q >= _IdxQuadsTotal) return;
+    uint f = q / _IdxQuadsPerFace;
+    uint local = q % _IdxQuadsPerFace;
+    uint gpm1 = _IdxGp - 1u;
+    uint px = local % gpm1;
+    uint py = local / gpm1;
+    uint baseV = f * _IdxVertsPerFace;
+    uint i00 = baseV + px + py * _IdxGp;
+    uint i10 = baseV + (px + 1u) + py * _IdxGp;
+    uint i01 = baseV + px + (py + 1u) * _IdxGp;
+    uint i11 = baseV + (px + 1u) + (py + 1u) * _IdxGp;
+    uint o = q * 6u;
+    _Indices[o + 0u] = i00; _Indices[o + 1u] = i01; _Indices[o + 2u] = i11;   // Cull Off → il verso non conta
+    _Indices[o + 3u] = i00; _Indices[o + 4u] = i11; _Indices[o + 5u] = i10;
 }

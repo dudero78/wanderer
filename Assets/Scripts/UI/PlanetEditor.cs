@@ -31,6 +31,11 @@ public class PlanetEditor : MonoBehaviour
     int settleTimer = -1;              // ≥0 = sto contando i frame dall'ultima modifica per rifinire
     int pendingRemove = -1;            // processo da rimuovere
     int pendingMoveUp = -1;            // processo da spostare SU (scambio con il precedente)
+    int pendingRes = -1;               // nuova risoluzione dell'anteprima GPU (applicata in Update)
+    bool autoRes = false;              // default 512 fisso (niente scatti). Auto = opt-in: lo attiva a mano chi sta zoomando spesso sui dettagli senza toccare gli slider
+    EditorOrbitCam orbitCam;           // per leggere la distanza di zoom (modalità Auto)
+    static readonly int[] ResFixed = { 512, 1024, 2048 };                 // i valori dei tasti manuali
+    static readonly string[] ResLabels = { "Auto", "512", "1024", "2048" };
     bool pendingAddFlag;               // c'è una nuova pipeline da aggiungere…
     ProcessType pendingAddType;        // …di questo tipo
     bool chooseType;                   // sto mostrando il selettore di tipo
@@ -109,6 +114,20 @@ public class PlanetEditor : MonoBehaviour
     {
         if (recipe == null) return;
         if (Input.GetKeyDown(KeyCode.G)) ToggleGpuPreview();
+        if (autoRes && gpu != null && gpu.Ready)   // risoluzione legata allo zoom (con isteresi)
+        {
+            if (orbitCam == null) orbitCam = FindAnyObjectByType<EditorOrbitCam>();
+            if (orbitCam != null)
+            {
+                int want = AutoResForZoom(orbitCam.distance, gpu.Resolution);
+                if (want != gpu.Resolution) pendingRes = want;
+            }
+        }
+        if (pendingRes > 0)
+        {
+            if (gpu != null) gpu.SetResolution(pendingRes, terrain);
+            pendingRes = -1;
+        }
         var P = recipe.processes;
         if (pendingRemove >= 0 && pendingRemove < P.Count)
         {
@@ -209,6 +228,7 @@ public class PlanetEditor : MonoBehaviour
                 m.SetFloat("_SeaRoughScale", sea.seaRoughScale);
                 m.SetFloat("_SeaForma", sea.seaForma);
                 m.SetFloat("_SeaSeed", sea.seed);
+                m.SetFloat("_SeaLiquid", sea.liquid ? 1f : 0f);
             }
             m.SetFloat("_Saturation", recipe.saturation);
             if (st != null) m.SetTexture("_SoilSand", st);
@@ -232,6 +252,22 @@ public class PlanetEditor : MonoBehaviour
         GUILayout.Label("EDITOR PIANETI", title);
         if (gpu != null && gpu.Ready)
             GUILayout.Label(gpuPreview ? "Anteprima: GPU  (G = passa a CPU)" : "Anteprima: CPU  (G = passa a GPU)", tip);
+        GUILayout.Label(EditorLightMode.Free ? "Luce: libera — orbiti = ruoti il pianeta sotto il sole  (L = ancorata)"
+                                             : "Luce: ancorata — il sole resta fisso da destra  (L = libera)", tip);
+        // dettaglio dell'anteprima GPU: una res più alta toglie la sfaccettatura da vicino (sulla GPU costa poco)
+        if (gpu != null && gpu.Ready)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Dettaglio GPU", "Risoluzione della mesh dell'anteprima GPU. Default 512. Auto = segue lo zoom (comodo se stai ispezionando dettagli senza editare, ma può far scattare al cambio); i numeri la fissano a mano."), head, GUILayout.Width(110f * ui));
+            int cur = autoRes ? 0 : System.Array.IndexOf(ResFixed, gpu.Resolution) + 1;
+            int nr = GUILayout.Toolbar(cur, ResLabels, GUILayout.Height(22f * ui));
+            if (nr >= 0 && nr != cur)
+            {
+                if (nr == 0) autoRes = true;                          // torna a seguire lo zoom
+                else { autoRes = false; pendingRes = ResFixed[nr - 1]; }   // forzata a mano
+            }
+            GUILayout.EndHorizontal();
+        }
         recipe.name = GUILayout.TextField(recipe.name);
         GUILayout.Space(8f * ui);
         scroll = GUILayout.BeginScrollView(scroll);
@@ -335,6 +371,8 @@ public class PlanetEditor : MonoBehaviour
                 p.seaColor.r = Slider("Colore R", "Componente rossa dell'acqua.", p.seaColor.r, 0f, 1f, ui, ref colorDirty);
                 p.seaColor.g = Slider("Colore G", "Componente verde dell'acqua.", p.seaColor.g, 0f, 1f, ui, ref colorDirty);
                 p.seaColor.b = Slider("Colore B", "Componente blu dell'acqua.", p.seaColor.b, 0f, 1f, ui, ref colorDirty);
+                p.liquid = Toggle("Liquido", "Rende il mare come ACQUA (riflessi speculari + lucentezza ai bordi) invece di superficie opaca tinta. È solo aspetto: il nuoto sarà nel gioco.", p.liquid, ui, geometry: false, changed: out bool liqChg);
+                if (liqChg) colorDirty = true;
             }
             GUILayout.Space(8f * ui);
         }
@@ -375,6 +413,18 @@ public class PlanetEditor : MonoBehaviour
                       this.tip, GUILayout.Height(52f * ui));
         GUILayout.Label("Tasto DESTRO trascina = ruota · rotella = zoom", val);
         GUILayout.EndArea();
+    }
+
+    /// <summary>Risoluzione dell'anteprima in base alla distanza di zoom (modalità Auto). Soglie RELATIVE al
+    /// raggio (vale per pianeti di qualunque taglia) con ISTERESI (banda morta): cambia tier solo quando supera
+    /// la soglia di un margine, così al confine non oscilla rigenerando i buffer ogni frame (lezione NearestBody).</summary>
+    int AutoResForZoom(float d, int cur)
+    {
+        float r = recipe != null ? recipe.baseRadius : 500f;
+        float t1 = r * 2.6f, t2 = r * 5.2f, band = r * 0.4f;   // t1: 2048↔1024, t2: 1024↔512
+        if (cur >= 2048) return d > t1 + band ? (d > t2 + band ? 512 : 1024) : 2048;
+        if (cur == 1024) { if (d < t1 - band) return 2048; if (d > t2 + band) return 512; return 1024; }
+        return d < t2 - band ? (d < t1 - band ? 2048 : 1024) : 512;   // cur == 512
     }
 
     /// <summary>Tiene la lista degli stati di collasso allineata al numero di processi.</summary>
