@@ -159,7 +159,7 @@ public class ProcessStep
     // quota relativa di crateri per FASCIA di taglia (moltiplica la densità): 1 = piena, 0 = nessuno.
     // Le ottave vanno dalla più grande (grandi) alla più piccola (piccoli); 'medi' è la fascia centrale.
     public float wLarge = 1f, wMedium = 1f, wSmall = 1f;
-    public float clustering = 0f;               // 0 = uniforme; >0 = raggruppa i crateri in regioni (distribuzione)
+    public float distribution = 0f;             // fase 0..1: ruota il campo di crateri → li "fa scorrere" sul pianeta
     public bool dominant = false;
     public Vector3 dominantDir = new Vector3(0.3f, 1f, 0.2f);
     public float dominantRadius = 230f;
@@ -168,8 +168,9 @@ public class ProcessStep
     public float seaLevel = 0f;                 // quota del pelo, metri relativi al baseRadius
     public Color seaColor = new Color(0.13f, 0.33f, 0.52f);
     public float seaSaturation = 1f;            // saturazione del colore del mare (indipendente dal globale)
-    public float seaRoughness = 0f;             // ampiezza dell'increspatura (m): 0 = piatto, su = colline/dune
-    public float seaRoughScale = 3f;            // frequenza dell'increspatura: bassa = colline larghe, alta = dune
+    public float seaRoughness = 0f;             // ampiezza del rilievo del fondale (m): 0 = piatto, su = mosso
+    public float seaRoughScale = 3f;            // frequenza del rilievo: bassa = forme larghe, alta = fitte
+    public float seaForma = 0f;                 // forma del fondale: −1 = creste/dune, 0 = liscio, +1 = collinette/gobbe
 
     public static ProcessStep FromCrater(CraterRecipe c) => new ProcessStep
     {

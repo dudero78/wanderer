@@ -180,6 +180,9 @@ public class PlanetEditor : MonoBehaviour
                 m.SetColor("_SeaColor", sea.seaColor);
                 m.SetFloat("_SeaSat", sea.seaSaturation);
                 m.SetFloat("_SeaRough", sea.seaRoughness);
+                m.SetFloat("_SeaRoughScale", sea.seaRoughScale);
+                m.SetFloat("_SeaForma", sea.seaForma);
+                m.SetFloat("_SeaSeed", sea.seed);
             }
             m.SetFloat("_Saturation", recipe.saturation);
             if (st != null) m.SetTexture("_SoilSand", st);
@@ -261,7 +264,7 @@ public class PlanetEditor : MonoBehaviour
                 p.wLarge = Slider("  Grandi", "Quota di crateri GRANDI (1 = pieni, 0 = nessuno).", p.wLarge, 0f, 1f, ui, ref geomDirty);
                 p.wMedium = Slider("  Medi", "Quota di crateri MEDI.", p.wMedium, 0f, 1f, ui, ref geomDirty);
                 p.wSmall = Slider("  Piccoli", "Quota di crateri PICCOLI.", p.wSmall, 0f, 1f, ui, ref geomDirty);
-                p.clustering = Slider("Distribuzione", "0 = crateri uniformi su tutta la superficie; su = si raggruppano in regioni (bacini di bombardamento).", p.clustering, 0f, 1f, ui, ref geomDirty);
+                p.distribution = Slider("Distribuzione", "Scorri per FAR SCORRERE i crateri sul pianeta (ruota il campo): provi disposizioni diverse senza cambiare il pattern.", p.distribution, 0f, 1f, ui, ref geomDirty);
                 p.depthRatio = Slider("Profondità/raggio", "Quanto è profonda la conca rispetto al suo raggio.", p.depthRatio, 0.05f, 0.5f, ui, ref geomDirty);
                 p.rimRatio = Slider("Bordo/profondità", "Altezza del bordo rialzato rispetto alla profondità.", p.rimRatio, 0.1f, 0.6f, ui, ref geomDirty);
                 p.rimSharpness = Slider("Nitidezza bordi", "Forma della parete: 1 = cono dolce, alto = fondo piatto + bordo a cresta netta.", p.rimSharpness, 1f, 4f, ui, ref geomDirty);
@@ -277,10 +280,17 @@ public class PlanetEditor : MonoBehaviour
                 p.seaLevel = Slider("Livello (m)", "Quota del pelo dell'acqua: negativo riempie solo i bacini, positivo sommerge sempre di più.", p.seaLevel, -seaRange, seaRange, ui, ref geomDirty);
                 if (p.seaLevel != prevLevel) colorDirty = true;   // anche lo shader segue il pelo
                 float prevRough = p.seaRoughness;
-                p.seaRoughness = Slider("Increspatura (m)", "Increspa il pelo dell'acqua: 0 = piatto, su = colline/dune.", p.seaRoughness, 0f, 40f, ui, ref geomDirty);
-                if (p.seaRoughness != prevRough) colorDirty = true;   // lo shader allarga la banda del mare
+                p.seaRoughness = Slider("Rugosità (m)", "Quanto è mosso il terreno del mare: 0 = liscio, su = colline / dune / irregolare.", p.seaRoughness, 0f, 40f, ui, ref geomDirty);
+                if (p.seaRoughness != prevRough) colorDirty = true;   // lo shader ricostruisce il pelo
                 if (p.seaRoughness > 0f)
-                    p.seaRoughScale = Slider("  forma increspatura", "Frequenza: bassa = colline larghe, alta = dune fitte.", p.seaRoughScale, 1f, 12f, ui, ref geomDirty);
+                {
+                    float prevScale = p.seaRoughScale;
+                    p.seaRoughScale = Slider("  scala rilievo", "Dimensione delle forme del fondale: bassa = larghe, alta = fitte.", p.seaRoughScale, 2f, 30f, ui, ref geomDirty);
+                    if (p.seaRoughScale != prevScale) colorDirty = true;
+                    float prevForma = p.seaForma;
+                    p.seaForma = Slider("  forma fondale", "Geometria del fondale: −1 = creste/dune, 0 = liscio, +1 = collinette/gobbe (come dune marziane).", p.seaForma, -1f, 1f, ui, ref geomDirty);
+                    if (p.seaForma != prevForma) colorDirty = true;
+                }
                 p.seaSaturation = Slider("Saturazione mare", "Intensità del colore dell'acqua, indipendente dalla saturazione globale.", p.seaSaturation, 0f, 2f, ui, ref colorDirty);
                 p.seaColor.r = Slider("Colore R", "Componente rossa dell'acqua.", p.seaColor.r, 0f, 1f, ui, ref colorDirty);
                 p.seaColor.g = Slider("Colore G", "Componente verde dell'acqua.", p.seaColor.g, 0f, 1f, ui, ref colorDirty);
@@ -365,7 +375,7 @@ public class PlanetEditor : MonoBehaviour
         p.wLarge = Random.Range(0f, 1f);
         p.wMedium = Random.Range(0f, 1f);
         p.wSmall = Random.Range(0f, 1f);
-        p.clustering = Random.Range(0f, 1f);
+        p.distribution = Random.Range(0f, 1f);
         p.depthRatio = Random.Range(0.1f, 0.45f);
         p.rimRatio = Random.Range(0.15f, 0.55f);
         p.rimSharpness = Random.Range(1f, 4f);

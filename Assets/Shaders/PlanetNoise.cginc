@@ -155,4 +155,60 @@ float4 fbmReliefRange(float3 p, int startOct, float lod)
     return float4(v, d);
 }
 
+// --- Noise3D FEDELE al C# (Noise3D.cs): serve allo shader per ricostruire il pelo del MARE increspato
+// esattamente come SeaTerrainLayer (mesh costruita su CPU). Trappole: asuint() per i cast int->uint (in HLSL
+// (uint) clampa i negativi), gradiente /511.5, rotazione del dominio per ottava. Stessa logica del compute
+// PlanetHeight.compute. Richiede target 4.0 (uint).
+uint n3_uhash(int x, int y, int z, int seed)
+{
+    uint h = asuint(seed);
+    h = (h + asuint(x)) * 0x9E3779B1u; h ^= h >> 16;
+    h = (h + asuint(y)) * 0x85EBCA77u; h ^= h >> 13;
+    h = (h + asuint(z)) * 0xC2B2AE3Du; h ^= h >> 16;
+    h *= 0x27D4EB2Fu; h ^= h >> 15;
+    return h;
+}
+float3 n3_grad(int x, int y, int z, int seed)
+{
+    uint h = n3_uhash(x, y, z, seed);
+    return float3((h & 0x3FFu) / 511.5 - 1.0, ((h >> 10) & 0x3FFu) / 511.5 - 1.0, ((h >> 20) & 0x3FFu) / 511.5 - 1.0);
+}
+float n3_quintic(float t) { return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); }
+float n3_value(float3 p, int seed)
+{
+    int xi = (int)floor(p.x), yi = (int)floor(p.y), zi = (int)floor(p.z);
+    float fx = p.x - xi, fy = p.y - yi, fz = p.z - zi;
+    float u = n3_quintic(fx), v = n3_quintic(fy), w = n3_quintic(fz);
+    float n000 = dot(n3_grad(xi,     yi,     zi,     seed), float3(fx,       fy,       fz));
+    float n100 = dot(n3_grad(xi + 1, yi,     zi,     seed), float3(fx - 1.0, fy,       fz));
+    float n010 = dot(n3_grad(xi,     yi + 1, zi,     seed), float3(fx,       fy - 1.0, fz));
+    float n110 = dot(n3_grad(xi + 1, yi + 1, zi,     seed), float3(fx - 1.0, fy - 1.0, fz));
+    float n001 = dot(n3_grad(xi,     yi,     zi + 1, seed), float3(fx,       fy,       fz - 1.0));
+    float n101 = dot(n3_grad(xi + 1, yi,     zi + 1, seed), float3(fx - 1.0, fy,       fz - 1.0));
+    float n011 = dot(n3_grad(xi,     yi + 1, zi + 1, seed), float3(fx,       fy - 1.0, fz - 1.0));
+    float n111 = dot(n3_grad(xi + 1, yi + 1, zi + 1, seed), float3(fx - 1.0, fy - 1.0, fz - 1.0));
+    float x00 = lerp(n000, n100, u);
+    float x10 = lerp(n010, n110, u);
+    float x01 = lerp(n001, n101, u);
+    float x11 = lerp(n011, n111, u);
+    return lerp(lerp(x00, x10, v), lerp(x01, x11, v), w);
+}
+float3 n3_rotate(float3 v)
+{
+    return float3( 0.00 * v.x + 0.80 * v.y + 0.60 * v.z,
+                  -0.80 * v.x + 0.36 * v.y - 0.48 * v.z,
+                  -0.60 * v.x - 0.48 * v.y + 0.64 * v.z);
+}
+float n3_fbm(float3 p, int octaves, float lacunarity, float gain, int seed)
+{
+    float sum = 0.0, amp = 0.5, freq = 1.0, norm = 0.0;
+    float3 q = p;
+    for (int i = 0; i < octaves; i++)
+    {
+        sum += amp * n3_value(q * freq, seed + i * 1013);
+        norm += amp; freq *= lacunarity; amp *= gain; q = n3_rotate(q);
+    }
+    return saturate(sum / norm * 0.5 + 0.5);
+}
+
 #endif

@@ -36,7 +36,10 @@ Shader "Wanderer/PlanetBaked"
         _SeaLevel ("Mare: raggio del pelo dell'acqua", Float) = 0
         _SeaColor ("Mare: colore", Color) = (0.13, 0.33, 0.52, 1)
         _SeaSat ("Mare: saturazione", Range(0,2)) = 1
-        _SeaRough ("Mare: ampiezza increspatura (m)", Float) = 0
+        _SeaRough ("Mare: ampiezza rugosità (m)", Float) = 0
+        _SeaRoughScale ("Mare: scala rugosità", Float) = 3
+        _SeaForma ("Mare: forma fondale (-1 dune .. +1 gobbe)", Float) = 0
+        _SeaSeed ("Mare: seme rugosità", Float) = 4242
 
         // saturazione del colore finale: 0 = grigio, 1 = naturale, >1 = carico.
         _Saturation ("Saturazione", Range(0,2)) = 1
@@ -114,8 +117,16 @@ Shader "Wanderer/PlanetBaked"
         float _BaseRadius, _Amplitude;
         float _GrainStr, _DetailScale, _MacroVar, _MacroScale, _SandDetail, _SoilHue;
         float _MorphRange;
-        float _SeaOn, _SeaLevel, _SeaSat, _SeaRough;
+        float _SeaOn, _SeaLevel, _SeaSat, _SeaRough, _SeaRoughScale, _SeaForma, _SeaSeed;
         fixed4 _SeaColor;
+
+        // forma del fondale del mare: deve combaciare con SeaTerrainLayer.Shape (C#).
+        float SeaShape(float c, float forma)
+        {
+            float ridged = 1.0 - 2.0 * abs(c);   // creste (dune)
+            float billow = 2.0 * abs(c) - 1.0;   // gobbe (collinette)
+            return forma < 0.0 ? lerp(ridged, c, forma + 1.0) : lerp(c, billow, forma);
+        }
         float _Saturation;
         float _CraterNormalApply, _CraterFadeNear, _CraterFadeFar;
         sampler2D _MaskMap;
@@ -185,11 +196,16 @@ Shader "Wanderer/PlanetBaked"
             // MARE: tinge solo il PELO dell'acqua (mesh allagata e piatta a _SeaLevel). NON le buche scavate
             // sotto: un cratere DOPO il mare nella pipeline rimane sotto il pelo → resta ASCIUTTO (l'ordine
             // dei processi cambia l'effetto). 'above' = fino al pelo; 'below' = esclude i fondi ben sotto.
-            // banda allargata dall'ampiezza dell'increspatura (_SeaRough): il pelo ondulato va da
-            // _SeaLevel−rough a _SeaLevel+rough; le buche scavate DOPO il mare (più profonde) restano escluse.
-            float seaAbove = 1.0 - smoothstep(_SeaLevel + _SeaRough, _SeaLevel + _SeaRough + 2.0, h);
-            float seaBelow = smoothstep(_SeaLevel - _SeaRough - 5.0, _SeaLevel - _SeaRough - 1.0, h);
-            float seaMask = (_SeaOn > 0.5) ? seaAbove * seaBelow : 0.0;
+            // MARE: ricostruisco il PELO dell'acqua (eventualmente RUGOSO) come fa SeaTerrainLayer su CPU, poi
+            // tingo dove l'altezza È quel pelo. Così la rugosità è vera geometria increspata, NON un allargamento
+            // della copertura; e i crateri scavati DOPO il mare (h ben sotto il pelo) restano asciutti.
+            float seaSurf = _SeaLevel;
+            if (_SeaRough > 0.0)
+            {
+                float cc = (n3_fbm(N * _SeaRoughScale, 4, 2.0, 0.5, (int)_SeaSeed) - 0.5) * 2.0;
+                seaSurf += SeaShape(cc, _SeaForma) * _SeaRough;
+            }
+            float seaMask = (_SeaOn > 0.5) ? (1.0 - smoothstep(2.0, 4.0, abs(h - seaSurf))) : 0.0;
 
             float dist = distance(IN.worldPos, _WorldSpaceCameraPos);
 

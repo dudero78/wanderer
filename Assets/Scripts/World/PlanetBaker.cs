@@ -103,6 +103,9 @@ public static class PlanetBaker
                 mat.SetColor("_SeaColor", sea.seaColor);
                 mat.SetFloat("_SeaSat", sea.seaSaturation);
                 mat.SetFloat("_SeaRough", sea.seaRoughness);
+                mat.SetFloat("_SeaRoughScale", sea.seaRoughScale);
+                mat.SetFloat("_SeaForma", sea.seaForma);
+                mat.SetFloat("_SeaSeed", sea.seed);
             }
             else mat.SetFloat("_SeaOn", 0f);
             mat.SetFloat("_Saturation", rec.saturation);

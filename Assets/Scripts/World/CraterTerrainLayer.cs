@@ -29,7 +29,7 @@ public class CraterTerrainLayer : TerrainLayer
     readonly float rimRatio;        // altezza bordo   = rimRatio × profondità
     readonly float rimSharpness;    // esponente della parete: 1 = cono, >1 = fondo piatto + bordo a cresta netta
     readonly float wLarge, wMedium, wSmall;   // quota relativa per fascia di taglia (modula la densità per ottava)
-    readonly float clustering;                // 0 = uniforme; >0 = raggruppa i crateri in regioni (campo a bassa freq)
+    readonly float distribution;              // fase 0..1: ruota il campo procedurale → i crateri scorrono sul pianeta
 
     // Crateri "a mano" (es. il dominante tipo Stickney): valutati sempre, fuori dal campo.
     struct Manual { public Vector3 dir; public float radius; }
@@ -56,7 +56,7 @@ public class CraterTerrainLayer : TerrainLayer
 
     public CraterTerrainLayer(float baseRadius, int seed, int octaves, float largestRadius,
                               float density, float depthRatio, float rimRatio, float rimSharpness = 2f,
-                              float wLarge = 1f, float wMedium = 1f, float wSmall = 1f, float clustering = 0f)
+                              float wLarge = 1f, float wMedium = 1f, float wSmall = 1f, float distribution = 0f)
     {
         this.baseRadius = baseRadius;
         this.seed = seed;
@@ -69,13 +69,16 @@ public class CraterTerrainLayer : TerrainLayer
         this.wLarge = Mathf.Clamp01(wLarge);
         this.wMedium = Mathf.Clamp01(wMedium);
         this.wSmall = Mathf.Clamp01(wSmall);
-        this.clustering = Mathf.Clamp01(clustering);
+        this.distribution = distribution;
     }
 
-    // campo di RAGGRUPPAMENTO: rumore a bassa frequenza in [0,1] valutato al centro della cella (deterministico
-    // per cella → il cratere non sfarfalla). clustering interpola fra "uniforme" (1) e questo campo: nelle
-    // regioni a campo basso i crateri si diradano → si concentrano in "bacini di bombardamento".
-    float ClusterField(Vector3 cellDir) => Noise3D.Fbm(cellDir * 2.5f, 3, 2f, 0.5f, seed + 555);
+    // ruota una direzione attorno all'asse Y di un angolo dato: muovendo la fase 'distribution' il campo di
+    // crateri SCORRE lungo il pianeta → si esplorano disposizioni diverse senza cambiare il pattern (il seme).
+    static Vector3 RotateY(Vector3 d, float ang)
+    {
+        float c = Mathf.Cos(ang), s = Mathf.Sin(ang);
+        return new Vector3(c * d.x + s * d.z, d.y, -s * d.x + c * d.z);
+    }
 
     /// <summary>Peso della densità per l'ottava o (0 = taglia più grande … octaves-1 = più piccola): interpola
     /// fra grandi→medi→piccoli lungo la gamma di taglie. Una sola ottava = trattata come "grandi".</summary>
@@ -100,9 +103,13 @@ public class CraterTerrainLayer : TerrainLayer
         // approfondiscono un po' (doppia conca), che è anche geologicamente vero.
         float total = 0f;
 
-        // --- crateri a mano (dominante) ---
+        // --- crateri a mano (dominante): nel frame del MONDO, NON ruotano con la distribuzione ---
         for (int i = 0; i < manual.Count; i++)
             Accumulate(unitDir, manual[i].dir, manual[i].radius, ref total);
+
+        // DISTRIBUZIONE: ruota la direzione di campionamento → l'intero campo di crateri scorre sul pianeta
+        // (centri e query nello stesso frame ruotato: distanze corrette, equivale a ruotare i crateri nel mondo).
+        Vector3 dir = distribution != 0f ? RotateY(unitDir, distribution * 6.2831853f) : unitDir;
 
         // --- campo procedurale per ottave di taglia ---
         float radius = largestRadius;
@@ -110,10 +117,10 @@ public class CraterTerrainLayer : TerrainLayer
         {
             float spacing = radius * SPACING;            // m
             float cellAng = spacing / baseRadius;        // dimensione cella sulla sfera unitaria (~rad)
-            float gscale = 1f / cellAng;                 // unitDir*gscale → coordinate di cella
+            float gscale = 1f / cellAng;                 // dir*gscale → coordinate di cella
             float octDensity = density * SizeWeight(o);  // meno/più crateri di questa fascia di taglia
 
-            Vector3 g = unitDir * gscale;
+            Vector3 g = dir * gscale;
             int cx = Mathf.FloorToInt(g.x), cy = Mathf.FloorToInt(g.y), cz = Mathf.FloorToInt(g.z);
 
             for (int dz = -1; dz <= 1; dz++)
@@ -122,13 +129,7 @@ public class CraterTerrainLayer : TerrainLayer
             {
                 int X = cx + dx, Y = cy + dy, Z = cz + dz;
                 uint h = Hash(X, Y, Z, seed + o * 9176);
-                float thr = octDensity;
-                if (clustering > 0f)                     // dirada i crateri nelle regioni a campo basso
-                {
-                    Vector3 cellDir = new Vector3((X + 0.5f) / gscale, (Y + 0.5f) / gscale, (Z + 0.5f) / gscale).normalized;
-                    thr *= Mathf.Lerp(1f, ClusterField(cellDir), clustering);
-                }
-                if (U01(h) > thr) continue;              // questa cella non ha cratere di questa fascia
+                if (U01(h) > octDensity) continue;       // questa cella non ha cratere di questa fascia
 
                 // centro jitterato dentro la cella, proiettato sulla sfera
                 Vector3 c = new Vector3(
@@ -142,7 +143,7 @@ public class CraterTerrainLayer : TerrainLayer
                 // raggio jitterato attorno al raggio dell'ottava, simmetrico: [2−JITTER_MAX .. JITTER_MAX]
                 float lo = 2f - JITTER_MAX;
                 float rad = radius * (lo + (JITTER_MAX - lo) * U01(h * 0x27D4EB2Fu + 4u));
-                Accumulate(unitDir, cdir, rad, ref total);
+                Accumulate(dir, cdir, rad, ref total);   // query e centro nel frame ruotato
             }
 
             radius *= 0.5f;
