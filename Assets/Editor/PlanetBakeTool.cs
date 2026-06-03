@@ -35,9 +35,9 @@ public static class PlanetBakeTool
         // Un corpo per cartella. Il configuratore prepara il terreno (ricetta → pipeline) come in gioco:
         // stessa fonte di verità → bake coerente con ciò che il gioco renderizza a runtime.
         BakeBody(PlanetBaker.BakedDir, PlanetPresets.ConfigureDemoPlanet);
-        BakeBody(GameBootstrap.CetraBakedDir, t => GameBootstrap.ApplyCetraRecipe(t));
-        BakeBody(GameBootstrap.LunaBakedDir, t => GameBootstrap.ApplyLunaRecipe(t));
-        BakeBody(GameBootstrap.ValentinaBakedDir, t => GameBootstrap.ApplyValentinaRecipe(t));
+        BakeBody(SolarSystemSetup.CetraBakedDir, t => SolarSystemSetup.ApplyCetraRecipe(t));
+        BakeBody(SolarSystemSetup.LunaBakedDir, t => SolarSystemSetup.ApplyLunaRecipe(t));
+        BakeBody(SolarSystemSetup.ValentinaBakedDir, t => SolarSystemSetup.ApplyValentinaRecipe(t));
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();

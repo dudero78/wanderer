@@ -21,7 +21,7 @@ public static class PlanetGpuParityTest
     {
         bool okAll = true;
         okAll &= TestBody("Pianeta", PlanetPresets.ConfigureDemoPlanet);
-        okAll &= TestBody("Cetra", t => GameBootstrap.ApplyCetraRecipe(t));
+        okAll &= TestBody("Cetra", t => SolarSystemSetup.ApplyCetraRecipe(t));
         // copre i parametri crateri ESTESI sul path GPU (pesi per taglia + distribuzione): se divergessero,
         // l'anteprima GPU dell'editor mostrerebbe crateri diversi dalla CPU.
         okAll &= TestBody("Crateri pesati+distrib", t =>
