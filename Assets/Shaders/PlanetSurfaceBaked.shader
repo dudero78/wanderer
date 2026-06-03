@@ -180,9 +180,12 @@ Shader "Wanderer/PlanetBaked"
             float h = max(length(P), 1e-4);
             float3 N = P / h;               // normale radiale (spazio oggetto)
 
-            // MARE: 1 dove il punto è al pelo dell'acqua (mesh allagata e piatta a _SeaLevel), 0 sulla terra
-            // appena sopra. Banda di 2 m per una riva morbida. La geometria la fa SeaTerrainLayer; questo è aspetto.
-            float seaMask = (_SeaOn > 0.5) ? 1.0 - smoothstep(_SeaLevel, _SeaLevel + 2.0, h) : 0.0;
+            // MARE: tinge solo il PELO dell'acqua (mesh allagata e piatta a _SeaLevel). NON le buche scavate
+            // sotto: un cratere DOPO il mare nella pipeline rimane sotto il pelo → resta ASCIUTTO (l'ordine
+            // dei processi cambia l'effetto). 'above' = fino al pelo; 'below' = esclude i fondi ben sotto.
+            float seaAbove = 1.0 - smoothstep(_SeaLevel, _SeaLevel + 2.0, h);     // 1 al pelo, 0 sulla terra emersa
+            float seaBelow = smoothstep(_SeaLevel - 4.0, _SeaLevel - 1.0, h);     // 0 nelle buche profonde, 1 al pelo
+            float seaMask = (_SeaOn > 0.5) ? seaAbove * seaBelow : 0.0;
 
             float dist = distance(IN.worldPos, _WorldSpaceCameraPos);
 

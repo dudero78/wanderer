@@ -71,18 +71,25 @@ public class PlanetTerrain : MonoBehaviour
         // RICETTA (fonte di verità dell'editor): forma base + UNA pipeline di crateri per ogni voce abilitata.
         if (Recipe != null)
         {
+            Recipe.Normalize();   // migra le ricette vecchie nella lista di processi (idempotente)
             layers.Add(new BaseTerrainLayer(Recipe.baseRadius, Recipe.amplitude, Recipe.frequency,
                 Recipe.octaves, Recipe.lacunarity, Recipe.gain, Recipe.seed));
-            foreach (var c in Recipe.craters)
+            // PROCESSI in ORDINE: ogni passo opera sull'altezza lasciata dai precedenti (sequenza geologica).
+            foreach (var p in Recipe.processes)
             {
-                if (c == null || !c.enabled) continue;
-                var cl = new CraterTerrainLayer(Recipe.baseRadius, c.seed, c.octaves,
-                    c.largestRadius, c.density, c.depthRatio, c.rimRatio, c.rimSharpness);
-                if (c.dominant) cl.AddManual(c.dominantDir, c.dominantRadius);
-                layers.Add(cl);
+                if (p == null || !p.enabled) continue;
+                if (p.type == ProcessType.Crateri)
+                {
+                    var cl = new CraterTerrainLayer(Recipe.baseRadius, p.seed, p.octaves,
+                        p.largestRadius, p.density, p.depthRatio, p.rimRatio, p.rimSharpness);
+                    if (p.dominant) cl.AddManual(p.dominantDir, p.dominantRadius);
+                    layers.Add(cl);
+                }
+                else // Mare: allaga ciò che sta sotto il pelo dell'acqua
+                {
+                    layers.Add(new SeaTerrainLayer(Recipe.baseRadius, p.seaLevel));
+                }
             }
-            // MARE in fondo: allaga ciò che i processi precedenti hanno lasciato sotto il pelo dell'acqua.
-            if (Recipe.seaEnabled) layers.Add(new SeaTerrainLayer(Recipe.baseRadius, Recipe.seaLevel));
             built = true;
             return;
         }

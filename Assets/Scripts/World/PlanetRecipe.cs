@@ -2,15 +2,16 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// RICETTA di un pianeta: la definizione completa e SALVABILE di un corpo (forma base + pipeline di processi
-/// + colore). È la fonte di verità unica condivisa da:
-///   - l'EDITOR (pannelli/slider che la modificano dal vivo),
-///   - il BAKE (la cuoce in texture: albedo/normale/height per l'orbita),
-///   - il RENDERING (il quadtree calcola l'altezza per-vertice da questa ricetta → crateri netti calpestabili).
+/// RICETTA di un pianeta: la definizione completa e SALVABILE di un corpo (forma base + processi + colore).
+/// È la fonte di verità unica condivisa da editor, bake e rendering.
 ///
-/// Serializable + JSON (JsonUtility) → si salva/carica anche in build (l'editor gira dal menu del gioco), non
-/// solo nell'editor Unity. I `TerrainLayer` (BaseTerrainLayer, CraterTerrainLayer, …) sono l'ESECUZIONE di
-/// questa ricetta: PlanetTerrain.ApplyRecipe costruisce lo stack dai campi qui sotto.
+/// I PROCESSI sono una lista ORDINATA (<see cref="processes"/>): ogni voce è un "bombardamento" di crateri o
+/// un "allagamento" (mare). L'ordine è la sequenza geologica e CAMBIA il risultato — un cratere DOPO un mare
+/// scava una buca asciutta nell'acqua; PRIMA del mare viene sommerso. Lo stack di <see cref="TerrainLayer"/>
+/// (in PlanetTerrain) esegue i processi in quest'ordine sopra la forma di base.
+///
+/// Serializable + JSON (JsonUtility). Le ricette VECCHIE (campi <see cref="craters"/> + mare singolo) si
+/// MIGRANO da sole in <see cref="processes"/> al primo uso (vedi <see cref="Normalize"/>): niente rotture.
 /// </summary>
 [System.Serializable]
 public class PlanetRecipe
@@ -27,58 +28,90 @@ public class PlanetRecipe
     public float gain = 0.55f;
     public int seed = 1337;
 
-    [Header("Pipeline di crateri (0..N: aggiungibili/rimovibili dall'editor)")]
-    public List<CraterRecipe> craters = new List<CraterRecipe>();
+    [Header("Processi (lista ORDINATA: crateri / mari; l'ordine conta)")]
+    public List<ProcessStep> processes = new List<ProcessStep>();
 
-    [Header("Colore / mari")]
+    [Header("Colore")]
     public Color soilMean = new Color(0.44f, 0.44f, 0.45f);
     public Color mariaColor = new Color(0.52f, 0.52f, 0.56f);
     public float mariaScale = 2.2f;
     public float mariaStrength = 0.7f;
 
-    [Header("Mari (GEOMETRIA: allagamento)")]
+    [Header("Superficie")]
+    public string soilTexture = "soil_dirt";
+    public float saturation = 1f;
+
+    // --- LEGACY (solo per deserializzare ricette vecchie e migrarle; svuotati da Normalize) ---
+    public List<CraterRecipe> craters = new List<CraterRecipe>();
     public bool seaEnabled = false;
-    public float seaLevel = 0f;        // quota del pelo dell'acqua, METRI relativi al baseRadius (− sotto, + sopra)
+    public float seaLevel = 0f;
     public Color seaColor = new Color(0.13f, 0.33f, 0.52f);
 
-    [Header("Superficie")]
-    public string soilTexture = "soil_dirt";   // texture del suolo in Resources/Textures (grana + macro)
-    public float saturation = 1f;              // saturazione del colore finale (0 = grigio, 1 = naturale, >1 = carico)
+    /// <summary>Migra il modello vecchio (craters + mare singolo) nella lista ordinata di processi, una
+    /// volta. Idempotente: se i processi ci sono già, non fa nulla. I crateri vanno prima, poi il mare —
+    /// l'ordine storico. Da chiamare prima di leggere <see cref="processes"/>.</summary>
+    public void Normalize()
+    {
+        if (processes == null) processes = new List<ProcessStep>();
+        if (processes.Count > 0) return;
+        if (craters != null)
+            foreach (var c in craters)
+                if (c != null) processes.Add(ProcessStep.FromCrater(c));
+        if (seaEnabled) processes.Add(ProcessStep.NewSea(seaLevel, seaColor));
+        craters = new List<CraterRecipe>();   // la verità ora è 'processes'
+        seaEnabled = false;
+    }
 
-    /// <summary>Raggio assoluto del pelo dell'acqua (per shader e SeaTerrainLayer).</summary>
-    public float SeaRadius => baseRadius + seaLevel;
+    /// <summary>L'ultimo mare ATTIVO (= la superficie d'acqua finale), per la tinta dello shader. false se
+    /// nessun mare. Restituisce il raggio assoluto del pelo e il colore.</summary>
+    public bool TryGetSea(out float seaRadius, out Color color)
+    {
+        seaRadius = 0f; color = default; bool found = false;
+        if (processes != null)
+            foreach (var p in processes)
+                if (p != null && p.enabled && p.type == ProcessType.Mare)
+                { seaRadius = baseRadius + p.seaLevel; color = p.seaColor; found = true; }
+        return found;
+    }
 
-    /// <summary>Carica una ricetta salvata come asset del progetto (Assets/Resources/Planets/&lt;name&gt;.json, importata
-    /// come TextAsset) → finisce nella build. null se non c'è. Le ricette dell'editor (persistentDataPath) si
-    /// copiano qui per renderle parte del gioco.</summary>
+    /// <summary>Il primo bombardamento ATTIVO, per il bake della normale-crateri. null se nessuno.</summary>
+    public ProcessStep PrimaryCrater()
+    {
+        if (processes != null)
+            foreach (var p in processes)
+                if (p != null && p.enabled && p.type == ProcessType.Crateri) return p;
+        return null;
+    }
+
     public static PlanetRecipe LoadResource(string name)
     {
         var ta = Resources.Load<TextAsset>("Planets/" + name);
         if (ta == null) { Debug.LogWarning("Ricetta '" + name + "' non trovata in Resources/Planets."); return null; }
-        return JsonUtility.FromJson<PlanetRecipe>(ta.text);
+        var r = JsonUtility.FromJson<PlanetRecipe>(ta.text);
+        r.Normalize();
+        return r;
     }
 
-    /// <summary>Copia della ricetta scalata a un nuovo raggio: le misure ASSOLUTE (ampiezza, raggi dei crateri) si
-    /// scalano col raggio, le grandezze adimensionali (frequenze, densità, rapporti, colori) restano invariate →
-    /// STESSO aspetto autorato, corpo più piccolo o più grande. Il baseRadius risultante DEVE combaciare col
-    /// Radius del CelestialBody (mesh e gravità sulla stessa scala).</summary>
+    /// <summary>Copia scalata a un nuovo raggio: le misure ASSOLUTE (ampiezza, raggi crateri, livello mare)
+    /// scalano col raggio, le adimensionali (frequenze, densità, rapporti, colori) restano → stesso aspetto.</summary>
     public PlanetRecipe ScaledTo(float targetRadius)
     {
         var c = JsonUtility.FromJson<PlanetRecipe>(JsonUtility.ToJson(this));   // copia profonda
+        c.Normalize();
         float k = baseRadius > 1e-3f ? targetRadius / baseRadius : 1f;
         c.baseRadius = targetRadius;
         c.amplitude *= k;
-        c.seaLevel *= k;   // misura assoluta: scala col raggio (il pelo dell'acqua resta alla stessa quota relativa)
-        foreach (var cr in c.craters)
+        foreach (var p in c.processes)
         {
-            if (cr == null) continue;
-            cr.largestRadius *= k;
-            cr.dominantRadius *= k;
+            if (p == null) continue;
+            p.largestRadius *= k;
+            p.dominantRadius *= k;
+            p.seaLevel *= k;
         }
         return c;
     }
 
-    /// <summary>Sfera quasi liscia, nessun processo: il punto di PARTENZA dell'editor (poi aggiungi tutto).</summary>
+    /// <summary>Sfera quasi liscia, nessun processo: il punto di PARTENZA dell'editor.</summary>
     public static PlanetRecipe SmoothSphere()
     {
         return new PlanetRecipe
@@ -88,13 +121,14 @@ public class PlanetRecipe
         };
     }
 
-    /// <summary>Ricetta del "pianeta demo" attuale (tipo Phobos). Punto di partenza dell'editor.</summary>
+    /// <summary>Ricetta del "pianeta demo" (tipo Phobos): un bombardamento.</summary>
     public static PlanetRecipe Demo()
     {
         var r = new PlanetRecipe { name = "Demo (Phobos-like)", baseRadius = 500f, surfaceGravity = 9.81f };
-        r.craters.Add(new CraterRecipe
+        r.processes.Add(new ProcessStep
         {
-            enabled = true, seed = 7777, octaves = 5, largestRadius = 110f, density = 0.9f,
+            type = ProcessType.Crateri,
+            seed = 7777, octaves = 5, largestRadius = 110f, density = 0.9f,
             depthRatio = 0.20f, rimRatio = 0.30f,
             dominant = true, dominantDir = new Vector3(0.3f, 1f, 0.2f), dominantRadius = 230f
         });
@@ -102,21 +136,62 @@ public class PlanetRecipe
     }
 }
 
-/// <summary>Una "pipeline di bombardamento": un campo di crateri con la sua distribuzione e morfologia.
-/// Più pipeline = più popolazioni di crateri (es. antiche grandi + recenti piccole). L'editor le aggiunge/toglie.</summary>
+/// <summary>Tipo di processo nella pipeline ordinata.</summary>
+public enum ProcessType { Crateri, Mare }
+
+/// <summary>Un passo della pipeline: un bombardamento di crateri OPPURE un allagamento (mare). Tiene i
+/// parametri di ENTRAMBI; <see cref="type"/> decide quali si usano. Un'unica classe (niente polimorfismo)
+/// per restare serializzabile da JsonUtility.</summary>
+[System.Serializable]
+public class ProcessStep
+{
+    public ProcessType type = ProcessType.Crateri;
+    public bool enabled = true;
+
+    // --- parametri CRATERI ---
+    public int seed = 7777;
+    public int octaves = 5;
+    public float largestRadius = 110f;
+    public float density = 0.55f;
+    public float depthRatio = 0.20f;
+    public float rimRatio = 0.30f;
+    public float rimSharpness = 2f;
+    public bool dominant = false;
+    public Vector3 dominantDir = new Vector3(0.3f, 1f, 0.2f);
+    public float dominantRadius = 230f;
+
+    // --- parametri MARE ---
+    public float seaLevel = 0f;                 // quota del pelo, metri relativi al baseRadius
+    public Color seaColor = new Color(0.13f, 0.33f, 0.52f);
+
+    public static ProcessStep FromCrater(CraterRecipe c) => new ProcessStep
+    {
+        type = ProcessType.Crateri, enabled = c.enabled,
+        seed = c.seed, octaves = c.octaves, largestRadius = c.largestRadius, density = c.density,
+        depthRatio = c.depthRatio, rimRatio = c.rimRatio, rimSharpness = c.rimSharpness,
+        dominant = c.dominant, dominantDir = c.dominantDir, dominantRadius = c.dominantRadius
+    };
+
+    public static ProcessStep NewSea(float level, Color color) => new ProcessStep
+    {
+        type = ProcessType.Mare, enabled = true, seaLevel = level, seaColor = color
+    };
+}
+
+/// <summary>LEGACY: una pipeline di crateri del modello vecchio. Resta solo per deserializzare/migrare le
+/// ricette salvate prima della lista di processi (vedi PlanetRecipe.Normalize).</summary>
 [System.Serializable]
 public class CraterRecipe
 {
     public bool enabled = true;
     public int seed = 7777;
-    public int octaves = 5;            // bande di taglia (raggio dimezzato per ottava)
-    public float largestRadius = 110f; // m
-    public float density = 0.55f;      // prob. cratere per cella [0..1]
-    public float depthRatio = 0.20f;   // profondità/raggio
-    public float rimRatio = 0.30f;     // bordo/profondità
-    public float rimSharpness = 2f;    // ripidità della parete verso il bordo: 1 = cono, >1 = fondo piatto + bordo a cresta netta
-    [Space]
-    public bool dominant = false;      // un grande impatto piazzato a mano (tipo Stickney)
+    public int octaves = 5;
+    public float largestRadius = 110f;
+    public float density = 0.55f;
+    public float depthRatio = 0.20f;
+    public float rimRatio = 0.30f;
+    public float rimSharpness = 2f;
+    public bool dominant = false;
     public Vector3 dominantDir = new Vector3(0.3f, 1f, 0.2f);
     public float dominantRadius = 230f;
 }

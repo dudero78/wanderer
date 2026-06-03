@@ -25,14 +25,17 @@ public class PlanetEditor : MonoBehaviour
 
     bool geomDirty, colorDirty;
     int settleTimer = -1;              // ≥0 = sto contando i frame dall'ultima modifica per rifinire
-    int pendingRemove = -1;
-    bool pendingAdd;
+    int pendingRemove = -1;            // processo da rimuovere
+    int pendingMoveUp = -1;            // processo da spostare SU (scambio con il precedente)
+    bool pendingAddFlag;               // c'è una nuova pipeline da aggiungere…
+    ProcessType pendingAddType;        // …di questo tipo
+    bool chooseType;                   // sto mostrando il selettore di tipo
     Vector2 scroll;
     GUIStyle title, head, val, btn, fold, tip, add;
 
     // stato dei pannelli collassabili (le sezioni con molti settings si chiudono per fare spazio)
-    bool openBase = true, openColor = true, openSea = false;
-    readonly List<bool> openCrater = new List<bool>();   // uno per pipeline di crateri
+    bool openBase = true, openColor = true;
+    readonly List<bool> openProc = new List<bool>();   // uno per processo della pipeline
 
     static readonly GUIContent[] BaseGC =
     {
@@ -74,6 +77,7 @@ public class PlanetEditor : MonoBehaviour
     {
         terrain = t; smp = s;
         recipe = t != null ? t.Recipe : PlanetRecipe.SmoothSphere();
+        recipe.Normalize();
         if (s != null) faceRenderers = s.GetComponentsInChildren<MeshRenderer>();
         Directory.CreateDirectory(Dir);
     }
@@ -81,13 +85,26 @@ public class PlanetEditor : MonoBehaviour
     void Update()
     {
         if (recipe == null) return;
-        if (pendingRemove >= 0 && pendingRemove < recipe.craters.Count)
+        var P = recipe.processes;
+        if (pendingRemove >= 0 && pendingRemove < P.Count)
         {
-            recipe.craters.RemoveAt(pendingRemove);
-            if (pendingRemove < openCrater.Count) openCrater.RemoveAt(pendingRemove);   // stato di collasso allineato
+            P.RemoveAt(pendingRemove);
+            if (pendingRemove < openProc.Count) openProc.RemoveAt(pendingRemove);
             pendingRemove = -1; geomDirty = true;
         }
-        if (pendingAdd) { recipe.craters.Add(new CraterRecipe()); openCrater.Add(true); pendingAdd = false; geomDirty = true; }
+        if (pendingMoveUp > 0 && pendingMoveUp < P.Count)
+        {
+            int i = pendingMoveUp;
+            (P[i - 1], P[i]) = (P[i], P[i - 1]);                         // scambia col precedente: cambia l'ordine
+            if (i < openProc.Count) (openProc[i - 1], openProc[i]) = (openProc[i], openProc[i - 1]);
+            pendingMoveUp = -1; geomDirty = true;
+        }
+        if (pendingAddFlag)
+        {
+            var step = new ProcessStep { type = pendingAddType };   // default per tipo (crateri o mare)
+            P.Add(step); openProc.Add(true);
+            pendingAddFlag = false; geomDirty = true;
+        }
 
         if (geomDirty)
         {
@@ -135,6 +152,8 @@ public class PlanetEditor : MonoBehaviour
     void PushColors()
     {
         if (faceRenderers == null) return;
+        bool hasSea = recipe.TryGetSea(out float seaR, out Color seaCol);   // ultimo mare attivo della pipeline
+        var st = Resources.Load<Texture2D>("Textures/" + recipe.soilTexture);
         foreach (var r in faceRenderers)
         {
             var m = r != null ? r.sharedMaterial : null;
@@ -143,11 +162,9 @@ public class PlanetEditor : MonoBehaviour
             m.SetColor("_MariaColor", recipe.mariaColor);
             m.SetFloat("_MariaScale", recipe.mariaScale);
             m.SetFloat("_MariaStr", recipe.mariaStrength);
-            m.SetFloat("_SeaOn", recipe.seaEnabled ? 1f : 0f);
-            m.SetFloat("_SeaLevel", recipe.SeaRadius);
-            m.SetColor("_SeaColor", recipe.seaColor);
+            m.SetFloat("_SeaOn", hasSea ? 1f : 0f);
+            if (hasSea) { m.SetFloat("_SeaLevel", seaR); m.SetColor("_SeaColor", seaCol); }
             m.SetFloat("_Saturation", recipe.saturation);
-            var st = Resources.Load<Texture2D>("Textures/" + recipe.soilTexture);
             if (st != null) m.SetTexture("_SoilSand", st);
         }
     }
@@ -157,7 +174,8 @@ public class PlanetEditor : MonoBehaviour
         if (recipe == null) return;
         float ui = Mathf.Max(1f, Screen.height / 1080f);
         EnsureStyles(ui);
-        SyncCraterFolds();
+        recipe.Normalize();
+        SyncProcFolds();
 
         float w = 430f * ui, h = Screen.height - 40f * ui;
         var panel = new Rect(16f * ui, 20f * ui, w, h);
@@ -192,60 +210,74 @@ public class PlanetEditor : MonoBehaviour
             int ns = GUILayout.Toolbar(curSoil, SoilGC, GUILayout.Height(24f * ui));
             if (ns >= 0 && ns != curSoil) { recipe.soilTexture = SoilTextures[ns]; colorDirty = true; }
             recipe.saturation = Slider("Saturazione", "Intensità del colore: 0 = grigio, 1 = naturale, oltre = carico.", recipe.saturation, 0f, 2f, ui, ref colorDirty);
-            GUILayout.Space(8f * ui);
-        }
-
-        // === MARI (tutto ciò che riguarda i mari: geometria + velatura di colore dei bacini) ===
-        if (openSea = Foldout("MARI", openSea, ui))
-        {
-            // mare GEOMETRICO (allagamento)
-            bool seaOn = Toggle("Attiva mare (allaga)", "Allaga il terreno fino alla quota scelta: copre i crateri bassi. È geometria vera (ci cammini sopra).", recipe.seaEnabled, ui, geometry: true, changed: out bool seaTog);
-            if (seaTog) { recipe.seaEnabled = seaOn; geomDirty = true; colorDirty = true; }
-            if (recipe.seaEnabled)
-            {
-                float prevLevel = recipe.seaLevel;
-                recipe.seaLevel = Slider("Livello (m)", "Quota del pelo dell'acqua: negativo riempie solo i bacini, positivo sommerge sempre di più.", recipe.seaLevel, -250f, 150f, ui, ref geomDirty);
-                if (recipe.seaLevel != prevLevel) colorDirty = true;   // anche lo shader segue il pelo (_SeaLevel)
-                recipe.seaColor.r = Slider("Colore R", "Componente rossa del colore dell'acqua.", recipe.seaColor.r, 0f, 1f, ui, ref colorDirty);
-                recipe.seaColor.g = Slider("Colore G", "Componente verde del colore dell'acqua.", recipe.seaColor.g, 0f, 1f, ui, ref colorDirty);
-                recipe.seaColor.b = Slider("Colore B", "Componente blu del colore dell'acqua.", recipe.seaColor.b, 0f, 1f, ui, ref colorDirty);
-            }
-            // velatura di COLORE dei bacini bassi (mari lunari: scuriscono le conche), indipendente dal mare geometrico
             recipe.mariaScale = Slider("Ombra bacini: scala", "Dimensione delle regioni scure nei bacini bassi (effetto di COLORE, non geometria).", recipe.mariaScale, 0.8f, 6f, ui, ref colorDirty);
             recipe.mariaStrength = Slider("Ombra bacini: forza", "Quanto scuriscono i bacini bassi (velatura di colore).", recipe.mariaStrength, 0f, 1f, ui, ref colorDirty);
             GUILayout.Space(8f * ui);
         }
 
-        // === PIPELINE DI CRATERI (ciascuna collassabile) ===
-        for (int i = 0; i < recipe.craters.Count; i++)
+        // === PROCESSI: lista ORDINATA (dall'alto in basso = sequenza geologica). L'ordine cambia l'effetto:
+        // un mare allaga ciò che sta sotto; un bombardamento DOPO il mare scava buche asciutte nell'acqua. ===
+        GUILayout.Label("PROCESSI  (l'ordine conta)", head);
+        var procs = recipe.processes;
+        for (int i = 0; i < procs.Count; i++)
         {
-            var c = recipe.craters[i];
+            var p = procs[i];
+            string kind = p.type == ProcessType.Mare ? "MARE" : "CRATERI";
+            if (!p.enabled) kind += " (off)";
             GUILayout.BeginHorizontal();
-            openCrater[i] = Foldout((c.enabled ? "CRATERI " : "CRATERI (off) ") + (i + 1), openCrater[i], ui, expand: true);
-            if (Button("Togli", "Rimuove questa pipeline di crateri.", ui, 66f)) pendingRemove = i;
+            openProc[i] = Foldout(kind + "  " + (i + 1), openProc[i], ui, expand: true);
+            if (i > 0 && Button("Su", "Sposta prima nella sequenza (sotto i processi precedenti).", ui, 40f)) pendingMoveUp = i;
+            if (i < procs.Count - 1 && Button("Giù", "Sposta dopo nella sequenza.", ui, 40f)) pendingMoveUp = i + 1;
+            if (Button("X", "Rimuove questo processo.", ui, 30f)) pendingRemove = i;
             GUILayout.EndHorizontal();
-            if (!openCrater[i]) continue;
-            c.enabled = Toggle("Attiva", "Accende/spegne questo campo di crateri senza rimuoverlo.", c.enabled, ui, geometry: true, changed: out _);
-            c.largestRadius = Slider("Raggio max (m)", "Raggio del cratere più grande del campo.", c.largestRadius, 10f, 400f, ui, ref geomDirty);
-            c.density = Slider("Densità", "Probabilità che una cella contenga un cratere: alto = più crateri.", c.density, 0f, 1f, ui, ref geomDirty);
-            c.octaves = Mathf.RoundToInt(Slider("Ottave taglia", "Bande di dimensione: più ottave = più taglie (tanti piccoli + pochi grandi).", c.octaves, 1, 7, ui, ref geomDirty));
-            c.depthRatio = Slider("Profondità/raggio", "Quanto è profonda la conca rispetto al suo raggio.", c.depthRatio, 0.05f, 0.5f, ui, ref geomDirty);
-            c.rimRatio = Slider("Bordo/profondità", "Altezza del bordo rialzato rispetto alla profondità.", c.rimRatio, 0.1f, 0.6f, ui, ref geomDirty);
-            c.rimSharpness = Slider("Nitidezza bordi", "Forma della parete: 1 = cono dolce, alto = fondo piatto + bordo a cresta netta.", c.rimSharpness, 1f, 4f, ui, ref geomDirty);
-            c.dominant = Toggle("Dominante", "Aggiunge un grande impatto piazzato a mano (tipo Stickney su Phobos).", c.dominant, ui, geometry: true, changed: out _);
-            if (c.dominant) c.dominantRadius = Slider("  raggio dominante", "Raggio del grande impatto dominante (m).", c.dominantRadius, 50f, 500f, ui, ref geomDirty);
+            if (!openProc[i]) continue;
+            p.enabled = Toggle("Attiva", "Accende/spegne il processo senza rimuoverlo.", p.enabled, ui, geometry: true, changed: out _);
+            if (p.type == ProcessType.Crateri)
+            {
+                p.largestRadius = Slider("Raggio max (m)", "Raggio del cratere più grande del campo.", p.largestRadius, 10f, 400f, ui, ref geomDirty);
+                p.density = Slider("Densità", "Probabilità che una cella contenga un cratere: alto = più crateri.", p.density, 0f, 1f, ui, ref geomDirty);
+                p.octaves = Mathf.RoundToInt(Slider("Ottave taglia", "Bande di dimensione: più ottave = più taglie (tanti piccoli + pochi grandi).", p.octaves, 1, 7, ui, ref geomDirty));
+                p.depthRatio = Slider("Profondità/raggio", "Quanto è profonda la conca rispetto al suo raggio.", p.depthRatio, 0.05f, 0.5f, ui, ref geomDirty);
+                p.rimRatio = Slider("Bordo/profondità", "Altezza del bordo rialzato rispetto alla profondità.", p.rimRatio, 0.1f, 0.6f, ui, ref geomDirty);
+                p.rimSharpness = Slider("Nitidezza bordi", "Forma della parete: 1 = cono dolce, alto = fondo piatto + bordo a cresta netta.", p.rimSharpness, 1f, 4f, ui, ref geomDirty);
+                p.dominant = Toggle("Dominante", "Aggiunge un grande impatto piazzato a mano (tipo Stickney su Phobos).", p.dominant, ui, geometry: true, changed: out _);
+                if (p.dominant) p.dominantRadius = Slider("  raggio dominante", "Raggio del grande impatto dominante (m).", p.dominantRadius, 50f, 500f, ui, ref geomDirty);
+            }
+            else // MARE
+            {
+                float prevLevel = p.seaLevel;
+                p.seaLevel = Slider("Livello (m)", "Quota del pelo dell'acqua: negativo riempie solo i bacini, positivo sommerge sempre di più.", p.seaLevel, -250f, 150f, ui, ref geomDirty);
+                if (p.seaLevel != prevLevel) colorDirty = true;   // anche lo shader segue il pelo
+                p.seaColor.r = Slider("Colore R", "Componente rossa dell'acqua.", p.seaColor.r, 0f, 1f, ui, ref colorDirty);
+                p.seaColor.g = Slider("Colore G", "Componente verde dell'acqua.", p.seaColor.g, 0f, 1f, ui, ref colorDirty);
+                p.seaColor.b = Slider("Colore B", "Componente blu dell'acqua.", p.seaColor.b, 0f, 1f, ui, ref colorDirty);
+            }
             GUILayout.Space(8f * ui);
         }
+
+        // nuova pipeline: in fondo, scegli prima il TIPO → va in coda (ordine = effetto)
         GUILayout.Space(4f * ui);
-        if (GUILayout.Button(new GUIContent("➕  Aggiungi pipeline crateri", "Aggiunge un nuovo campo di crateri sovrapposto."),
-                             add, GUILayout.Height(36f * ui))) pendingAdd = true;
+        if (!chooseType)
+        {
+            if (GUILayout.Button(new GUIContent("+  Nuova pipeline", "Aggiunge un processo in fondo: scegli crateri o mare."), add, GUILayout.Height(36f * ui)))
+                chooseType = true;
+        }
+        else
+        {
+            GUILayout.Label("Che tipo?", head);
+            GUILayout.BeginHorizontal();
+            if (Button("Crateri", "Un bombardamento di crateri, sopra ai processi precedenti.", ui)) { pendingAddType = ProcessType.Crateri; pendingAddFlag = true; chooseType = false; }
+            if (Button("Mare", "Allaga ciò che sta sotto fino a una quota.", ui)) { pendingAddType = ProcessType.Mare; pendingAddFlag = true; chooseType = false; }
+            if (Button("Annulla", "", ui)) chooseType = false;
+            GUILayout.EndHorizontal();
+        }
         GUILayout.Space(12f * ui);
 
         // === FILE ===
         GUILayout.BeginHorizontal();
         if (Button("Salva", "Salva la ricetta come JSON.", ui)) Save();
         if (Button("Carica", "Carica la ricetta col nome corrente.", ui)) Load();
-        if (Button("Nuovo (liscio)", "Riparte da una sfera liscia.", ui)) { recipe = PlanetRecipe.SmoothSphere(); geomDirty = colorDirty = true; }
+        if (Button("Nuovo (liscio)", "Riparte da una sfera liscia.", ui)) { recipe = PlanetRecipe.SmoothSphere(); recipe.Normalize(); openProc.Clear(); geomDirty = colorDirty = true; }
         GUILayout.EndHorizontal();
         GUILayout.Space(6f * ui);
         if (Button("Bake su disco (fissa il corpo)", "Cuoce le texture del corpo corrente in Resources/BakedPlanet_<nome> (pronte per il gioco).", ui)) BakeToDisk();
@@ -260,11 +292,11 @@ public class PlanetEditor : MonoBehaviour
         GUILayout.EndArea();
     }
 
-    /// <summary>Tiene la lista degli stati di collasso allineata al numero di pipeline di crateri.</summary>
-    void SyncCraterFolds()
+    /// <summary>Tiene la lista degli stati di collasso allineata al numero di processi.</summary>
+    void SyncProcFolds()
     {
-        while (openCrater.Count < recipe.craters.Count) openCrater.Add(true);
-        while (openCrater.Count > recipe.craters.Count) openCrater.RemoveAt(openCrater.Count - 1);
+        while (openProc.Count < recipe.processes.Count) openProc.Add(true);
+        while (openProc.Count > recipe.processes.Count) openProc.RemoveAt(openProc.Count - 1);
     }
 
     void ApplyBasePreset(int p)
@@ -333,7 +365,12 @@ public class PlanetEditor : MonoBehaviour
     {
         var path = Path.Combine(Dir, Sanitize(recipe.name) + ".json");
         if (!File.Exists(path)) { Debug.LogWarning("Nessuna ricetta '" + recipe.name + "' in " + Dir); return; }
+        // azzera prima: una ricetta VECCHIA (senza 'processes') non sovrascriverebbe i processi correnti →
+        // resterebbero quelli vecchi. Pulendo, la migrazione (Normalize) riparte pulita da craters/mare.
+        recipe.processes.Clear(); recipe.craters.Clear(); recipe.seaEnabled = false;
         JsonUtility.FromJsonOverwrite(File.ReadAllText(path), recipe);
+        recipe.Normalize();
+        openProc.Clear();
         geomDirty = colorDirty = true;
         Debug.Log("Ricetta caricata: " + path);
     }

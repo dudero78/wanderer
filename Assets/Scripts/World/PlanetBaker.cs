@@ -93,11 +93,15 @@ public static class PlanetBaker
             mat.SetColor("_MariaColor", rec.mariaColor);
             mat.SetFloat("_MariaScale", rec.mariaScale);
             mat.SetFloat("_MariaStr", rec.mariaStrength);
-            // MARE geometrico: il pelo dell'acqua è a raggio assoluto SeaRadius; lo shader tinge i punti
-            // sotto quella quota (la mesh li ha già allagati via SeaTerrainLayer).
-            mat.SetFloat("_SeaOn", rec.seaEnabled ? 1f : 0f);
-            mat.SetFloat("_SeaLevel", rec.SeaRadius);
-            mat.SetColor("_SeaColor", rec.seaColor);
+            // MARE geometrico: il pelo dell'acqua (ultimo mare attivo) è a raggio assoluto; lo shader tinge
+            // i punti a quel livello (la mesh li ha già allagati via SeaTerrainLayer).
+            if (rec.TryGetSea(out float seaR, out Color seaCol))
+            {
+                mat.SetFloat("_SeaOn", 1f);
+                mat.SetFloat("_SeaLevel", seaR);
+                mat.SetColor("_SeaColor", seaCol);
+            }
+            else mat.SetFloat("_SeaOn", 0f);
             mat.SetFloat("_Saturation", rec.saturation);
         }
         if (maskTex != null) mat.SetTexture("_MaskMap", maskTex);
@@ -145,7 +149,8 @@ public static class PlanetBaker
         // niente crateri fantasma sulla sfera liscia di partenza). Senza ricetta usa i campi legacy della scena.
         if (terrain != null && terrain.Recipe != null)
         {
-            var c = PrimaryCrater(terrain);
+            terrain.Recipe.Normalize();
+            var c = terrain.Recipe.PrimaryCrater();
             m.SetFloat("_CraterSeed", c != null ? c.seed : 0);
             m.SetFloat("_CraterOctaves", c != null ? c.octaves : 1);
             m.SetFloat("_CraterLargest", c != null ? c.largestRadius : 100f);
@@ -168,16 +173,6 @@ public static class PlanetBaker
         // leggibili senza effetto metallico.
         m.SetFloat("_CraterNormalStr", 0.7f);
         return m;
-    }
-
-    /// <summary>Prima pipeline di crateri attiva della ricetta (o null se non c'è ricetta / nessuna attiva).
-    /// Il bake-normale gestisce UN campo: nell'editor preview rappresenta la popolazione principale.</summary>
-    static CraterRecipe PrimaryCrater(PlanetTerrain terrain)
-    {
-        var r = terrain != null ? terrain.Recipe : null;
-        if (r == null) return null;
-        foreach (var c in r.craters) if (c != null && c.enabled) return c;
-        return null;
     }
 
     // ---- BAKE DELLE RENDERTEXTURE (per faccia) -----------------------------------------------------

@@ -70,16 +70,18 @@ public class GpuHeightBaker : IDisposable
             cs.SetFloat("_Gain", rec.gain);
             cs.SetInt("_Seed", rec.seed);
 
-            foreach (var c in rec.craters)
+            // NB: il path GPU calcola solo base + crateri (il mare è su CPU via SeaTerrainLayer). Parcheggiato.
+            rec.Normalize();
+            foreach (var p in rec.processes)
             {
-                if (c == null || !c.enabled) continue;
+                if (p == null || !p.enabled || p.type != ProcessType.Crateri) continue;
                 craters.Add(new CraterGPU
                 {
-                    seed = c.seed, octaves = c.octaves, largestRadius = c.largestRadius,
-                    density = c.density, depthRatio = c.depthRatio, rimRatio = c.rimRatio,
-                    rimSharpness = c.rimSharpness,
-                    hasDominant = c.dominant ? 1f : 0f,
-                    dominantDir = c.dominantDir.normalized, dominantRadius = c.dominantRadius
+                    seed = p.seed, octaves = p.octaves, largestRadius = p.largestRadius,
+                    density = p.density, depthRatio = p.depthRatio, rimRatio = p.rimRatio,
+                    rimSharpness = p.rimSharpness,
+                    hasDominant = p.dominant ? 1f : 0f,
+                    dominantDir = p.dominantDir.normalized, dominantRadius = p.dominantRadius
                 });
             }
         }
