@@ -243,6 +243,11 @@ public class GpuPlanetSurface : MonoBehaviour
     void Update()
     {
         if (!Active || !Ready) return;
+        // Dopo un DOMAIN RELOAD in Play (ricompilazione di script/shader durante una sessione attiva) i
+        // GraphicsBuffer — non serializzabili — tornano NULL, mentre Ready/Active vengono ripristinati dal
+        // backup: disegnare qui lancerebbe ArgumentNullException A OGNI FRAME (stallo + crash). Non disegnare
+        // finché i buffer non sono validi (al prossimo Rebuild/Setup tornano buoni).
+        if (mat == null || idxBuf == null || !idxBuf.IsValid() || posBuf == null || !posBuf.IsValid()) return;
         var rp = new RenderParams(mat) { worldBounds = bounds };
         Graphics.RenderPrimitivesIndexed(rp, MeshTopology.Triangles, idxBuf, indexCount);
     }
