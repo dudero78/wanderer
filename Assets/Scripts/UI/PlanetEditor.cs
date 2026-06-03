@@ -31,6 +31,8 @@ public class PlanetEditor : MonoBehaviour
 
     static readonly string[] BasePresets = { "Liscia", "Collinare", "Montagnosa", "Irregolare" };
     static readonly string[] BodyPresets = { "Lunare", "Marziano", "Ghiacciato" };
+    static readonly string[] SoilLabels = { "Terra", "Rosso", "Roccia" };
+    static readonly string[] SoilTextures = { "soil_dirt", "soil_red", "soil_rock" };
 
     /// <summary>Aggancio al bake su disco, iniettato dall'assembly Editor (il codice runtime non può
     /// referenziarlo). (terrain, nome cartella) → ok. Null in build → il pulsante avvisa che serve l'editor.</summary>
@@ -106,6 +108,12 @@ public class PlanetEditor : MonoBehaviour
             m.SetColor("_MariaColor", recipe.mariaColor);
             m.SetFloat("_MariaScale", recipe.mariaScale);
             m.SetFloat("_MariaStr", recipe.mariaStrength);
+            m.SetFloat("_SeaOn", recipe.seaEnabled ? 1f : 0f);
+            m.SetFloat("_SeaLevel", recipe.SeaRadius);
+            m.SetColor("_SeaColor", recipe.seaColor);
+            m.SetFloat("_Saturation", recipe.saturation);
+            var st = Resources.Load<Texture2D>("Textures/" + recipe.soilTexture);
+            if (st != null) m.SetTexture("_SoilSand", st);
         }
     }
 
@@ -142,6 +150,26 @@ public class PlanetEditor : MonoBehaviour
         if (tp >= 0) { ApplyBodyPreset(tp); colorDirty = true; }
         recipe.mariaScale = Slider("Mari: scala regioni", recipe.mariaScale, 0.8f, 6f, ui, ref colorDirty);
         recipe.mariaStrength = Slider("Mari: forza", recipe.mariaStrength, 0f, 1f, ui, ref colorDirty);
+        // texture del suolo + saturazione del colore
+        int curSoil = System.Array.IndexOf(SoilTextures, recipe.soilTexture);
+        int ns = GUILayout.Toolbar(curSoil, SoilLabels, GUILayout.Height(24f * ui));
+        if (ns >= 0 && ns != curSoil) { recipe.soilTexture = SoilTextures[ns]; colorDirty = true; }
+        recipe.saturation = Slider("Saturazione", recipe.saturation, 0f, 2f, ui, ref colorDirty);
+        GUILayout.Space(10f * ui);
+
+        // --- MARI (GEOMETRIA: allagamento) ---
+        GUILayout.Label("MARI (geometria)", head);
+        bool seaOn = GUILayout.Toggle(recipe.seaEnabled, "  Attiva mare (allaga sotto la quota)", GUILayout.Height(20f * ui));
+        if (seaOn != recipe.seaEnabled) { recipe.seaEnabled = seaOn; geomDirty = true; colorDirty = true; }
+        if (recipe.seaEnabled)
+        {
+            float prevLevel = recipe.seaLevel;
+            recipe.seaLevel = Slider("Livello (m, − sotto / + sopra)", recipe.seaLevel, -250f, 150f, ui, ref geomDirty);
+            if (recipe.seaLevel != prevLevel) colorDirty = true;   // anche lo shader segue il pelo (_SeaLevel)
+            recipe.seaColor.r = Slider("Colore mare R", recipe.seaColor.r, 0f, 1f, ui, ref colorDirty);
+            recipe.seaColor.g = Slider("Colore mare G", recipe.seaColor.g, 0f, 1f, ui, ref colorDirty);
+            recipe.seaColor.b = Slider("Colore mare B", recipe.seaColor.b, 0f, 1f, ui, ref colorDirty);
+        }
         GUILayout.Space(10f * ui);
 
         // --- PIPELINE DI CRATERI ---

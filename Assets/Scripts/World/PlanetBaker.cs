@@ -93,10 +93,23 @@ public static class PlanetBaker
             mat.SetColor("_MariaColor", rec.mariaColor);
             mat.SetFloat("_MariaScale", rec.mariaScale);
             mat.SetFloat("_MariaStr", rec.mariaStrength);
+            // MARE geometrico: il pelo dell'acqua è a raggio assoluto SeaRadius; lo shader tinge i punti
+            // sotto quella quota (la mesh li ha già allagati via SeaTerrainLayer).
+            mat.SetFloat("_SeaOn", rec.seaEnabled ? 1f : 0f);
+            mat.SetFloat("_SeaLevel", rec.SeaRadius);
+            mat.SetColor("_SeaColor", rec.seaColor);
+            mat.SetFloat("_Saturation", rec.saturation);
         }
         if (maskTex != null) mat.SetTexture("_MaskMap", maskTex);
         if (detailTex != null) mat.SetTexture("_DetailNormal", detailTex);
-        if (soil != null) mat.SetTexture("_SoilSand", soil);
+        // texture del suolo: dalla ricetta se indicata (soil_dirt/red/rock), altrimenti quella passata.
+        var soilTex = soil;
+        if (rec != null && !string.IsNullOrEmpty(rec.soilTexture))
+        {
+            var t = Resources.Load<Texture2D>("Textures/" + rec.soilTexture);
+            if (t != null) soilTex = t;
+        }
+        if (soilTex != null) mat.SetTexture("_SoilSand", soilTex);
         if (craterTex != null) mat.SetTexture("_CraterNormalMap", craterTex);
         // L'albedo equirect (_AlbedoMap/_AlbedoMapStr) resta una feature dello shader per i corpi con DATI REALI
         // o mappe autorate; di default OFF → si usa l'albedo procedurale (mari + variazione) dello shader.

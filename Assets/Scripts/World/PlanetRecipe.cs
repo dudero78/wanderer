@@ -36,6 +36,18 @@ public class PlanetRecipe
     public float mariaScale = 2.2f;
     public float mariaStrength = 0.7f;
 
+    [Header("Mari (GEOMETRIA: allagamento)")]
+    public bool seaEnabled = false;
+    public float seaLevel = 0f;        // quota del pelo dell'acqua, METRI relativi al baseRadius (− sotto, + sopra)
+    public Color seaColor = new Color(0.13f, 0.33f, 0.52f);
+
+    [Header("Superficie")]
+    public string soilTexture = "soil_dirt";   // texture del suolo in Resources/Textures (grana + macro)
+    public float saturation = 1f;              // saturazione del colore finale (0 = grigio, 1 = naturale, >1 = carico)
+
+    /// <summary>Raggio assoluto del pelo dell'acqua (per shader e SeaTerrainLayer).</summary>
+    public float SeaRadius => baseRadius + seaLevel;
+
     /// <summary>Carica una ricetta salvata come asset del progetto (Assets/Resources/Planets/&lt;name&gt;.json, importata
     /// come TextAsset) → finisce nella build. null se non c'è. Le ricette dell'editor (persistentDataPath) si
     /// copiano qui per renderle parte del gioco.</summary>
@@ -56,6 +68,7 @@ public class PlanetRecipe
         float k = baseRadius > 1e-3f ? targetRadius / baseRadius : 1f;
         c.baseRadius = targetRadius;
         c.amplitude *= k;
+        c.seaLevel *= k;   // misura assoluta: scala col raggio (il pelo dell'acqua resta alla stessa quota relativa)
         foreach (var cr in c.craters)
         {
             if (cr == null) continue;

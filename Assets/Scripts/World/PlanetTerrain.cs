@@ -81,6 +81,8 @@ public class PlanetTerrain : MonoBehaviour
                 if (c.dominant) cl.AddManual(c.dominantDir, c.dominantRadius);
                 layers.Add(cl);
             }
+            // MARE in fondo: allaga ciò che i processi precedenti hanno lasciato sotto il pelo dell'acqua.
+            if (Recipe.seaEnabled) layers.Add(new SeaTerrainLayer(Recipe.baseRadius, Recipe.seaLevel));
             built = true;
             return;
         }

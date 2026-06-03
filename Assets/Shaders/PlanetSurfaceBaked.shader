@@ -29,6 +29,16 @@ Shader "Wanderer/PlanetBaked"
         _MariaScale ("Mari: scala delle regioni", Float) = 2.2
         _MariaStr ("Mari: forza", Range(0,1)) = 0.7
 
+        // MARE GEOMETRICO: dove la mesh è stata allagata (SeaTerrainLayer) il terreno è piatto a quota
+        // _SeaLevel (raggio ASSOLUTO del pelo dell'acqua). Qui tingiamo quei punti col colore mare e
+        // lisciamo la normale (acqua piatta). _SeaOn = 0/1.
+        _SeaOn ("Mare attivo", Float) = 0
+        _SeaLevel ("Mare: raggio del pelo dell'acqua", Float) = 0
+        _SeaColor ("Mare: colore", Color) = (0.13, 0.33, 0.52, 1)
+
+        // saturazione del colore finale: 0 = grigio, 1 = naturale, >1 = carico.
+        _Saturation ("Saturazione", Range(0,2)) = 1
+
         // SUOLO LISCIO: colore quasi uniforme. Il bello è la FORMA del terreno e la LUCE, non il
         // dettaglio di superficie. _SoilMean = colore base (grigio lunare); _SoilTint lo modula.
         // Per un pianeta giallo/rosso bastano questi due colori (è la "identità" del pianeta).
@@ -100,6 +110,9 @@ Shader "Wanderer/PlanetBaked"
         float _BaseRadius, _Amplitude;
         float _GrainStr, _DetailScale, _MacroVar, _MacroScale, _SandDetail;
         float _MorphRange;
+        float _SeaOn, _SeaLevel;
+        fixed4 _SeaColor;
+        float _Saturation;
         float _CraterNormalApply, _CraterFadeNear, _CraterFadeFar;
         sampler2D _MaskMap;
         sampler2D _DetailNormal;
@@ -164,6 +177,10 @@ Shader "Wanderer/PlanetBaked"
             float3 P = IN.localPos;
             float h = max(length(P), 1e-4);
             float3 N = P / h;               // normale radiale (spazio oggetto)
+
+            // MARE: 1 dove il punto è al pelo dell'acqua (mesh allagata e piatta a _SeaLevel), 0 sulla terra
+            // appena sopra. Banda di 2 m per una riva morbida. La geometria la fa SeaTerrainLayer; questo è aspetto.
+            float seaMask = (_SeaOn > 0.5) ? 1.0 - smoothstep(_SeaLevel, _SeaLevel + 2.0, h) : 0.0;
 
             float dist = distance(IN.worldPos, _WorldSpaceCameraPos);
 
@@ -243,7 +260,12 @@ Shader "Wanderer/PlanetBaked"
             float craterFade = 1.0 - smoothstep(_CraterFadeNear, _CraterFadeFar, dist);
             nxy += cn.xy * (_CraterNormalApply * craterFade);
 
-            o.Normal = normalize(float3(nxy, 1.0));
+            // sull'acqua liscia la normale: niente grana/crateri, è un pelo piatto (riflette uniforme).
+            o.Normal = normalize(float3(nxy * (1.0 - seaMask), 1.0));
+
+            // tinta del MARE: copre suolo e crateri sommersi col colore dell'acqua. Prima dell'eclissi così
+            // l'ombra scurisce anche il mare.
+            alb = lerp(alb, _SeaColor.rgb, seaMask);
 
             // === ECLISSI: ombra analitica di un altro corpo ===
             // Dal punto P guardo verso il sole (L) e calcolo quanto del DISCO solare è coperto dal disco
@@ -269,6 +291,10 @@ Shader "Wanderer/PlanetBaked"
                     alb *= 1.0 - f * peak * _EclipseStrength;
                 }
             }
+
+            // SATURAZIONE: modula verso il grigio (luminanza) o esalta. Ultimo passo sul colore.
+            float luma = dot(alb, float3(0.2126, 0.7152, 0.0722));
+            alb = lerp(float3(luma, luma, luma), alb, _Saturation);
 
             o.Albedo = alb;
         }
