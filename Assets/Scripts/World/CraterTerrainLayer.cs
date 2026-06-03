@@ -72,12 +72,24 @@ public class CraterTerrainLayer : TerrainLayer
         this.distribution = distribution;
     }
 
-    // ruota una direzione attorno all'asse Y di un angolo dato: muovendo la fase 'distribution' il campo di
-    // crateri SCORRE lungo il pianeta → si esplorano disposizioni diverse senza cambiare il pattern (il seme).
-    static Vector3 RotateY(Vector3 d, float ang)
+    // DISTRIBUZIONE = DRIFT DEL CENTRO. Far "scorrere" rigidamente i crateri sulla sfera sarebbe per forza una
+    // ROTAZIONE (le uniche isometrie della sfera) → sembra girare il pianeta; deformare il campo (warp) li
+    // STIRA. La via giusta: muovere il CENTRO di ogni cratere dentro la sua cella, ognuno nella propria
+    // direzione/velocità (dall'hash) → l'insieme si ridistribuisce restando fatto di cerchi. PP = ping-pong
+    // (onda triangolare) che tiene il centro in [0,1] senza salti; a distribuzione=0 ridà la posizione
+    // originale (PP(j0)=j0). Identico in PlanetHeight.compute.
+    static float PP(float x)
     {
-        float c = Mathf.Cos(ang), s = Mathf.Sin(ang);
-        return new Vector3(c * d.x + s * d.z, d.y, -s * d.x + c * d.z);
+        float r = x - 2f * Mathf.Floor(x * 0.5f);
+        return 1f - Mathf.Abs(r - 1f);
+    }
+
+    static float Jitter(uint hBase, uint hSpeed, float dist)
+    {
+        float j0 = U01(hBase);
+        if (dist <= 0f) return j0;
+        float spd = 0.5f + U01(hSpeed);          // velocità per-cratere [0.5,1.5]
+        return PP(j0 + dist * spd);
     }
 
     /// <summary>Peso della densità per l'ottava o (0 = taglia più grande … octaves-1 = più piccola): interpola
@@ -107,10 +119,6 @@ public class CraterTerrainLayer : TerrainLayer
         for (int i = 0; i < manual.Count; i++)
             Accumulate(unitDir, manual[i].dir, manual[i].radius, ref total);
 
-        // DISTRIBUZIONE: ruota la direzione di campionamento → l'intero campo di crateri scorre sul pianeta
-        // (centri e query nello stesso frame ruotato: distanze corrette, equivale a ruotare i crateri nel mondo).
-        Vector3 dir = distribution != 0f ? RotateY(unitDir, distribution * 6.2831853f) : unitDir;
-
         // --- campo procedurale per ottave di taglia ---
         float radius = largestRadius;
         for (int o = 0; o < octaves; o++)
@@ -120,7 +128,7 @@ public class CraterTerrainLayer : TerrainLayer
             float gscale = 1f / cellAng;                 // dir*gscale → coordinate di cella
             float octDensity = density * SizeWeight(o);  // meno/più crateri di questa fascia di taglia
 
-            Vector3 g = dir * gscale;
+            Vector3 g = unitDir * gscale;
             int cx = Mathf.FloorToInt(g.x), cy = Mathf.FloorToInt(g.y), cz = Mathf.FloorToInt(g.z);
 
             for (int dz = -1; dz <= 1; dz++)
@@ -131,11 +139,11 @@ public class CraterTerrainLayer : TerrainLayer
                 uint h = Hash(X, Y, Z, seed + o * 9176);
                 if (U01(h) > octDensity) continue;       // questa cella non ha cratere di questa fascia
 
-                // centro jitterato dentro la cella, proiettato sulla sfera
+                // centro jitterato dentro la cella + DRIFT della distribuzione (ogni cratere scivola nella sua cella)
                 Vector3 c = new Vector3(
-                    (X + U01(h * 0x9E3779B1u + 1u)) / gscale,
-                    (Y + U01(h * 0x85EBCA77u + 2u)) / gscale,
-                    (Z + U01(h * 0xC2B2AE3Du + 3u)) / gscale);
+                    (X + Jitter(h * 0x9E3779B1u + 1u, h * 0x9E3779B1u + 11u, distribution)) / gscale,
+                    (Y + Jitter(h * 0x85EBCA77u + 2u, h * 0x85EBCA77u + 12u, distribution)) / gscale,
+                    (Z + Jitter(h * 0xC2B2AE3Du + 3u, h * 0xC2B2AE3Du + 13u, distribution)) / gscale);
                 float cm = c.magnitude;
                 if (cm < 1e-6f) continue;
                 Vector3 cdir = c / cm;
@@ -143,7 +151,7 @@ public class CraterTerrainLayer : TerrainLayer
                 // raggio jitterato attorno al raggio dell'ottava, simmetrico: [2−JITTER_MAX .. JITTER_MAX]
                 float lo = 2f - JITTER_MAX;
                 float rad = radius * (lo + (JITTER_MAX - lo) * U01(h * 0x27D4EB2Fu + 4u));
-                Accumulate(dir, cdir, rad, ref total);   // query e centro nel frame ruotato
+                Accumulate(unitDir, cdir, rad, ref total);
             }
 
             radius *= 0.5f;

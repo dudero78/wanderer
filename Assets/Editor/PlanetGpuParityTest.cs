@@ -22,6 +22,19 @@ public static class PlanetGpuParityTest
         bool okAll = true;
         okAll &= TestBody("Pianeta", PlanetPresets.ConfigureDemoPlanet);
         okAll &= TestBody("Cetra", t => GameBootstrap.ApplyCetraRecipe(t));
+        // copre i parametri crateri ESTESI sul path GPU (pesi per taglia + distribuzione): se divergessero,
+        // l'anteprima GPU dell'editor mostrerebbe crateri diversi dalla CPU.
+        okAll &= TestBody("Crateri pesati+distrib", t =>
+        {
+            var rec = PlanetRecipe.SmoothSphere();
+            rec.processes.Add(new ProcessStep
+            {
+                type = ProcessType.Crateri, seed = 4242, octaves = 6, largestRadius = 90f,
+                density = 0.5f, depthRatio = 0.2f, rimRatio = 0.3f, rimSharpness = 2.5f,
+                wLarge = 0.3f, wMedium = 1f, wSmall = 0.7f, distribution = 0.6f
+            });
+            t.ApplyRecipe(rec);
+        });
         Debug.Log(okAll ? "<color=green>Parità GPU↔CPU: OK su tutti i corpi.</color>"
                         : "<color=red>Parità GPU↔CPU: FALLITA — NON integrare finché non combaciano.</color>");
     }

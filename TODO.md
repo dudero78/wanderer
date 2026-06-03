@@ -1,10 +1,11 @@
 # Wanderer — TODO
 
-Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **3 giugno 2026** (sessione editor estesa).
+Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **3 giugno 2026** (sessione GPU-editor, Tappa 1).
 Dettaglio tecnico nel `CLAUDE.md`.
 
-> **PROSSIMA SESSIONE — PARTI DA QUI:** GPU per l'editor (B1), **tappa 1 = render diretto dai buffer GPU**
-> (no readback) col pezzo HLSL già provato (base+crateri). Vedi sezione "Prossimo". Tutto committato su `main`.
+> **PROSSIMA SESSIONE — PARTI DA QUI:** GPU per l'editor, **Tappa 2 = estendere l'HLSL a MARI e TETTONICA**
+> (con parità GPU↔CPU a ogni passo). La Tappa 1 (render-dai-buffer + crateri a parità completa) è FATTA.
+> Vedi sezione "Prossimo". Tutto committato su `main`.
 
 ## Fatto (milestone)
 
@@ -58,6 +59,16 @@ Dettaglio tecnico nel `CLAUDE.md`.
     rilascio). **Bake dal pulsante**; **"Carica" = file picker** sulla cartella dei pianeti.
 - ✅ **Luna** (terzo corpo): creato nell'editor, r800, in orbita al SOLE (semiasse 95000). Ricetta versionata
   `Resources/Planets/Luna.json`; aggiunta al comando "Bake planet assets".
+- ✅ **GPU per l'editor — TAPPA 1 (render-dai-buffer, NO readback):** la geometria dell'anteprima editor è
+  calcolata sulla GPU (`PlanetHeight.compute`, kernel `CSFaceGrid`+`CSFaceNormals`) e disegnata direttamente dai
+  `GraphicsBuffer` con `Graphics.RenderPrimitivesIndexed` (`GpuPlanetSurface.cs` + shader `Wanderer/PlanetProcedural`),
+  niente mesh CPU di mezzo. Toggle **G** nell'editor (GPU↔CPU, confronto A/B). Anteprima **full-res LIVE** (512,
+  default `gpuRes`): rigenera a ogni edit, niente bassa-res/attesa. Cuciture fra facce chiuse con lo **snap a
+  lattice** del punto-cubo (come il quadtree). Normali geometriche segnaposto (la resa vera = PlanetBaked, tappa
+  dopo). **Crateri a PARITÀ COMPLETA** con la CPU: portati in HLSL anche i pesi per taglia (Grandi/Medi/Piccoli)
+  e la "Distribuzione" — quest'ultima ri-disegnata come **DRIFT del centro** (ogni cratere scivola nella sua
+  cella, l'insieme si ridistribuisce, i crateri restano tondi; era una rotazione che "girava il pianeta").
+  Test parità GPU↔CPU verde sub-mm (incluso il caso pesi+distribuzione).
 
 ## Accantonato (deciso ma rimandato)
 
@@ -73,23 +84,24 @@ Dettaglio tecnico nel `CLAUDE.md`.
 
 ## Prossimo — FOCUS: GPU per l'editor (= B1)
 
-- ⬜ **GPU per l'editor — render diretto dai buffer (deciso con Dario, È la rotta).** Spostare TUTTO il calcolo
-  della geometria dell'editor sulla GPU e disegnarla **dai buffer GPU senza readback** (era il blocco di B2).
-  L'editor è il **beachhead ideale**: nessun walker, nessuna collisione → puro visivo. Doppio guadagno: anteprima
-  **full-res LIVE** (niente thread/bassa-res, e la res altissima risolve anche i gradini delle scarpate) **+** il
-  lavoro è riusabile pari pari per i corpi in gioco (B1). La colorazione resta lo shader `PlanetBaked` (lavora su
-  qualunque mesh) → NON va rifatta; si GPU-genera solo la GEOMETRIA. **TAPPE (verificabili una a una):**
-  - **(1) ← PARTI DA QUI: render-dai-buffer** col pezzo HLSL GIÀ PROVATO (base+crateri, `PlanetHeight.compute`):
-    compute riempie un vertex buffer → `DrawProcedural`/`RenderPrimitives`, niente readback, disegnato nell'editor.
-    Sblocca lo schema (prova che il no-readback funziona).
-  - **(2) estendere l'HLSL** a mari (rugosità/forma) e tettonica (placche/soft-Voronoi/warp/uplift), con **parità**
-    a ogni passo (menu "Test parità altezza GPU↔CPU", da estendere per processo).
-  - **(3) cablare l'editor** sulla mesh GPU (anteprima full-res live), dismettere il percorso CPU del preview.
-  - Disciplina: pipeline in 2 lingue (C# per walker/bake + HLSL per render GPU), la **parità fa da rete**.
-  - Fondazione già pronta: `PlanetHeight.compute` (base+crateri provati al millimetro), `GpuHeightBaker.cs`,
-    `PlanetGpuParityTest.cs`; bug Metal `float3` chiuso → **buffer piatto di float**. B2 (compute→readback→mesh CPU)
-    PARCHEGGIATO perché il readback TRASCINA (il commento in `GameBootstrap.AddSurface` spiega come riattivare il
-    path CPU del gioco). Poi: stessa resa GPU sostituisce SingleMeshPlanet/quadtree IN GIOCO.
+La **Tappa 1** è FATTA (vedi "Fatto": render-dai-buffer + crateri a parità completa). Restano:
+
+- ⬜ **TAPPA 2 — estendere l'HLSL a MARI e TETTONICA** (`PlanetHeight.compute`), con **parità GPU↔CPU a ogni
+  passo** (estendere `PlanetGpuParityTest` per processo). Oggi il path GPU calcola **base + crateri**; mare e
+  tettonica vengono ignorati nell'anteprima GPU. Da portare in HLSL, fedeli ai layer C#:
+  - **Mare** (`SeaTerrainLayer`): allagamento a quota `seaLevel` + rilievo del fondale (rugosità/scala/forma).
+  - **Tettonica** (`TectonicTerrainLayer`): placche **soft-Voronoi** (quota continua), continenti/oceani,
+    catene/rift ai confini, coste frastagliate (domain warp) + dolcezza coste.
+  - Attenzione all'ORDINE dei processi (la pipeline è una lista ordinata: un mare allaga ciò che sta sotto).
+- ⬜ **TAPPA 3 — cablare l'editor sulla mesh GPU come anteprima DEFINITIVA**: usare lo shader vero
+  (`Wanderer/PlanetBaked`, colore + normali analitiche → spariscono il tratteggio e la cucitura di shading
+  residui delle normali geometriche segnaposto), dismettere il percorso CPU del preview. Poi: stessa resa GPU
+  sostituisce SingleMeshPlanet/quadtree **IN GIOCO** (B1).
+- Disciplina: pipeline in 2 lingue (C# per walker/bake + HLSL per render GPU), la **parità fa da rete**.
+- Fondazione: `PlanetHeight.compute`, `GpuHeightBaker.BindShapeParams` (unica fonte dei parametri GPU),
+  `GpuPlanetSurface.cs`, `PlanetGpuParityTest.cs`. Bug Metal `float3` chiuso → **buffer piatti di float**. Il
+  vecchio B2 (compute→readback→mesh CPU) resta PARCHEGGIATO (il readback TRASCINA): per il GIOCO si userà il
+  render-dai-buffer della Tappa 1/3, non il readback.
 - ⬜ **Acqua liquida** (toggle "liquido" sul Mare): resa trasparente + nuoto/affondamento. Condivide l'allagamento.
 - ⬜ **Altri processi**: montagne (ridged noise per la texture delle catene), ghiaccio, erosione (bake?).
 - ⬜ **Migliorie editor**: editing per-feature (cancella/modifica singolo cratere), più preset.

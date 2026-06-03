@@ -7,7 +7,8 @@ using UnityEngine;
 /// </summary>
 public class PlanetEditorBootstrap : MonoBehaviour
 {
-    public int meshRes = 256;   // risoluzione mesh dell'editor (l'anteprima live usa una res più bassa)
+    public int meshRes = 256;   // risoluzione mesh CPU dell'editor (l'anteprima live usa una res più bassa)
+    public int gpuRes = 512;    // risoluzione anteprima GPU: alta perché sulla GPU costa quasi nulla (è il vantaggio della Tappa 1)
 
     void Start()
     {
@@ -57,8 +58,18 @@ public class PlanetEditorBootstrap : MonoBehaviour
             Debug.LogError("PlanetEditor: shader/bake non disponibili — impossibile mostrare il pianeta.");
         }
 
+        // --- anteprima GPU (Tappa 1 "GPU per l'editor"): geometria sulla GPU, render-dai-buffer senza
+        //     readback. Convive con la mesh CPU; l'editor commuta fra le due col tasto G per il confronto. ---
+        GpuPlanetSurface gpu = null;
+        if (smp != null)
+        {
+            gpu = planetGo.AddComponent<GpuPlanetSurface>();
+            gpu.Setup(terrain, gpuRes);
+        }
+
         // --- UI editor ---
         var ed = gameObject.AddComponent<PlanetEditor>();
         ed.Init(terrain, smp);
+        ed.SetGpuSurface(gpu);
     }
 }

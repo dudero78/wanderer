@@ -20,6 +20,8 @@ public class PlanetEditor : MonoBehaviour
 
     PlanetTerrain terrain;
     SingleMeshPlanet smp;
+    GpuPlanetSurface gpu;              // anteprima GPU (Tappa 1): commutabile con la mesh CPU (tasto G)
+    bool gpuPreview;                   // true = sto mostrando la sfera GPU al posto della mesh CPU
     PlanetRecipe recipe;
     MeshRenderer[] faceRenderers;
     RenderTexture[] craterRTs;         // normale-crateri per faccia: liberate e rifatte a ogni assestamento
@@ -88,9 +90,25 @@ public class PlanetEditor : MonoBehaviour
         Directory.CreateDirectory(Dir);
     }
 
+    /// <summary>Collega l'anteprima GPU (può essere null se i compute non sono supportati).</summary>
+    public void SetGpuSurface(GpuPlanetSurface g) { gpu = g; }
+
+    /// <summary>Commuta fra anteprima CPU (mesh) e anteprima GPU (render-dai-buffer). A/B per il confronto.</summary>
+    void ToggleGpuPreview()
+    {
+        if (gpu == null || !gpu.Ready) return;
+        gpuPreview = !gpuPreview;
+        gpu.Active = gpuPreview;
+        if (faceRenderers != null)
+            foreach (var r in faceRenderers) if (r != null) r.enabled = !gpuPreview;   // nascondi/mostra la mesh CPU
+        if (gpuPreview) gpu.Rebuild(terrain);   // mostra subito lo stato corrente sulla GPU
+        else geomDirty = true;                  // tornando a CPU: rigenera la mesh (poteva essere editata in GPU)
+    }
+
     void Update()
     {
         if (recipe == null) return;
+        if (Input.GetKeyDown(KeyCode.G)) ToggleGpuPreview();
         var P = recipe.processes;
         if (pendingRemove >= 0 && pendingRemove < P.Count)
         {
@@ -120,17 +138,21 @@ public class PlanetEditor : MonoBehaviour
         if (geomDirty) { geomDirty = false; needsRebuild = true; settleTimer = -1; }
 
         bool building = smp != null && smp.IsBuilding;
-        if (needsRebuild && !building)
+        // In GPU la rigenerazione è full-res LIVE a ogni edit (costa nulla sulla GPU): niente bassa-res nel drag,
+        // niente timer di assestamento, niente attesa del thread CPU (il `building` non vale più). La mesh CPU
+        // nascosta non viene ricostruita finché si resta in GPU.
+        if (needsRebuild && (gpuPreview || !building))
         {
             terrain.ApplyRecipe(recipe);                  // main thread, leggero (costruisce la lista di layer)
-            if (smp != null) smp.RebuildAsync(terrain, DragRes);   // calcolo su thread: anteprima rapida a bassa res
+            if (gpuPreview && gpu != null) gpu.Rebuild(terrain);          // GPU: full-res subito
+            else if (smp != null) smp.RebuildAsync(terrain, DragRes);     // CPU: bassa res durante il drag, su thread
             needsRebuild = false;
-            settleTimer = 0;                              // appena fermi, conta per la rifinitura full res
+            settleTimer = 0;                              // (solo CPU) appena fermi, conta per la rifinitura full res
         }
-        else if (!needsRebuild && !building && settleTimer >= 0)
+        else if (!gpuPreview && !needsRebuild && !building && settleTimer >= 0)
         {
             settleTimer++;
-            if (settleTimer > SettleFrames)               // edit assestato: rifinisci a full res + ri-bake normale
+            if (settleTimer > SettleFrames)               // edit assestato (solo CPU): rifinisci a full res + ri-bake normale
             {
                 terrain.ApplyRecipe(recipe);
                 if (smp != null) smp.RebuildAsync(terrain, FinalRes);
@@ -208,6 +230,8 @@ public class PlanetEditor : MonoBehaviour
         GUILayout.BeginArea(new Rect(panel.x + 14f * ui, panel.y + 12f * ui, w - 28f * ui, h - 24f * ui));
 
         GUILayout.Label("EDITOR PIANETI", title);
+        if (gpu != null && gpu.Ready)
+            GUILayout.Label(gpuPreview ? "Anteprima: GPU  (G = passa a CPU)" : "Anteprima: CPU  (G = passa a GPU)", tip);
         recipe.name = GUILayout.TextField(recipe.name);
         GUILayout.Space(8f * ui);
         scroll = GUILayout.BeginScrollView(scroll);

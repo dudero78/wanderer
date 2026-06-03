@@ -14,6 +14,8 @@
 
 #pragma kernel CSNodeGrid
 #pragma kernel CSParity
+#pragma kernel CSFaceGrid
+#pragma kernel CSFaceNormals
 
 // ---- parametri della forma base (uniform, una volta per pianeta) ----
 float  _BaseRadius;
@@ -37,6 +39,10 @@ struct CraterGPU
     float hasDominant;     // 0/1
     float3 dominantDir;    // unitaria
     float dominantRadius;
+    float wLarge;          // pesi densità per fascia di taglia (grandi/medi/piccoli)
+    float wMedium;
+    float wSmall;
+    float distribution;    // fase 0..1: ruota il campo di crateri attorno a Y
 };
 StructuredBuffer<CraterGPU> _Craters;
 int _CraterCount;
@@ -55,6 +61,16 @@ RWStructuredBuffer<float> _Pout;
 StructuredBuffer<float3>   _Dirs;
 RWStructuredBuffer<float>   _Heights;
 int _DirCount;
+
+// ---- anteprima GPU dell'editor (render-dai-buffer, NESSUN readback) ----
+// Una faccia per dispatch, scritta in una sezione del buffer condiviso dalle 6 facce. La griglia ha
+// un BORDO di una cella per lato (lato = _R+2): serve solo a calcolare le normali geometriche dai
+// vicini; si disegnano i soli vertici INTERNI (1.._R). Buffer PIATTI di float (3 per vertice) per la
+// stessa ragione di _Pout: lo structured buffer di float3 si disallinea su Metal (stride 16 vs 12).
+int _FaceOffset;                 // vertice di partenza di questa faccia nei buffer condivisi
+int _R;                          // vertici interni per lato (la griglia padded è _R+2)
+RWStructuredBuffer<float> _VPos; // posizioni locali (dir*altezza)
+RWStructuredBuffer<float> _VNrm; // normali geometriche
 
 // =================================================================================================
 // Noise3D (gradient noise di Perlin + fBm) — fedele a Noise3D.cs
@@ -153,6 +169,41 @@ float U01(uint h) { return (h & 0xFFFFFFu) / 16777215.0; }
 
 float Smooth01(float t) { return t * t * (3.0 - 2.0 * t); }
 
+// DISTRIBUZIONE = DRIFT DEL CENTRO (= CraterTerrainLayer). Lo slider muove il centro di ogni cratere dentro
+// la sua cella, ognuno nella propria direzione/velocità (dall'hash) → l'insieme si RIDISTRIBUISCE restando
+// fatto di cerchi (si muove un punto, non si deforma il campo). PP = onda triangolare (ping-pong) che tiene
+// il centro in [0,1] SENZA salti; a distribuzione=0 ridà esattamente la posizione originale (PP(j0)=j0).
+float PP(float x)
+{
+    float r = x - 2.0 * floor(x * 0.5);
+    return 1.0 - abs(r - 1.0);
+}
+
+float Jitter(uint hBase, uint hSpeed, float dist)
+{
+    float j0 = U01(hBase);
+    float v = j0;
+    if (dist > 0.0)
+    {
+        float spd = 0.5 + U01(hSpeed);      // velocità per-cratere [0.5,1.5]
+        v = PP(j0 + dist * spd);
+    }
+    return v;
+}
+
+// peso densità per l'ottava o (0 = grandi … octaves-1 = piccoli), interpolando wLarge→wMedium→wSmall
+// (= CraterTerrainLayer.SizeWeight). Una sola ottava = "grandi".
+float SizeWeight(int o, int octaves, float wL, float wM, float wS)
+{
+    float w = wL;
+    if (octaves > 1)
+    {
+        float t = o / (float)(octaves - 1);
+        w = (t <= 0.5) ? lerp(wL, wM, t * 2.0) : lerp(wM, wS, (t - 0.5) * 2.0);
+    }
+    return w;
+}
+
 // profilo di un singolo cratere sommato a 'total' (= Accumulate in C#)
 void Accumulate(float3 dir, float3 cdir, float radius, float baseRadius,
                 float depthRatio, float rimRatio, float rimSharpness, inout float total)
@@ -195,9 +246,11 @@ float CraterTotal(float3 unitDir, float baseRadius)
         float depthRatio = c.depthRatio, rimRatio = c.rimRatio;
         float rimSharp = max(1.0, c.rimSharpness);
 
-        // cratere dominante (piazzato a mano)
+        // cratere dominante (piazzato a mano): nel frame del MONDO, NON ruota con la distribuzione
         if (c.hasDominant > 0.5)
             Accumulate(unitDir, c.dominantDir, c.dominantRadius, baseRadius, depthRatio, rimRatio, rimSharp, total);
+
+        float dist = c.distribution;
 
         float radius = c.largestRadius;
         for (int o = 0; o < octaves; o++)
@@ -205,6 +258,7 @@ float CraterTotal(float3 unitDir, float baseRadius)
             float spacing = radius * CR_SPACING;
             float cellAng = spacing / baseRadius;
             float gscale = 1.0 / cellAng;
+            float octDensity = c.density * SizeWeight(o, octaves, c.wLarge, c.wMedium, c.wSmall);
 
             float3 g = unitDir * gscale;
             int cx = (int)floor(g.x), cy = (int)floor(g.y), cz = (int)floor(g.z);
@@ -215,12 +269,13 @@ float CraterTotal(float3 unitDir, float baseRadius)
             {
                 int X = cx + dx, Y = cy + dy, Z = cz + dz;
                 uint h = CHash(X, Y, Z, seed + o * 9176);
-                if (U01(h) > c.density) continue;
+                if (U01(h) > octDensity) continue;
 
+                // centro jitterato + DRIFT della distribuzione (ogni cratere scivola nella sua cella)
                 float3 cc = float3(
-                    (X + U01(h * 0x9E3779B1u + 1u)) / gscale,
-                    (Y + U01(h * 0x85EBCA77u + 2u)) / gscale,
-                    (Z + U01(h * 0xC2B2AE3Du + 3u)) / gscale);
+                    (X + Jitter(h * 0x9E3779B1u + 1u, h * 0x9E3779B1u + 11u, dist)) / gscale,
+                    (Y + Jitter(h * 0x85EBCA77u + 2u, h * 0x85EBCA77u + 12u, dist)) / gscale,
+                    (Z + Jitter(h * 0xC2B2AE3Du + 3u, h * 0xC2B2AE3Du + 13u, dist)) / gscale);
                 float cm = length(cc);
                 if (cm < 1e-6) continue;
                 float3 cdir = cc / cm;
@@ -276,4 +331,52 @@ void CSParity(uint3 id : SV_DispatchThreadID)
     if ((int)id.x >= _DirCount) return;
     float3 dir = normalize(_Dirs[id.x]);
     _Heights[id.x] = SampleHeight(dir);
+}
+
+// (tx,ty) → direzione, ma ARROTONDA il punto-cubo a una lattice intera di passo 1/invStep PRIMA di
+// normalizzare (= PlanetMeshBuilder.ParamToDir con invStep). Due facce adiacenti, allo stesso spigolo,
+// producono così punti-cubo BIT-IDENTICI → niente microfessure/cuciture fra le 6 facce. invStep =
+// suddivisioni sull'intero spigolo del cubo (= _R-1 per l'anteprima a faccia singola).
+float3 ParamToDirSnapped(float tx, float ty, int invStep)
+{
+    float3 p = _FaceUp + (tx - 0.5) * 2.0 * _AxisA + (ty - 0.5) * 2.0 * _AxisB;
+    p = round(p * invStep) / invStep;
+    return normalize(p);
+}
+
+// ---- anteprima GPU: posizioni di una faccia (griglia padded _R+2) -------------------------------
+[numthreads(8, 8, 1)]
+void CSFaceGrid(uint3 id : SV_DispatchThreadID)
+{
+    int gp = _R + 2;
+    if ((int)id.x >= gp || (int)id.y >= gp) return;
+    float step = 1.0 / (_R - 1);
+    float tx = ((int)id.x - 1) * step;     // id=1 → tx=0, id=_R → tx=1; id=0 e id=_R+1 = bordo
+    float ty = ((int)id.y - 1) * step;
+    float3 dir = ParamToDirSnapped(tx, ty, _R - 1);
+    float3 p = dir * SampleHeight(dir);
+    int o = (_FaceOffset + id.x + id.y * gp) * 3;
+    _VPos[o] = p.x; _VPos[o + 1] = p.y; _VPos[o + 2] = p.z;
+}
+
+float3 ReadPos(int px, int py, int gp)
+{
+    int o = (_FaceOffset + px + py * gp) * 3;
+    return float3(_VPos[o], _VPos[o + 1], _VPos[o + 2]);
+}
+
+// ---- anteprima GPU: normali geometriche dei vertici interni (dai vicini) ------------------------
+[numthreads(8, 8, 1)]
+void CSFaceNormals(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _R || (int)id.y >= _R) return;
+    int gp = _R + 2;
+    int px = (int)id.x + 1, py = (int)id.y + 1;   // solo interni: i vicini ±1 restano nel bordo
+    float3 c  = ReadPos(px, py, gp);
+    float3 du = ReadPos(px + 1, py, gp) - ReadPos(px - 1, py, gp);
+    float3 dv = ReadPos(px, py + 1, gp) - ReadPos(px, py - 1, gp);
+    float3 n = normalize(cross(du, dv));
+    if (dot(n, c) < 0.0) n = -n;                  // verso l'esterno (c ≈ radiale)
+    int o = (_FaceOffset + px + py * gp) * 3;
+    _VNrm[o] = n.x; _VNrm[o + 1] = n.y; _VNrm[o + 2] = n.z;
 }

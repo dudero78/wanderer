@@ -26,8 +26,9 @@ public class GpuHeightBaker : IDisposable
         public float seed, octaves, largestRadius, density, depthRatio, rimRatio, rimSharpness, hasDominant;
         public Vector3 dominantDir;
         public float dominantRadius;
+        public float wLarge, wMedium, wSmall, distribution;   // pesi per fascia di taglia + fase di distribuzione
     }
-    const int CraterStride = 12 * 4;   // 8 float + Vector3(3) + float = 12 float = 48 byte
+    const int CraterStride = 16 * 4;   // 8 float + Vector3(3) + float + 4 float = 16 float = 64 byte
 
     readonly ComputeShader cs;
     readonly int kNode, kParity;
@@ -49,13 +50,15 @@ public class GpuHeightBaker : IDisposable
 
         kNode = cs.FindKernel("CSNodeGrid");
         kParity = cs.FindKernel("CSParity");
-        BuildParams(terrain);
+        craterBuf = BindShapeParams(cs, terrain, new[] { kNode, kParity });
         Supported = true;
     }
 
-    /// <summary>Ricava base + crateri dal terreno (ricetta se c'è, altrimenti campi legacy) ESATTAMENTE
-    /// come PlanetTerrain.RebuildLayers, così GPU e walker partono dagli stessi numeri.</summary>
-    void BuildParams(PlanetTerrain terrain)
+    /// <summary>Imposta sul compute gli uniform della forma (base + crateri) ricavati dal terreno ESATTAMENTE
+    /// come PlanetTerrain.RebuildLayers, e crea+lega il buffer dei crateri ai kernel dati. È l'UNICA fonte di
+    /// questi parametri lato GPU: la usano sia il baker (quadtree) sia l'anteprima GPU dell'editor → non possono
+    /// divergere. Restituisce il ComputeBuffer dei crateri (il chiamante lo rilascia).</summary>
+    public static ComputeBuffer BindShapeParams(ComputeShader cs, PlanetTerrain terrain, int[] kernels)
     {
         var rec = terrain.Recipe;
         var craters = new List<CraterGPU>();
@@ -70,8 +73,8 @@ public class GpuHeightBaker : IDisposable
             cs.SetFloat("_Gain", rec.gain);
             cs.SetInt("_Seed", rec.seed);
 
-            // NB: path GPU PARCHEGGIATO: calcola solo base + crateri a densità uniforme (niente mare, niente
-            // pesi per taglia wLarge/wMedium/wSmall). Per B1 andrà riportato in HLSL (la parità lo segnalerebbe).
+            // Crateri: parità COMPLETA con CraterTerrainLayer (pesi per taglia + distribuzione inclusi).
+            // Resta fuori solo il MARE e la TETTONICA (Tappa 2): il compute calcola base + crateri.
             rec.Normalize();
             foreach (var p in rec.processes)
             {
@@ -82,7 +85,8 @@ public class GpuHeightBaker : IDisposable
                     density = p.density, depthRatio = p.depthRatio, rimRatio = p.rimRatio,
                     rimSharpness = p.rimSharpness,
                     hasDominant = p.dominant ? 1f : 0f,
-                    dominantDir = p.dominantDir.normalized, dominantRadius = p.dominantRadius
+                    dominantDir = p.dominantDir.normalized, dominantRadius = p.dominantRadius,
+                    wLarge = p.wLarge, wMedium = p.wMedium, wSmall = p.wSmall, distribution = p.distribution
                 });
             }
         }
@@ -103,17 +107,18 @@ public class GpuHeightBaker : IDisposable
                     density = terrain.CraterDensity, depthRatio = terrain.CraterDepthRatio, rimRatio = terrain.CraterRimRatio,
                     rimSharpness = terrain.CraterRimSharpness,
                     hasDominant = terrain.DominantCrater ? 1f : 0f,
-                    dominantDir = terrain.DominantCraterDir.normalized, dominantRadius = terrain.DominantCraterRadius
+                    dominantDir = terrain.DominantCraterDir.normalized, dominantRadius = terrain.DominantCraterRadius,
+                    wLarge = 1f, wMedium = 1f, wSmall = 1f, distribution = 0f   // legacy: densità uniforme, niente rotazione
                 });
         }
 
         // StructuredBuffer dev'essere SEMPRE legato (anche a 0 crateri): tieni almeno 1 elemento fittizio.
         int count = craters.Count;
-        craterBuf = new ComputeBuffer(Mathf.Max(1, count), CraterStride);
-        if (count > 0) craterBuf.SetData(craters);
+        var buf = new ComputeBuffer(Mathf.Max(1, count), CraterStride);
+        if (count > 0) buf.SetData(craters);
         cs.SetInt("_CraterCount", count);
-        cs.SetBuffer(kNode, "_Craters", craterBuf);
-        cs.SetBuffer(kParity, "_Craters", craterBuf);
+        foreach (int k in kernels) cs.SetBuffer(k, "_Craters", buf);
+        return buf;
     }
 
     // ---- griglia di un nodo (uso del quadtree) -------------------------------------------------
