@@ -73,6 +73,16 @@ Shader "Wanderer/PlanetBaked"
         // del colore (validazione pipeline mappe→render). _AlbedoMapStr=1 = solo mappa.
         [NoScaleOffset] _AlbedoMap ("Albedo equirect (mappa reale)", 2D) = "gray" {}
         _AlbedoMapStr ("Albedo map: forza", Range(0,1)) = 0
+
+        // ECLISSI (ombra analitica di un ALTRO corpo): occlusore = sfera (centro+raggio in spazio oggetto),
+        // direzione del sole in spazio oggetto. Li imposta EclipseDriver per frame. Raggio 0 = nessuna eclissi.
+        _EclipseOccluderPos    ("Eclissi: centro occlusore (obj)", Vector) = (0,0,0,0)
+        _EclipseOccluderRadius ("Eclissi: raggio occlusore (obj)", Float) = 0
+        _EclipseSunDir         ("Eclissi: direzione del sole (obj)", Vector) = (0,1,0,0)
+        _EclipseStrength       ("Eclissi: profondità ombra", Range(0,1)) = 0.92
+        // raggio ANGOLARE del sole (rad) visto dal corpo: governa la penombra e la LUNGHEZZA dell'umbra
+        // → l'ombra sbiadisce con la distanza dall'occlusore (umbra che si accorcia, poi solo penombra).
+        _EclipseSunAngular     ("Eclissi: raggio angolare del sole (rad)", Float) = 0.033
     }
 
     SubShader
@@ -97,6 +107,8 @@ Shader "Wanderer/PlanetBaked"
         sampler2D _CraterNormalMap;
         sampler2D _AlbedoMap;
         float _AlbedoMapStr;
+        float4 _EclipseOccluderPos, _EclipseSunDir;
+        float _EclipseOccluderRadius, _EclipseStrength, _EclipseSunAngular;
 
         // DETTAGLIO WORLD-FIXED: la UV è ancorata alla superficie del pianeta (texUV globale della
         // faccia), quindi grani e sassi NON scivolano mai. UNA scala fissa, mipmappata + aniso:
@@ -232,6 +244,31 @@ Shader "Wanderer/PlanetBaked"
             nxy += cn.xy * (_CraterNormalApply * craterFade);
 
             o.Normal = normalize(float3(nxy, 1.0));
+
+            // === ECLISSI: ombra analitica di un altro corpo ===
+            // Dal punto P guardo verso il sole (L) e calcolo quanto del DISCO solare è coperto dal disco
+            // dell'occlusore, in coordinate ANGOLARI viste da P. Così l'ombra dipende dalla geometria reale:
+            // vicino all'occlusore esso ingloba il sole → umbra piena; allontanandosi rimpicciolisce
+            // angolarmente → l'umbra si accorcia e resta solo penombra sbiadita (come nella realtà).
+            // Niente shadow map → zero acne, nessun limite di shadow distance.
+            if (_EclipseOccluderRadius > 0.0)
+            {
+                float3 L = _EclipseSunDir.xyz;
+                float3 m = _EclipseOccluderPos.xyz - P;     // dal punto al centro dell'occlusore
+                float tca = dot(m, L);                       // distanza occlusore→P lungo la direzione del sole
+                if (tca > 1e-3)                              // l'occlusore è verso il sole, non dietro
+                {
+                    float dperp = sqrt(max(dot(m, m) - tca * tca, 0.0));
+                    float rhoOcc = _EclipseOccluderRadius / tca;     // raggio angolare dell'occlusore
+                    float rhoSun = max(_EclipseSunAngular, 1e-4);    // raggio angolare del sole
+                    float sigma  = dperp / tca;                      // separazione angolare sole↔occlusore
+                    // sovrapposizione dei due dischi: 1 quando l'occlusore ingloba il sole, sfuma alla tangenza
+                    float f = 1.0 - smoothstep(abs(rhoSun - rhoOcc), rhoSun + rhoOcc, sigma);
+                    // copertura massima: <1 se l'occlusore è angolarmente più piccolo del sole (anulare → sbiadita)
+                    float peak = saturate((rhoOcc * rhoOcc) / (rhoSun * rhoSun));
+                    alb *= 1.0 - f * peak * _EclipseStrength;
+                }
+            }
 
             o.Albedo = alb;
         }

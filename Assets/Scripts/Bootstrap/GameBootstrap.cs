@@ -231,6 +231,11 @@ public class GameBootstrap : MonoBehaviour
         sun.star = starGo.transform;
         sun.planet = planetGo.transform;
 
+        // Ombre di ECLISSI (analitiche, nello shader): un corpo fra il sole e un altro lo oscura. Niente
+        // shadow map → nessuna acne sul terreno (per quello le ombre proiettate restano spente).
+        var eclipse = gameObject.AddComponent<EclipseDriver>();
+        eclipse.Init(solar, lightGo.transform);
+
         // notte quasi nera: il terminatore (linea giorno/notte) diventa netto, look lunare.
         // Con l'atmosfera, più avanti, sarà lo scattering a rialzare la luce sul lato in ombra.
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
