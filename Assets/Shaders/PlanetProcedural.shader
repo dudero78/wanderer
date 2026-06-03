@@ -13,6 +13,11 @@ Shader "Wanderer/PlanetProcedural"
     {
         _BaseRadius ("Raggio base", Float) = 500
         _Amplitude  ("Ampiezza", Float) = 45
+        _Frequency  ("Forma base: frequenza", Float) = 2
+        _Octaves    ("Forma base: ottave", Int) = 5
+        _Lacunarity ("Forma base: lacunarità", Float) = 2
+        _Gain       ("Forma base: gain", Float) = 0.55
+        _Seed       ("Forma base: seme", Int) = 1337
 
         _SoilMean ("Suolo: colore base", Color) = (0.44, 0.44, 0.45, 1)
         _SoilTint ("Suolo: tinta", Color) = (1.0, 1.0, 1.02, 1)
@@ -59,7 +64,8 @@ Shader "Wanderer/PlanetProcedural"
             StructuredBuffer<float> _VPos;   // 3 float per vertice (x,y,z), buffer piatto
             StructuredBuffer<float> _VNrm;
 
-            float _BaseRadius, _Amplitude;
+            float _BaseRadius, _Amplitude, _Frequency, _Lacunarity, _Gain;
+            int _Octaves, _Seed;
             float4 _SoilMean, _SoilTint, _MineralA, _MineralB, _PeakColor, _MariaColor, _SeaColor;
             float _MacroVar, _MacroScale, _MineralStr, _MineralScale, _PeakStr, _MariaScale, _MariaStr;
             float _SeaOn, _SeaLevel, _SeaSat, _SeaRough, _SeaRoughScale, _SeaForma, _SeaSeed, _Saturation;
@@ -118,8 +124,11 @@ Shader "Wanderer/PlanetProcedural"
                 mineral = lerp(mineral, _MineralA.rgb, smoothstep(0.55, 0.72, z));
                 alb *= lerp(float3(1.0, 1.0, 1.0), mineral, _MineralStr);
 
-                // cappucci chiari sulle creste (quota normalizzata)
-                float t = saturate((h - (_BaseRadius - _Amplitude)) / (2.0 * _Amplitude));
+                // cappucci/maria seguono l'ondulazione di BASE (dune/bacini), NON i crateri: altrimenti ogni
+                // cratere innescherebbe vette/maria → grandi blob. Ricostruisco la quota base nel fragment.
+                float baseN = n3_fbm(sdir * _Frequency, _Octaves, _Lacunarity, _Gain, _Seed);
+                float baseH = _BaseRadius + (baseN - 0.5) * 2.0 * _Amplitude;
+                float t = saturate((baseH - (_BaseRadius - _Amplitude)) / (2.0 * _Amplitude));
                 alb = lerp(alb, _PeakColor.rgb, smoothstep(0.74, 0.97, t) * _PeakStr);
 
                 // bacini scuri (dove è basso) in ALCUNE regioni → il colore segue il rilievo

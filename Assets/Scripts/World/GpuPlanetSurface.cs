@@ -120,6 +120,12 @@ public class GpuPlanetSurface : MonoBehaviour
         var rec = terrain.Recipe;
         mat.SetFloat("_BaseRadius", rec != null ? rec.baseRadius : terrain.BaseRadius);
         mat.SetFloat("_Amplitude", rec != null ? rec.amplitude : terrain.Amplitude);
+        // forma base (per ricostruire la quota di base nel fragment: maria/vette la seguono, non i crateri)
+        mat.SetFloat("_Frequency", rec != null ? rec.frequency : terrain.Frequency);
+        mat.SetInt("_Octaves", rec != null ? rec.octaves : terrain.Octaves);
+        mat.SetFloat("_Lacunarity", rec != null ? rec.lacunarity : terrain.Lacunarity);
+        mat.SetFloat("_Gain", rec != null ? rec.gain : terrain.Gain);
+        mat.SetInt("_Seed", rec != null ? rec.seed : terrain.Seed);
         if (rec != null)
         {
             mat.SetColor("_SoilMean", rec.soilMean);
