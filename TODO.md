@@ -3,9 +3,9 @@
 Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **3 giugno 2026** (sessione GPU-editor, Tappa 1).
 Dettaglio tecnico nel `CLAUDE.md`.
 
-> **PROSSIMA SESSIONE — PARTI DA QUI:** GPU per l'editor, **Tappa 2 = estendere l'HLSL a MARI e TETTONICA**
-> (con parità GPU↔CPU a ogni passo). La Tappa 1 (render-dai-buffer + crateri a parità completa) è FATTA.
-> Vedi sezione "Prossimo". Tutto committato su `main`.
+> **PROSSIMA SESSIONE — PARTI DA QUI:** GPU per l'editor, **Tappa 3 = colore vero** (usare `Wanderer/PlanetBaked`
+> sulla mesh GPU al posto del Lambert segnaposto → mare/saturazione/suolo/minerali; dismettere il preview CPU).
+> Tappe 1 e 2 (render-dai-buffer + crateri/mari/tettonica a parità) FATTE. Vedi "Prossimo". Tutto su `main`.
 
 ## Fatto (milestone)
 
@@ -69,6 +69,14 @@ Dettaglio tecnico nel `CLAUDE.md`.
   e la "Distribuzione" — quest'ultima ri-disegnata come **DRIFT del centro** (ogni cratere scivola nella sua
   cella, l'insieme si ridistribuisce, i crateri restano tondi; era una rotazione che "girava il pianeta").
   Test parità GPU↔CPU verde sub-mm (incluso il caso pesi+distribuzione).
+- ✅ **GPU per l'editor — TAPPA 2 (mari + tettonica in HLSL, pipeline ORDINATA):** il path GPU non fa più
+  `base + somma crateri` ma applica i processi **nell'ordine della ricetta** (un cratere dopo un mare scava
+  all'asciutto), come `PlanetTerrain.SampleHeight`. `GpuShapeBuffers` (nuovo) = unica fonte: buffer ordinato
+  `(tipo,indice)` + buffer per-tipo (crateri/mari/tettonica + placche). **Mare** (`SeaSurface`/`SeaShape`) e
+  **Tettonica** (`TectonicApply`: soft-Voronoi, continenti/oceani, catene/rift, warp coste) portati in HLSL;
+  le placche sono generate UNA volta in C# e caricate (niente RNG da replicare → parità per costruzione).
+  Test parità esteso (Crateri+Mare ordine, Tettonica): verde sub-mm. NB: è solo GEOMETRIA — il COLORE del
+  mare/suolo/minerali manca ancora sulla GPU (Lambert segnaposto) → Tappa 3.
 
 ## Accantonato (deciso ma rimandato)
 
@@ -84,24 +92,22 @@ Dettaglio tecnico nel `CLAUDE.md`.
 
 ## Prossimo — FOCUS: GPU per l'editor (= B1)
 
-La **Tappa 1** è FATTA (vedi "Fatto": render-dai-buffer + crateri a parità completa). Restano:
+Le **Tappe 1 e 2** sono FATTE (vedi "Fatto": render-dai-buffer + crateri/mari/tettonica a parità). Resta:
 
-- ⬜ **TAPPA 2 — estendere l'HLSL a MARI e TETTONICA** (`PlanetHeight.compute`), con **parità GPU↔CPU a ogni
-  passo** (estendere `PlanetGpuParityTest` per processo). Oggi il path GPU calcola **base + crateri**; mare e
-  tettonica vengono ignorati nell'anteprima GPU. Da portare in HLSL, fedeli ai layer C#:
-  - **Mare** (`SeaTerrainLayer`): allagamento a quota `seaLevel` + rilievo del fondale (rugosità/scala/forma).
-  - **Tettonica** (`TectonicTerrainLayer`): placche **soft-Voronoi** (quota continua), continenti/oceani,
-    catene/rift ai confini, coste frastagliate (domain warp) + dolcezza coste.
-  - Attenzione all'ORDINE dei processi (la pipeline è una lista ordinata: un mare allaga ciò che sta sotto).
-- ⬜ **TAPPA 3 — cablare l'editor sulla mesh GPU come anteprima DEFINITIVA**: usare lo shader vero
-  (`Wanderer/PlanetBaked`, colore + normali analitiche → spariscono il tratteggio e la cucitura di shading
-  residui delle normali geometriche segnaposto), dismettere il percorso CPU del preview. Poi: stessa resa GPU
-  sostituisce SingleMeshPlanet/quadtree **IN GIOCO** (B1).
+- ⬜ **TAPPA 3 — COLORE vero sulla mesh GPU**: oggi l'anteprima GPU usa il Lambert segnaposto
+  (`Wanderer/PlanetProcedural`) → grigia, manca TUTTO il colore (mare/saturazione/suolo/minerali/vette). Usare
+  lo shader vero **`Wanderer/PlanetBaked`** sulla geometria GPU. Nodi:
+  - PlanetBaked è un *surface shader* legato al vertex input mesh → per disegnarlo dai buffer (no readback)
+    serve un vertex/fragment che legga pos/normale/uv dallo `StructuredBuffer` via `SV_VertexID`, riusando la
+    catena di colore del surf (soil/macro/minerali/mare/eclissi). Valutare: variante procedurale di PlanetBaked
+    vs adattare PlanetBaked. Servono anche le **UV (tx,ty) per faccia** dal compute (per le texture bakeate).
+  - **Normali analitiche** (al posto delle geometriche segnaposto) → via il tratteggio sui bordi dei crateri e
+    la cucitura di shading residua.
+  - Poi: la stessa resa GPU sostituisce SingleMeshPlanet/quadtree **IN GIOCO** (B1).
 - Disciplina: pipeline in 2 lingue (C# per walker/bake + HLSL per render GPU), la **parità fa da rete**.
-- Fondazione: `PlanetHeight.compute`, `GpuHeightBaker.BindShapeParams` (unica fonte dei parametri GPU),
-  `GpuPlanetSurface.cs`, `PlanetGpuParityTest.cs`. Bug Metal `float3` chiuso → **buffer piatti di float**. Il
-  vecchio B2 (compute→readback→mesh CPU) resta PARCHEGGIATO (il readback TRASCINA): per il GIOCO si userà il
-  render-dai-buffer della Tappa 1/3, non il readback.
+- Fondazione: `PlanetHeight.compute`, `GpuShapeBuffers` (unica fonte dei parametri GPU), `GpuPlanetSurface.cs`,
+  `PlanetGpuParityTest.cs`. Bug Metal `float3` chiuso → **buffer piatti di float / float4**. Il vecchio B2
+  (compute→readback→mesh CPU) resta PARCHEGGIATO (il readback TRASCINA): per il GIOCO si usa il render-dai-buffer.
 - ⬜ **Acqua liquida** (toggle "liquido" sul Mare): resa trasparente + nuoto/affondamento. Condivide l'allagamento.
 - ⬜ **Altri processi**: montagne (ridged noise per la texture delle catene), ghiaccio, erosione (bake?).
 - ⬜ **Migliorie editor**: editing per-feature (cancella/modifica singolo cratere), più preset.

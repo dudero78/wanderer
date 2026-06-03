@@ -45,13 +45,15 @@ riordino Su/Giù, "+ Nuova pipeline" sceglie il tipo. Texture suolo + saturazion
 (`SingleMeshPlanet.RebuildAsync`: slider fluidi, bassa res nel drag → full res al rilascio). **Bake dal pulsante**
 (hook iniettato dall'assembly Editor); **"Carica" = file picker**. Salva in `persistentDataPath/planets`; le ricette
 "ufficiali" in `Assets/Resources/Planets/<nome>.json` (→ build). `ScaledTo(raggio)` scala le misure assolute.
-**GPU PER L'EDITOR — TAPPA 1 FATTA:** l'anteprima editor può girare sulla GPU (toggle **G**), geometria calcolata
+**GPU PER L'EDITOR — TAPPE 1 e 2 FATTE:** l'anteprima editor può girare sulla GPU (toggle **G**), geometria calcolata
 in `PlanetHeight.compute` e disegnata **dai buffer senza readback** (`GpuPlanetSurface` + shader
 `Wanderer/PlanetProcedural`, `Graphics.RenderPrimitivesIndexed`). Full-res LIVE (512), rigenera a ogni edit.
-Cuciture fra facce chiuse con snap a lattice del punto-cubo. Crateri a **parità completa** con la CPU (pesi per
-taglia + "Distribuzione" come **drift dei centri**: rimescola, crateri tondi). Normali geometriche segnaposto.
-**PROSSIMO FOCUS: Tappa 2** (mari + tettonica in HLSL, con parità) → poi Tappa 3 (shader vero PlanetBaked + dismettere
-il preview CPU → resa GPU anche IN GIOCO). Vedi `TODO.md` e [[wanderer-terreno-strategia]].
+Cuciture fra facce chiuse con snap a lattice del punto-cubo. **Pipeline ORDINATA** (`GpuShapeBuffers`: buffer
+ordinato di processi + buffer per-tipo): crateri (parità completa: pesi per taglia + "Distribuzione" come **drift
+dei centri**), **mari** e **tettonica** (placche generate in C# e caricate) — tutti a parità sub-mm col walker.
+Normali geometriche segnaposto e **nessun colore** (Lambert grigio). **PROSSIMO FOCUS: Tappa 3** = colore vero
+(`Wanderer/PlanetBaked` sulla mesh GPU → mare/saturazione/suolo/minerali + normali analitiche; dismettere il preview
+CPU → resa GPU anche IN GIOCO). Vedi `TODO.md` e [[wanderer-terreno-strategia]].
 
 **Tre corpi**: il **Pianeta** (lunare, raggio 500), **Cetra** (luna marziana craterizzata, raggio 300, g 3.0,
 in orbita attorno al pianeta — ricetta creata nell'editor) e **Luna** (creato nell'editor, raggio 800, in orbita
@@ -226,9 +228,9 @@ il procedurale è uno strumento di CREAZIONE, non un sistema runtime. La superfi
 puoi fallire). **MVP: mini-loop su 2-3 corpi.**
 FATTO: hand-off di gravità, mappa+selezione, **viaggio fra corpi + match-velocity**, indicatore di rotta,
 **autopilota**, **editor RICCO (processi ordinati: crateri/mari geometrici/tettonica)**, **quadtree CDLOD**, **tre
-corpi (Pianeta, Cetra, Luna)**, **GPU per l'editor Tappa 1 (render-dai-buffer + crateri a parità)** — puoi volare da
-un corpo all'altro, atterrare, ripartire. MANCANO: il teletrasporto, il VERBO, altri corpi diversi. **PROSSIMA
-SESSIONE: GPU per l'editor Tappa 2** (mari + tettonica in HLSL, con parità). Vedi `TODO.md` / [[wanderer-terreno-strategia]].
+corpi (Pianeta, Cetra, Luna)**, **GPU per l'editor Tappe 1-2 (render-dai-buffer + crateri/mari/tettonica a parità)** —
+puoi volare da un corpo all'altro, atterrare, ripartire. MANCANO: il teletrasporto, il VERBO, altri corpi diversi.
+**PROSSIMA SESSIONE: GPU per l'editor Tappa 3** (colore vero PlanetBaked sulla mesh GPU). Vedi `TODO.md` / [[wanderer-terreno-strategia]].
 
 ## Come si avvia
 
@@ -255,8 +257,9 @@ World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di Terrain
            PlanetMeshBuilder — cube-sphere; ComputeFaceData (thread-safe) + CreateMesh (main thread); FaceAxes/ParamToDir
            PlanetQuadtree    — RENDERER attivo: chunked LOD CDLOD (geomorph, skirt, cache LRU, async). Init(terrain, faceMats, cam)
            SingleMeshPlanet  — 6 facce, niente LOD, build su thread + proxy. FALLBACK (useQuadtree=OFF)
-           GpuHeightBaker    — calcola le altezze sulla GPU (PlanetHeight.compute). BindShapeParams = UNICA fonte dei parametri GPU (base+crateri). Parità col walker
-           GpuPlanetSurface  — anteprima GPU dell'editor: geometria sulla GPU, RenderPrimitivesIndexed dai buffer, NO readback (Tappa 1). Toggle G nell'editor
+           GpuHeightBaker    — calcola le altezze sulla GPU (PlanetHeight.compute) per il quadtree. Parità col walker
+           GpuShapeBuffers   — UNICA fonte dei parametri GPU: pipeline ORDINATA (buffer (tipo,indice) + buffer per-tipo crateri/mari/tettonica+placche). Build(cs,terrain,kernels)
+           GpuPlanetSurface  — anteprima GPU dell'editor: geometria sulla GPU, RenderPrimitivesIndexed dai buffer, NO readback (Tappe 1-2). Toggle G nell'editor
            PlanetPresets     — ConfigureDemoPlanet → ApplyRecipe(PlanetRecipe.Demo()) (condiviso scena + bake)
            PlanetBaker       — bakea per faccia (mask + normale crateri dalla RICETTA + colori): runtime (RT, fallback) o
                                da disco per-corpo (TryLoadBakedMaterials(terrain, dir) ← Resources/BakedPlanet[_Cetra])
@@ -281,7 +284,7 @@ Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta 
            DetailNormalBake                          — bake grana → normal map tileable
            OrbitLine (Wanderer/OrbitLine)            — filo d'orbita: additivo, spessore costante in px (espansione screen-space nel vert), glow + coda al pianeta
            PlanetProcedural (Wanderer/PlanetProcedural) — anteprima GPU: legge pos+normali dai buffer via SV_VertexID, Lambert (Tappa 1, segnaposto colore)
-           PlanetHeight.compute                      — altezze sulla GPU = walker (CSParity), griglia nodo (CSNodeGrid), anteprima a faccia (CSFaceGrid/CSFaceNormals). Parità col CPU
+           PlanetHeight.compute                      — altezze sulla GPU = walker, PIPELINE ORDINATA (base+crateri/mari/tettonica). Kernel: CSParity, CSNodeGrid, CSFaceGrid/CSFaceNormals. Parità col CPU
            PlanetSurface (Wanderer/Planet)           — vecchio shader procedurale, solo fallback
            PlanetNoise.cginc                         — libreria noise condivisa (vnoise, fbm...)
 ```

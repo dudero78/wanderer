@@ -20,19 +20,9 @@ using UnityEngine.Rendering;
 /// </summary>
 public class GpuHeightBaker : IDisposable
 {
-    [StructLayout(LayoutKind.Sequential)]
-    struct CraterGPU
-    {
-        public float seed, octaves, largestRadius, density, depthRatio, rimRatio, rimSharpness, hasDominant;
-        public Vector3 dominantDir;
-        public float dominantRadius;
-        public float wLarge, wMedium, wSmall, distribution;   // pesi per fascia di taglia + fase di distribuzione
-    }
-    const int CraterStride = 16 * 4;   // 8 float + Vector3(3) + float + 4 float = 16 float = 64 byte
-
     readonly ComputeShader cs;
     readonly int kNode, kParity;
-    ComputeBuffer craterBuf;
+    GpuShapeBuffers shape;             // base + pipeline ordinata (crateri/mare/tettonica)
     readonly int ne;                   // lato della griglia estesa di un nodo (nodeRes+3): costante
     readonly Stack<ComputeBuffer> pool = new Stack<ComputeBuffer>();
     int outstanding;                   // readback in volo (per non far esplodere il pool)
@@ -50,75 +40,8 @@ public class GpuHeightBaker : IDisposable
 
         kNode = cs.FindKernel("CSNodeGrid");
         kParity = cs.FindKernel("CSParity");
-        craterBuf = BindShapeParams(cs, terrain, new[] { kNode, kParity });
+        shape = GpuShapeBuffers.Build(cs, terrain, new[] { kNode, kParity });
         Supported = true;
-    }
-
-    /// <summary>Imposta sul compute gli uniform della forma (base + crateri) ricavati dal terreno ESATTAMENTE
-    /// come PlanetTerrain.RebuildLayers, e crea+lega il buffer dei crateri ai kernel dati. È l'UNICA fonte di
-    /// questi parametri lato GPU: la usano sia il baker (quadtree) sia l'anteprima GPU dell'editor → non possono
-    /// divergere. Restituisce il ComputeBuffer dei crateri (il chiamante lo rilascia).</summary>
-    public static ComputeBuffer BindShapeParams(ComputeShader cs, PlanetTerrain terrain, int[] kernels)
-    {
-        var rec = terrain.Recipe;
-        var craters = new List<CraterGPU>();
-
-        if (rec != null)
-        {
-            cs.SetFloat("_BaseRadius", rec.baseRadius);
-            cs.SetFloat("_Amplitude", rec.amplitude);
-            cs.SetFloat("_Frequency", rec.frequency);
-            cs.SetInt("_Octaves", rec.octaves);
-            cs.SetFloat("_Lacunarity", rec.lacunarity);
-            cs.SetFloat("_Gain", rec.gain);
-            cs.SetInt("_Seed", rec.seed);
-
-            // Crateri: parità COMPLETA con CraterTerrainLayer (pesi per taglia + distribuzione inclusi).
-            // Resta fuori solo il MARE e la TETTONICA (Tappa 2): il compute calcola base + crateri.
-            rec.Normalize();
-            foreach (var p in rec.processes)
-            {
-                if (p == null || !p.enabled || p.type != ProcessType.Crateri) continue;
-                craters.Add(new CraterGPU
-                {
-                    seed = p.seed, octaves = p.octaves, largestRadius = p.largestRadius,
-                    density = p.density, depthRatio = p.depthRatio, rimRatio = p.rimRatio,
-                    rimSharpness = p.rimSharpness,
-                    hasDominant = p.dominant ? 1f : 0f,
-                    dominantDir = p.dominantDir.normalized, dominantRadius = p.dominantRadius,
-                    wLarge = p.wLarge, wMedium = p.wMedium, wSmall = p.wSmall, distribution = p.distribution
-                });
-            }
-        }
-        else
-        {
-            cs.SetFloat("_BaseRadius", terrain.BaseRadius);
-            cs.SetFloat("_Amplitude", terrain.Amplitude);
-            cs.SetFloat("_Frequency", terrain.Frequency);
-            cs.SetInt("_Octaves", terrain.Octaves);
-            cs.SetFloat("_Lacunarity", terrain.Lacunarity);
-            cs.SetFloat("_Gain", terrain.Gain);
-            cs.SetInt("_Seed", terrain.Seed);
-
-            if (terrain.CratersEnabled)
-                craters.Add(new CraterGPU
-                {
-                    seed = terrain.CraterSeed, octaves = terrain.CraterOctaves, largestRadius = terrain.CraterLargestRadius,
-                    density = terrain.CraterDensity, depthRatio = terrain.CraterDepthRatio, rimRatio = terrain.CraterRimRatio,
-                    rimSharpness = terrain.CraterRimSharpness,
-                    hasDominant = terrain.DominantCrater ? 1f : 0f,
-                    dominantDir = terrain.DominantCraterDir.normalized, dominantRadius = terrain.DominantCraterRadius,
-                    wLarge = 1f, wMedium = 1f, wSmall = 1f, distribution = 0f   // legacy: densità uniforme, niente rotazione
-                });
-        }
-
-        // StructuredBuffer dev'essere SEMPRE legato (anche a 0 crateri): tieni almeno 1 elemento fittizio.
-        int count = craters.Count;
-        var buf = new ComputeBuffer(Mathf.Max(1, count), CraterStride);
-        if (count > 0) buf.SetData(craters);
-        cs.SetInt("_CraterCount", count);
-        foreach (int k in kernels) cs.SetBuffer(k, "_Craters", buf);
-        return buf;
     }
 
     // ---- griglia di un nodo (uso del quadtree) -------------------------------------------------
@@ -227,7 +150,7 @@ public class GpuHeightBaker : IDisposable
 
     public void Dispose()
     {
-        craterBuf?.Release(); craterBuf = null;
+        shape?.Dispose(); shape = null;
         while (pool.Count > 0) pool.Pop().Release();
     }
 }

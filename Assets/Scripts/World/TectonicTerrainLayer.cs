@@ -59,6 +59,20 @@ public class TectonicTerrainLayer : TerrainLayer
         }
     }
 
+    // Accessori per l'upload su GPU (parità della Tappa 2): le placche sono generate UNA volta qui nel
+    // costruttore → la GPU le riceve identiche invece di rigenerarle (niente RNG da replicare in HLSL).
+    public int PlateCount => n;
+    public Vector3 PlateSeedDir(int i) => seedDir[i];
+    public Vector3 PlateMotion(int i) => motion[i];
+    public float PlateElevJitter(int i) => elevJitter[i];
+    public bool PlateContinental(int i) => continental[i];
+    public int Seed => seed;
+    public float Contrast => contrast;
+    public float Uplift => uplift;
+    public float BoundaryWidth => boundaryWidth;
+    public float Warp => warp;
+    public float CoastSlope => coastSlope;
+
     public override float Apply(Vector3 unitDir, float height)
     {
         // domain-warp FRATTALE (due scale): piega lo spazio prima di trovare le placche → coste molto più

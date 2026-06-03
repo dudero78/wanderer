@@ -10,7 +10,7 @@ using UnityEngine;
 /// lo shader Wanderer/PlanetProcedural li indicizza con SV_VertexID, niente mesh CPU di mezzo.
 ///
 /// Convive con l'anteprima CPU (SingleMeshPlanet): l'editor commuta fra le due (tasto G) per il
-/// confronto A/B. La parità della FORMA con la CPU è garantita da GpuHeightBaker.BindShapeParams
+/// confronto A/B. La parità della FORMA con la CPU è garantita da GpuShapeBuffers
 /// (unica fonte dei parametri GPU). La colorazione ricca (PlanetBaked) è una tappa successiva: qui
 /// è un Lambert grigio, basta a provare il render-dai-buffer.
 ///
@@ -26,7 +26,7 @@ public class GpuPlanetSurface : MonoBehaviour
     ComputeShader cs;
     int kFace, kNorm;
     GraphicsBuffer posBuf, nrmBuf, idxBuf;   // posizioni/normali (3 float per vertice) + index buffer
-    ComputeBuffer craterBuf;
+    GpuShapeBuffers shape;                    // base + pipeline ordinata (crateri/mare/tettonica)
     Material mat;
     Bounds bounds;
 
@@ -76,8 +76,8 @@ public class GpuPlanetSurface : MonoBehaviour
     {
         if (cs == null) return;
 
-        craterBuf?.Release();
-        craterBuf = GpuHeightBaker.BindShapeParams(cs, terrain, new[] { kFace });
+        shape?.Dispose();
+        shape = GpuShapeBuffers.Build(cs, terrain, new[] { kFace });
 
         cs.SetInt("_R", res);
         int gFace = (gp + 7) / 8;
@@ -154,7 +154,7 @@ public class GpuPlanetSurface : MonoBehaviour
     void OnDestroy()
     {
         posBuf?.Release(); nrmBuf?.Release(); idxBuf?.Release();
-        craterBuf?.Release();
+        shape?.Dispose();
         if (mat != null) Destroy(mat);
     }
 }

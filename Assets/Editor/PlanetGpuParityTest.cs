@@ -35,6 +35,31 @@ public static class PlanetGpuParityTest
             });
             t.ApplyRecipe(rec);
         });
+        // MARE dopo i crateri: verifica anche l'ORDINE della pipeline (il mare allaga ciò che il cratere ha scavato).
+        okAll &= TestBody("Crateri + Mare (ordine)", t =>
+        {
+            var rec = PlanetRecipe.SmoothSphere();
+            rec.processes.Add(new ProcessStep
+            {
+                type = ProcessType.Crateri, seed = 11, octaves = 5, largestRadius = 80f,
+                density = 0.6f, depthRatio = 0.22f, rimRatio = 0.3f, rimSharpness = 2f
+            });
+            rec.processes.Add(new ProcessStep
+            {
+                type = ProcessType.Mare, seed = 22, seaLevel = 6f, seaRoughness = 4f, seaRoughScale = 3.5f, seaForma = -0.4f
+            });
+            t.ApplyRecipe(rec);
+        });
+        okAll &= TestBody("Tettonica", t =>
+        {
+            var rec = PlanetRecipe.SmoothSphere();
+            rec.processes.Add(new ProcessStep
+            {
+                type = ProcessType.Tettonica, seed = 33, plateCount = 14, continentalFraction = 0.45f,
+                elevationContrast = 60f, boundaryUplift = 40f, boundaryWidth = 0.08f, tectonicWarp = 0.5f, coastSlope = 0.5f
+            });
+            t.ApplyRecipe(rec);
+        });
         Debug.Log(okAll ? "<color=green>Parità GPU↔CPU: OK su tutti i corpi.</color>"
                         : "<color=red>Parità GPU↔CPU: FALLITA — NON integrare finché non combaciano.</color>");
     }
