@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
@@ -27,11 +28,31 @@ public class PlanetEditor : MonoBehaviour
     int pendingRemove = -1;
     bool pendingAdd;
     Vector2 scroll;
-    GUIStyle title, head, val, btn;
+    GUIStyle title, head, val, btn, fold, tip, add;
 
-    static readonly string[] BasePresets = { "Liscia", "Collinare", "Montagnosa", "Irregolare" };
-    static readonly string[] BodyPresets = { "Lunare", "Marziano", "Ghiacciato" };
-    static readonly string[] SoilLabels = { "Terra", "Rosso", "Roccia" };
+    // stato dei pannelli collassabili (le sezioni con molti settings si chiudono per fare spazio)
+    bool openBase = true, openColor = true, openSea = false;
+    readonly List<bool> openCrater = new List<bool>();   // uno per pipeline di crateri
+
+    static readonly GUIContent[] BaseGC =
+    {
+        new GUIContent("Liscia", "Quasi sfera: rilievo minimo"),
+        new GUIContent("Collinare", "Colline dolci, rilievo medio"),
+        new GUIContent("Montagnosa", "Rilievo accentuato, picchi alti"),
+        new GUIContent("Irregolare", "Forma a patata tipo Phobos"),
+    };
+    static readonly GUIContent[] BodyGC =
+    {
+        new GUIContent("Lunare", "Grigio neutro"),
+        new GUIContent("Marziano", "Bruno-rossastro"),
+        new GUIContent("Ghiacciato", "Chiaro/azzurrino, alto albedo"),
+    };
+    static readonly GUIContent[] SoilGC =
+    {
+        new GUIContent("Terra", "Grana di terra bruna"),
+        new GUIContent("Rosso", "Grana rossastra"),
+        new GUIContent("Roccia", "Grana rocciosa"),
+    };
     static readonly string[] SoilTextures = { "soil_dirt", "soil_red", "soil_rock" };
 
     /// <summary>Aggancio al bake su disco, iniettato dall'assembly Editor (il codice runtime non può
@@ -51,8 +72,13 @@ public class PlanetEditor : MonoBehaviour
     void Update()
     {
         if (recipe == null) return;
-        if (pendingRemove >= 0 && pendingRemove < recipe.craters.Count) { recipe.craters.RemoveAt(pendingRemove); pendingRemove = -1; geomDirty = true; }
-        if (pendingAdd) { recipe.craters.Add(new CraterRecipe()); pendingAdd = false; geomDirty = true; }
+        if (pendingRemove >= 0 && pendingRemove < recipe.craters.Count)
+        {
+            recipe.craters.RemoveAt(pendingRemove);
+            if (pendingRemove < openCrater.Count) openCrater.RemoveAt(pendingRemove);   // stato di collasso allineato
+            pendingRemove = -1; geomDirty = true;
+        }
+        if (pendingAdd) { recipe.craters.Add(new CraterRecipe()); openCrater.Add(true); pendingAdd = false; geomDirty = true; }
 
         if (geomDirty)
         {
@@ -122,6 +148,7 @@ public class PlanetEditor : MonoBehaviour
         if (recipe == null) return;
         float ui = Mathf.Max(1f, Screen.height / 1080f);
         EnsureStyles(ui);
+        SyncCraterFolds();
 
         float w = 430f * ui, h = Screen.height - 40f * ui;
         var panel = new Rect(16f * ui, 20f * ui, w, h);
@@ -133,83 +160,99 @@ public class PlanetEditor : MonoBehaviour
         GUILayout.Space(8f * ui);
         scroll = GUILayout.BeginScrollView(scroll);
 
-        // --- FORMA DI BASE ---
-        GUILayout.Label("FORMA DI BASE", head);
-        int bp = GUILayout.Toolbar(-1, BasePresets, GUILayout.Height(26f * ui));
-        if (bp >= 0) { ApplyBasePreset(bp); geomDirty = true; }
-        recipe.amplitude = Slider("Ampiezza (m)", recipe.amplitude, 0f, 150f, ui, ref geomDirty);
-        recipe.frequency = Slider("Frequenza", recipe.frequency, 0.5f, 6f, ui, ref geomDirty);
-        recipe.octaves = Mathf.RoundToInt(Slider("Ottave", recipe.octaves, 1, 8, ui, ref geomDirty));
-        recipe.gain = Slider("Gain", recipe.gain, 0.3f, 0.7f, ui, ref geomDirty);
-        if (Button("Nuovo seed", ui)) { recipe.seed = recipe.seed * 1664525 + 1013904223; geomDirty = true; }
-        GUILayout.Space(10f * ui);
-
-        // --- TIPO / COLORE ---
-        GUILayout.Label("TIPO / COLORE", head);
-        int tp = GUILayout.Toolbar(-1, BodyPresets, GUILayout.Height(26f * ui));
-        if (tp >= 0) { ApplyBodyPreset(tp); colorDirty = true; }
-        recipe.mariaScale = Slider("Mari: scala regioni", recipe.mariaScale, 0.8f, 6f, ui, ref colorDirty);
-        recipe.mariaStrength = Slider("Mari: forza", recipe.mariaStrength, 0f, 1f, ui, ref colorDirty);
-        // texture del suolo + saturazione del colore
-        int curSoil = System.Array.IndexOf(SoilTextures, recipe.soilTexture);
-        int ns = GUILayout.Toolbar(curSoil, SoilLabels, GUILayout.Height(24f * ui));
-        if (ns >= 0 && ns != curSoil) { recipe.soilTexture = SoilTextures[ns]; colorDirty = true; }
-        recipe.saturation = Slider("Saturazione", recipe.saturation, 0f, 2f, ui, ref colorDirty);
-        GUILayout.Space(10f * ui);
-
-        // --- MARI (GEOMETRIA: allagamento) ---
-        GUILayout.Label("MARI (geometria)", head);
-        bool seaOn = GUILayout.Toggle(recipe.seaEnabled, "  Attiva mare (allaga sotto la quota)", GUILayout.Height(20f * ui));
-        if (seaOn != recipe.seaEnabled) { recipe.seaEnabled = seaOn; geomDirty = true; colorDirty = true; }
-        if (recipe.seaEnabled)
+        // === FORMA ===
+        if (openBase = Foldout("FORMA", openBase, ui))
         {
-            float prevLevel = recipe.seaLevel;
-            recipe.seaLevel = Slider("Livello (m, − sotto / + sopra)", recipe.seaLevel, -250f, 150f, ui, ref geomDirty);
-            if (recipe.seaLevel != prevLevel) colorDirty = true;   // anche lo shader segue il pelo (_SeaLevel)
-            recipe.seaColor.r = Slider("Colore mare R", recipe.seaColor.r, 0f, 1f, ui, ref colorDirty);
-            recipe.seaColor.g = Slider("Colore mare G", recipe.seaColor.g, 0f, 1f, ui, ref colorDirty);
-            recipe.seaColor.b = Slider("Colore mare B", recipe.seaColor.b, 0f, 1f, ui, ref colorDirty);
+            int bp = GUILayout.Toolbar(-1, BaseGC, GUILayout.Height(26f * ui));
+            if (bp >= 0) { ApplyBasePreset(bp); geomDirty = true; }
+            recipe.amplitude = Slider("Ampiezza (m)", "Dislivello massimo del rilievo di base (± dal raggio). Alto = corpo più accidentato.", recipe.amplitude, 0f, 150f, ui, ref geomDirty);
+            recipe.frequency = Slider("Frequenza", "Scala delle ondulazioni di base: alta = feature più piccole e fitte.", recipe.frequency, 0.5f, 6f, ui, ref geomDirty);
+            recipe.octaves = Mathf.RoundToInt(Slider("Ottave", "Livelli di dettaglio sommati nel rilievo: più ottave = più dettaglio fine.", recipe.octaves, 1, 8, ui, ref geomDirty));
+            recipe.gain = Slider("Gain", "Peso delle ottave fini sulle grosse: alto = superficie più ruvida.", recipe.gain, 0.3f, 0.7f, ui, ref geomDirty);
+            if (Button("Nuovo seed", "Rigenera casualmente la forma mantenendo i parametri.", ui)) { recipe.seed = recipe.seed * 1664525 + 1013904223; geomDirty = true; }
+            GUILayout.Space(8f * ui);
         }
-        GUILayout.Space(10f * ui);
 
-        // --- PIPELINE DI CRATERI ---
+        // === COLORE & SUPERFICIE ===
+        if (openColor = Foldout("COLORE & SUPERFICIE", openColor, ui))
+        {
+            int tp = GUILayout.Toolbar(-1, BodyGC, GUILayout.Height(26f * ui));
+            if (tp >= 0) { ApplyBodyPreset(tp); colorDirty = true; }
+            int curSoil = System.Array.IndexOf(SoilTextures, recipe.soilTexture);
+            int ns = GUILayout.Toolbar(curSoil, SoilGC, GUILayout.Height(24f * ui));
+            if (ns >= 0 && ns != curSoil) { recipe.soilTexture = SoilTextures[ns]; colorDirty = true; }
+            recipe.saturation = Slider("Saturazione", "Intensità del colore: 0 = grigio, 1 = naturale, oltre = carico.", recipe.saturation, 0f, 2f, ui, ref colorDirty);
+            recipe.mariaScale = Slider("Ombra bacini: scala", "Dimensione delle regioni scure nei bacini bassi (effetto di COLORE, non geometria).", recipe.mariaScale, 0.8f, 6f, ui, ref colorDirty);
+            recipe.mariaStrength = Slider("Ombra bacini: forza", "Quanto scuriscono i bacini bassi (velatura di colore).", recipe.mariaStrength, 0f, 1f, ui, ref colorDirty);
+            GUILayout.Space(8f * ui);
+        }
+
+        // === MARI (GEOMETRIA: allagamento) ===
+        if (openSea = Foldout("MARI (geometria)", openSea, ui))
+        {
+            bool seaOn = Toggle("Attiva mare", "Allaga il terreno fino alla quota scelta: copre i crateri bassi. È geometria vera (ci cammini sopra).", recipe.seaEnabled, ui, geometry: true, changed: out bool seaTog);
+            if (seaTog) { recipe.seaEnabled = seaOn; geomDirty = true; colorDirty = true; }
+            if (recipe.seaEnabled)
+            {
+                float prevLevel = recipe.seaLevel;
+                recipe.seaLevel = Slider("Livello (m)", "Quota del pelo dell'acqua: negativo riempie solo i bacini, positivo sommerge sempre di più.", recipe.seaLevel, -250f, 150f, ui, ref geomDirty);
+                if (recipe.seaLevel != prevLevel) colorDirty = true;   // anche lo shader segue il pelo (_SeaLevel)
+                recipe.seaColor.r = Slider("Colore R", "Componente rossa del colore dell'acqua.", recipe.seaColor.r, 0f, 1f, ui, ref colorDirty);
+                recipe.seaColor.g = Slider("Colore G", "Componente verde del colore dell'acqua.", recipe.seaColor.g, 0f, 1f, ui, ref colorDirty);
+                recipe.seaColor.b = Slider("Colore B", "Componente blu del colore dell'acqua.", recipe.seaColor.b, 0f, 1f, ui, ref colorDirty);
+            }
+            GUILayout.Space(8f * ui);
+        }
+
+        // === PIPELINE DI CRATERI (ciascuna collassabile) ===
         for (int i = 0; i < recipe.craters.Count; i++)
         {
             var c = recipe.craters[i];
             GUILayout.BeginHorizontal();
-            GUILayout.Label("CRATERI " + (i + 1), head, GUILayout.ExpandWidth(true));
-            if (Button("Togli", ui, 66f)) pendingRemove = i;
+            openCrater[i] = Foldout((c.enabled ? "CRATERI " : "CRATERI (off) ") + (i + 1), openCrater[i], ui, expand: true);
+            if (Button("Togli", "Rimuove questa pipeline di crateri.", ui, 66f)) pendingRemove = i;
             GUILayout.EndHorizontal();
-            c.enabled = Toggle("Attiva", c.enabled, ui);
-            c.largestRadius = Slider("Raggio max (m)", c.largestRadius, 10f, 400f, ui, ref geomDirty);
-            c.density = Slider("Densità", c.density, 0f, 1f, ui, ref geomDirty);
-            c.octaves = Mathf.RoundToInt(Slider("Ottave taglia", c.octaves, 1, 7, ui, ref geomDirty));
-            c.depthRatio = Slider("Profondità/raggio", c.depthRatio, 0.05f, 0.5f, ui, ref geomDirty);
-            c.rimRatio = Slider("Bordo/profondità", c.rimRatio, 0.1f, 0.6f, ui, ref geomDirty);
-            c.rimSharpness = Slider("Nitidezza bordi", c.rimSharpness, 1f, 4f, ui, ref geomDirty);
-            c.dominant = Toggle("Dominante", c.dominant, ui);
-            if (c.dominant) c.dominantRadius = Slider("  raggio dominante", c.dominantRadius, 50f, 500f, ui, ref geomDirty);
+            if (!openCrater[i]) continue;
+            c.enabled = Toggle("Attiva", "Accende/spegne questo campo di crateri senza rimuoverlo.", c.enabled, ui, geometry: true, changed: out _);
+            c.largestRadius = Slider("Raggio max (m)", "Raggio del cratere più grande del campo.", c.largestRadius, 10f, 400f, ui, ref geomDirty);
+            c.density = Slider("Densità", "Probabilità che una cella contenga un cratere: alto = più crateri.", c.density, 0f, 1f, ui, ref geomDirty);
+            c.octaves = Mathf.RoundToInt(Slider("Ottave taglia", "Bande di dimensione: più ottave = più taglie (tanti piccoli + pochi grandi).", c.octaves, 1, 7, ui, ref geomDirty));
+            c.depthRatio = Slider("Profondità/raggio", "Quanto è profonda la conca rispetto al suo raggio.", c.depthRatio, 0.05f, 0.5f, ui, ref geomDirty);
+            c.rimRatio = Slider("Bordo/profondità", "Altezza del bordo rialzato rispetto alla profondità.", c.rimRatio, 0.1f, 0.6f, ui, ref geomDirty);
+            c.rimSharpness = Slider("Nitidezza bordi", "Forma della parete: 1 = cono dolce, alto = fondo piatto + bordo a cresta netta.", c.rimSharpness, 1f, 4f, ui, ref geomDirty);
+            c.dominant = Toggle("Dominante", "Aggiunge un grande impatto piazzato a mano (tipo Stickney su Phobos).", c.dominant, ui, geometry: true, changed: out _);
+            if (c.dominant) c.dominantRadius = Slider("  raggio dominante", "Raggio del grande impatto dominante (m).", c.dominantRadius, 50f, 500f, ui, ref geomDirty);
             GUILayout.Space(8f * ui);
         }
-        if (Button("+ Aggiungi pipeline crateri", ui)) pendingAdd = true;
-        GUILayout.Space(14f * ui);
+        GUILayout.Space(4f * ui);
+        if (GUILayout.Button(new GUIContent("➕  Aggiungi pipeline crateri", "Aggiunge un nuovo campo di crateri sovrapposto."),
+                             add, GUILayout.Height(36f * ui))) pendingAdd = true;
+        GUILayout.Space(12f * ui);
 
-        // --- FILE ---
+        // === FILE ===
         GUILayout.BeginHorizontal();
-        if (Button("Salva", ui)) Save();
-        if (Button("Carica", ui)) Load();
-        if (Button("Nuovo (liscio)", ui)) { recipe = PlanetRecipe.SmoothSphere(); geomDirty = colorDirty = true; }
+        if (Button("Salva", "Salva la ricetta come JSON.", ui)) Save();
+        if (Button("Carica", "Carica la ricetta col nome corrente.", ui)) Load();
+        if (Button("Nuovo (liscio)", "Riparte da una sfera liscia.", ui)) { recipe = PlanetRecipe.SmoothSphere(); geomDirty = colorDirty = true; }
         GUILayout.EndHorizontal();
-
-        // BAKE: cuoce su disco il corpo che stai componendo (texture pronte per il gioco), senza passare dal
-        // menu globale. Cartella = BakedPlanet_<nome ricetta> (così "Cetra" finisce in BakedPlanet_Cetra, già
-        // usata dal gioco). Disponibile solo dentro l'editor Unity (hook iniettato dall'assembly Editor).
         GUILayout.Space(6f * ui);
-        if (Button("Bake su disco (fissa il corpo)", ui)) BakeToDisk();
+        if (Button("Bake su disco (fissa il corpo)", "Cuoce le texture del corpo corrente in Resources/BakedPlanet_<nome> (pronte per il gioco).", ui)) BakeToDisk();
 
         GUILayout.EndScrollView();
-        GUILayout.Label("Tasto DESTRO + trascina = ruota · rotella = zoom · si rifinisce quando fermi lo slider", val);
+
+        // riquadro spiegazione: mostra la descrizione del setting sotto al mouse (GUI.tooltip).
+        GUILayout.Space(4f * ui);
+        GUILayout.Box(string.IsNullOrEmpty(GUI.tooltip) ? "Passa il mouse su un comando per la spiegazione." : GUI.tooltip,
+                      this.tip, GUILayout.Height(52f * ui));
+        GUILayout.Label("Tasto DESTRO trascina = ruota · rotella = zoom", val);
         GUILayout.EndArea();
+    }
+
+    /// <summary>Tiene la lista degli stati di collasso allineata al numero di pipeline di crateri.</summary>
+    void SyncCraterFolds()
+    {
+        while (openCrater.Count < recipe.craters.Count) openCrater.Add(true);
+        while (openCrater.Count > recipe.craters.Count) openCrater.RemoveAt(openCrater.Count - 1);
     }
 
     void ApplyBasePreset(int p)
@@ -233,26 +276,40 @@ public class PlanetEditor : MonoBehaviour
         }
     }
 
-    // ---- widget ----
-    float Slider(string label, float v, float min, float max, float ui, ref bool flag)
+    // ---- widget (con tooltip: l'etichetta porta la spiegazione mostrata nel riquadro in basso) ----
+    float Slider(string label, string tipText, float v, float min, float max, float ui, ref bool flag)
     {
         GUILayout.BeginHorizontal(GUILayout.Height(22f * ui));
-        GUILayout.Label(label, head, GUILayout.Width(170f * ui));
+        GUILayout.Label(new GUIContent(label, tipText), head, GUILayout.Width(170f * ui));
         float nv = GUILayout.HorizontalSlider(v, min, max, GUILayout.ExpandWidth(true), GUILayout.Height(18f * ui));
         GUILayout.Label(Mathf.Abs(nv) >= 100f ? nv.ToString("F0") : nv.ToString("F2"), val, GUILayout.Width(52f * ui));
         GUILayout.EndHorizontal();
         if (!Mathf.Approximately(nv, v)) flag = true;
         return nv;
     }
-    bool Toggle(string label, bool v, float ui)
+    bool Toggle(string label, string tipText, bool v, float ui, bool geometry, out bool changed)
     {
-        bool nv = GUILayout.Toggle(v, "  " + label, GUILayout.Height(20f * ui));
-        if (nv != v) geomDirty = true;
+        bool nv = GUILayout.Toggle(v, new GUIContent("  " + label, tipText), GUILayout.Height(20f * ui));
+        changed = nv != v;
+        if (changed && geometry) geomDirty = true;
         return nv;
     }
-    bool Button(string label, float ui, float width = 0f)
-        => width > 0f ? GUILayout.Button(label, btn, GUILayout.Width(width * ui), GUILayout.Height(26f * ui))
-                      : GUILayout.Button(label, btn, GUILayout.Height(26f * ui));
+    bool Button(string label, string tipText, float ui, float width = 0f)
+    {
+        var c = new GUIContent(label, tipText);
+        return width > 0f ? GUILayout.Button(c, btn, GUILayout.Width(width * ui), GUILayout.Height(26f * ui))
+                          : GUILayout.Button(c, btn, GUILayout.Height(26f * ui));
+    }
+
+    /// <summary>Intestazione di sezione cliccabile: ▾ aperta / ▸ chiusa. Restituisce il nuovo stato.</summary>
+    bool Foldout(string label, bool open, float ui, bool expand = false)
+    {
+        string s = (open ? "▾  " : "▸  ") + label;
+        bool clicked = expand
+            ? GUILayout.Button(s, fold, GUILayout.Height(24f * ui), GUILayout.ExpandWidth(true))
+            : GUILayout.Button(s, fold, GUILayout.Height(24f * ui));
+        return clicked ? !open : open;
+    }
 
     void Save()
     {
@@ -286,10 +343,23 @@ public class PlanetEditor : MonoBehaviour
             head = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.85f, 0.9f, 1f) } };
             val = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleRight, normal = { textColor = new Color(0.7f, 0.85f, 0.95f) } };
             btn = new GUIStyle(GUI.skin.button);
+            // intestazione di sezione: button piatto allineato a sinistra, in tinta col titolo
+            fold = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
+            fold.normal.textColor = fold.hover.textColor = fold.active.textColor = new Color(0.6f, 0.82f, 1f);
+            // riquadro spiegazione: testo a capo, attenuato
+            tip = new GUIStyle(GUI.skin.box) { wordWrap = true, alignment = TextAnchor.UpperLeft, fontStyle = FontStyle.Normal };
+            tip.normal.textColor = new Color(0.78f, 0.85f, 0.92f);
+            tip.padding = new RectOffset(8, 8, 6, 6);
+            // pulsante "aggiungi pipeline": più in vista (grassetto + accento verde) per distinguerlo dal resto
+            add = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold };
+            add.normal.textColor = add.hover.textColor = add.active.textColor = new Color(0.55f, 0.95f, 0.6f);
         }
         title.fontSize = Mathf.RoundToInt(18f * ui);
         head.fontSize = Mathf.RoundToInt(13f * ui);
         val.fontSize = Mathf.RoundToInt(12f * ui);
         btn.fontSize = Mathf.RoundToInt(12f * ui);
+        fold.fontSize = Mathf.RoundToInt(14f * ui);
+        tip.fontSize = Mathf.RoundToInt(12f * ui);
+        add.fontSize = Mathf.RoundToInt(14f * ui);
     }
 }
