@@ -7,13 +7,14 @@ using UnityEngine;
 /// e si compone la RICETTA (PlanetRecipe) — forma base (con preset), tipo/colore del corpo, N pipeline di
 /// crateri (attiva/togli/tara) — con anteprima IMMEDIATA. Salva/carica le ricette su disco (JSON).
 ///
-/// Forma (base/crateri) → ricostruisce la mesh (RebuildSync, bassa res per la reattività). Colore → aggiorna
+/// Forma (base/crateri) → ricostruisce la mesh (rebuild ASYNC su thread, bassa res durante il drag). Colore → aggiorna
 /// solo i materiali (niente rebuild). È il generatore: la ricetta sarà poi bakeata in texture per il gioco.
 /// </summary>
 public class PlanetEditor : MonoBehaviour
 {
-    const int PreviewRes = 128;        // mesh durante il drag (reattiva)
+    const int DragRes = 80;            // mesh DURANTE il drag (bassa res, build su thread → anteprima rapida)
     const int FinalRes = 256;          // mesh quando l'edit si assesta (nitida)
+    const int SettleFrames = 10;       // frame di quiete prima di rifinire a full res
     const int BakeMeshRes = 48;        // mesh d'appoggio per il ri-bake della normale-crateri
     const int EditorCraterRt = 512;    // risoluzione RT della normale-crateri nell'editor (rapida da ri-bakeare)
 
@@ -24,6 +25,7 @@ public class PlanetEditor : MonoBehaviour
     RenderTexture[] craterRTs;         // normale-crateri per faccia: liberate e rifatte a ogni assestamento
 
     bool geomDirty, colorDirty;
+    bool needsRebuild;                 // un edit ha cambiato la forma: ricostruisci (async) appena i thread sono liberi
     int settleTimer = -1;              // ≥0 = sto contando i frame dall'ultima modifica per rifinire
     int pendingRemove = -1;            // processo da rimuovere
     int pendingMoveUp = -1;            // processo da spostare SU (scambio con il precedente)
@@ -109,20 +111,26 @@ public class PlanetEditor : MonoBehaviour
             pendingAddFlag = false; geomDirty = true;
         }
 
-        if (geomDirty)
+        // un edit di forma segna solo "da ricostruire": il rebuild vero è async e SERIALIZZATO (sotto), così il
+        // calcolo pesante del rumore non gira sul main thread e lo slider non lagga.
+        if (geomDirty) { geomDirty = false; needsRebuild = true; settleTimer = -1; }
+
+        bool building = smp != null && smp.IsBuilding;
+        if (needsRebuild && !building)
         {
-            terrain.ApplyRecipe(recipe);
-            if (smp != null) smp.RebuildSync(terrain, PreviewRes);   // anteprima rapida durante il drag
-            geomDirty = false;
-            settleTimer = 0;                                          // avvia il conto per la rifinitura
+            terrain.ApplyRecipe(recipe);                  // main thread, leggero (costruisce la lista di layer)
+            if (smp != null) smp.RebuildAsync(terrain, DragRes);   // calcolo su thread: anteprima rapida a bassa res
+            needsRebuild = false;
+            settleTimer = 0;                              // appena fermi, conta per la rifinitura full res
         }
-        else if (settleTimer >= 0)
+        else if (!needsRebuild && !building && settleTimer >= 0)
         {
             settleTimer++;
-            if (settleTimer > 10)                                     // edit assestato (~0.2 s fermo)
+            if (settleTimer > SettleFrames)               // edit assestato: rifinisci a full res + ri-bake normale
             {
-                if (smp != null) smp.RebuildSync(terrain, FinalRes);  // mesh ad alta risoluzione
-                RebakeCraters();                                      // normale-crateri coerente con la ricetta
+                terrain.ApplyRecipe(recipe);
+                if (smp != null) smp.RebuildAsync(terrain, FinalRes);
+                RebakeCraters();
                 settleTimer = -1;
             }
         }

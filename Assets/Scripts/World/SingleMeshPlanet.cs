@@ -25,7 +25,7 @@ public class SingleMeshPlanet : MonoBehaviour
         public bool applied;
     }
     Face[] faces;
-    MeshFilter[] filters;   // persistenti: l'editor ci ricostruisce sopra l'anteprima (RebuildSync)
+    MeshFilter[] filters;   // persistenti: l'editor ci ricostruisce sopra l'anteprima (RebuildAsync)
 
     /// <summary>Costruisce il pianeta. La pipeline dei layer dev'essere già pronta (terrain.RebuildLayers
     /// chiamato sul main thread): i thread leggono soltanto.</summary>
@@ -55,21 +55,30 @@ public class SingleMeshPlanet : MonoBehaviour
         }
     }
 
-    /// <summary>Ricostruzione SINCRONA delle 6 facce a una risoluzione data (per l'anteprima LIVE dell'editor:
-    /// cambi una manopola della ricetta → vedi subito). Annulla l'eventuale build su thread in corso così non
-    /// sovrascrive dati vecchi. terrain.RebuildLayers dev'essere già chiamato (ApplyRecipe lo fa).</summary>
-    public void RebuildSync(PlanetTerrain terrain, int res)
+    /// <summary>true finché una build (iniziale o async) non è del tutto applicata. L'editor lo usa per
+    /// SERIALIZZARE: ricostruisce la pipeline (ApplyRecipe) solo quando nessun thread la sta leggendo.</summary>
+    public bool IsBuilding => faces != null;
+
+    /// <summary>Ricostruzione ASINCRONA delle 6 facce a una risoluzione data (anteprima LIVE dell'editor): il
+    /// calcolo pesante del rumore gira su thread, il main thread resta libero → lo slider non lagga. I risultati
+    /// vengono applicati (upload mesh) da Update appena pronti. Sostituisce l'eventuale build precedente: i suoi
+    /// risultati non vengono più applicati. terrain.RebuildLayers dev'essere già chiamato (ApplyRecipe), e NON va
+    /// richiamato finché IsBuilding (i thread leggono la lista di layer).</summary>
+    public void RebuildAsync(PlanetTerrain terrain, int res)
     {
         if (filters == null) return;
-        faces = null;   // ferma eventuali swap pendenti dal build iniziale
+        var newFaces = new Face[6];
         for (int f = 0; f < 6; f++)
         {
-            if (filters[f] == null) continue;
-            var mesh = PlanetMeshBuilder.BuildFaceMesh(PlanetMeshBuilder.FaceNormals[f], terrain, res);
-            var old = filters[f].sharedMesh;
-            filters[f].sharedMesh = mesh;
-            if (old != null) Destroy(old);
+            if (filters[f] == null) { newFaces[f] = new Face { applied = true }; continue; }
+            Vector3 up = PlanetMeshBuilder.FaceNormals[f];
+            var face = new Face { filter = filters[f] };
+            face.task = Task.Run(() =>
+                PlanetMeshBuilder.ComputeFaceData(up, terrain, res,
+                    out face.verts, out face.normals, out face.tangents, out face.uvs, out face.tris));
+            newFaces[f] = face;
         }
+        faces = newFaces;   // abbandona la build precedente: i suoi risultati non si applicano più
     }
 
     /// <summary>Renderer della faccia f (0..5) in ordine di faccia. Lo usa l'editor per ri-bakeare la
