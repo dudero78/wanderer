@@ -49,6 +49,7 @@ struct CraterGPU
     float domRimSharp;
     float domIrregular;
     float domIrregScale;
+    float bigCraters;      // flag owned-cell (0/1)
 };
 StructuredBuffer<CraterGPU> _Craters;
 
@@ -325,9 +326,10 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
             float cm = length(cc);
             if (cm < 1e-6) continue;
             float3 cdir = cc / cm;
-            // OWNED-CELL (= CraterTerrainLayer): il cratere è di QUESTA cella solo se la sua direzione ci ricade
-            // → niente duplicati radiali (niente crepe), a qualsiasi scala. Intorno 3×3×3 basta (influenza < 1 cella).
-            if ((int)floor(cdir.x * gscale) != X || (int)floor(cdir.y * gscale) != Y || (int)floor(cdir.z * gscale) != Z) continue;
+            // OWNED-CELL (flag "crateri grandi" = c.bigCraters): il cratere è di QUESTA cella solo se la sua
+            // direzione ci ricade → niente duplicati radiali (niente crepe), grandi a ogni scala. Flag OFF =
+            // placement classico. = CraterTerrainLayer.
+            if (c.bigCraters > 0.5 && ((int)floor(cdir.x * gscale) != X || (int)floor(cdir.y * gscale) != Y || (int)floor(cdir.z * gscale) != Z)) continue;
 
             float lo = 2.0 - CR_JITTER_MAX;
             float rad = radius * (lo + (CR_JITTER_MAX - lo) * U01(h * 0x27D4EB2Fu + 4u));

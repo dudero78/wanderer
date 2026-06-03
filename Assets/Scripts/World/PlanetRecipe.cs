@@ -164,6 +164,7 @@ public class ProcessStep
     // Le ottave vanno dalla più grande (grandi) alla più piccola (piccoli); 'medi' è la fascia centrale.
     public float wLarge = 1f, wMedium = 1f, wSmall = 1f;
     public float distribution = 0f;             // fase 0..1: ruota il campo di crateri → li "fa scorrere" sul pianeta
+    public bool bigCraters = false;             // OFF (default) = placement classico (abbondante/organico); ON = owned-cell (crateri grandi affidabili a ogni raggio, niente crepe, ma più regolare — utile come pipeline combinabile)
     public bool dominant = false;
     public Vector3 dominantDir = new Vector3(0.3f, 1f, 0.2f);
     public float dominantRadius = 230f;

@@ -376,6 +376,7 @@ public class PlanetEditor : MonoBehaviour
                 p.depthRatio = Slider("Profondità/raggio", "Quanto è profonda la conca rispetto al suo raggio.", p.depthRatio, 0.05f, 0.5f, ui, ref geomDirty);
                 p.rimRatio = Slider("Bordo/profondità", "Altezza del bordo rialzato rispetto alla profondità.", p.rimRatio, 0.1f, 0.6f, ui, ref geomDirty);
                 p.rimSharpness = Slider("Nitidezza bordi", "Forma della parete: 1 = cono dolce, alto = fondo piatto + bordo a cresta netta.", p.rimSharpness, 1f, 4f, ui, ref geomDirty);
+                p.bigCraters = Toggle("Crateri grandi", "Modalità per i grandi impatti: i crateri grandi restano a qualsiasi raggio e non creano crepe, ma la disposizione è più regolare (uno per regione). Da sola è poco realistica — utile COMBINATA con un'altra pipeline di crateri classici. Spenta = disposizione classica abbondante/organica.", p.bigCraters, ui, geometry: true, changed: out _);
                 p.dominant = Toggle("Dominante", "Aggiunge un grande impatto piazzato a mano (tipo Stickney su Phobos), con profilo PROPRIO indipendente dagli altri crateri.", p.dominant, ui, geometry: true, changed: out _);
                 if (p.dominant)
                 {

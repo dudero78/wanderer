@@ -30,6 +30,7 @@ public class CraterTerrainLayer : TerrainLayer
     readonly float rimSharpness;    // esponente della parete: 1 = cono, >1 = fondo piatto + bordo a cresta netta
     readonly float wLarge, wMedium, wSmall;   // quota relativa per fascia di taglia (modula la densità per ottava)
     readonly float distribution;              // fase 0..1: ruota il campo procedurale → i crateri scorrono sul pianeta
+    readonly bool ownedCell;                  // flag "crateri grandi": ON = owned-cell (niente crepe + grandi a ogni scala)
 
     // Crateri "a mano" (es. il dominante tipo Stickney): valutati sempre, fuori dal campo. Hanno PROFILO proprio
     // (profondità/bordo/nitidezza) + irregolarità, indipendenti dai crateri di campo.
@@ -64,8 +65,10 @@ public class CraterTerrainLayer : TerrainLayer
 
     public CraterTerrainLayer(float baseRadius, int seed, int octaves, float largestRadius,
                               float density, float depthRatio, float rimRatio, float rimSharpness = 2f,
-                              float wLarge = 1f, float wMedium = 1f, float wSmall = 1f, float distribution = 0f)
+                              float wLarge = 1f, float wMedium = 1f, float wSmall = 1f, float distribution = 0f,
+                              bool bigCraters = false)
     {
+        this.ownedCell = bigCraters;
         this.baseRadius = baseRadius;
         this.seed = seed;
         this.octaves = Mathf.Max(1, octaves);
@@ -159,9 +162,10 @@ public class CraterTerrainLayer : TerrainLayer
                 float cm = c.magnitude;
                 if (cm < 1e-6f) continue;
                 Vector3 cdir = c / cm;
-                // OWNED-CELL: il cratere appartiene a QUESTA cella solo se la sua DIREZIONE ci ricade. Così è
-                // assegnato a una cella sola → niente duplicati radiali (= niente crepe), a qualsiasi scala.
-                if (Mathf.FloorToInt(cdir.x * gscale) != X || Mathf.FloorToInt(cdir.y * gscale) != Y || Mathf.FloorToInt(cdir.z * gscale) != Z) continue;
+                // OWNED-CELL (flag "crateri grandi"): il cratere appartiene a QUESTA cella solo se la sua DIREZIONE
+                // ci ricade → assegnato a una cella sola, niente duplicati radiali (= niente crepe), grandi a ogni
+                // scala. Flag OFF (default) = placement classico (più organico/abbondante, ma con la degenerazione).
+                if (ownedCell && (Mathf.FloorToInt(cdir.x * gscale) != X || Mathf.FloorToInt(cdir.y * gscale) != Y || Mathf.FloorToInt(cdir.z * gscale) != Z)) continue;
 
                 // raggio jitterato attorno al raggio dell'ottava, simmetrico: [2−JITTER_MAX .. JITTER_MAX]
                 float lo = 2f - JITTER_MAX;
