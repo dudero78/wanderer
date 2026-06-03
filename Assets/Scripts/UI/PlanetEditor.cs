@@ -337,7 +337,9 @@ public class PlanetEditor : MonoBehaviour
 
     void EnsureStyles(float ui)
     {
-        if (title == null)
+        // guardia sull'ULTIMO stile creato: se un hot-reload durante il Play aggiunge un campo nuovo
+        // (vecchi stili conservati, nuovo a null), li ricrea tutti invece di lasciarne uno null.
+        if (add == null)
         {
             title = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.55f, 0.85f, 1f) } };
             head = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.85f, 0.9f, 1f) } };
