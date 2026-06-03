@@ -98,6 +98,20 @@ velocità orbitali e rendeva il match-velocity ingiocabile).
 
 - **Mappa (`M`)**: zoom-out sul sistema con le orbite; clicca un corpo per **selezionarlo**
   come destinazione (`MapMode`, camera dedicata, comandi del walker congelati).
+  - **Corpi reali** (non più dischi piatti): ogni corpo con ricetta è un **proxy** `SingleMeshPlanet` a bassa res
+    (mesh craterizzata + `PlanetTerrain.FaceMaterials`, gli stessi materiali bakeati del corpo) illuminato dal
+    sole → si vede il terminatore, legge come pianeta visto dall'orbita. La stella resta disco emissivo. Il
+    marker-sfera diventa un **bersaglio di click INVISIBILE** (renderer spento, collider attivo) → la selezione
+    funziona come prima. I proxy sono scalati a dimensione-schermo costante ogni frame.
+  - **"TU SEI QUI"**: marker verde + etichetta alla posizione del giocatore. L'etichetta è **sollevata** lungo
+    l'alto-schermo del raggio apparente del corpo su cui sei (`GravityBody`) → galleggia sopra il pianeta, non lo
+    attraversa.
+  - **Scia della traiettoria**: filo verde a coda di cometa (brilla al capo recente, sfuma sul vecchio). Registrata
+    SEMPRE (anche fuori mappa) in **coordinate-universo** (`FloatingOrigin.SceneOrigin + posScena`) e riconvertita
+    a scena ogni frame → stabile con la floating origin, coerente con stella e orbite. Ring buffer (1024 punti,
+    passo ~42 m → ultimi ~43 km). **Trappola chiusa:** al ri-ancoraggio (cambio di `Reference`) la posizione-scena
+    "salta" verso la stella per un frame; la pos-universo NON cambia (è solo un cambio di coordinate), quindi
+    qualunque salto enorme fra due frame è un artefatto → si scarta (`trailMaxJump`).
 - **Indicatore di rotta** (`RouteIndicator`): reticolo HUD sul corpo selezionato — anello a parentesi
   + chevron + distanza + **velocità di avvicinamento COL SEGNO** (− = ti allontani). **Due marker**:
   prograde (⊕ pieno) e retrograde (cerchietto vuoto), col tratteggio di collegamento; l'offset è la
@@ -217,7 +231,7 @@ Core/      Vector3d, FloatingOrigin   — doppia precisione, origine ancorata al
            RenderScaler               — render a frazione di risoluzione (ora 1.0: GPU libera)
            GameSettings               — opzioni runtime (facilitazioni) statiche + PlayerPrefs
 Physics/   KeplerOrbit, CelestialBody (UniversePosition + UniverseVelocityAt), SolarSystem (Reference: corpo ancorato; preserva la velocità allo switch)
-World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di TerrainLayer, unica verità mesh+walker. Recipe + ApplyRecipe
+World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di TerrainLayer, unica verità mesh+walker. Recipe + ApplyRecipe + FaceMaterials (per proxy mappa ed eclissi)
            PlanetRecipe      — RICETTA salvabile (JSON): forma base + N pipeline crateri + colore. LoadResource / ScaledTo(raggio)
            TerrainLayer      — astrazione di un processo (forma → altezza); base, poi crateri, ...
            BaseTerrainLayer  — forma di base (fBm)
@@ -230,9 +244,10 @@ World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di Terrain
            PlanetBaker       — bakea per faccia (mask + normale crateri dalla RICETTA + colori): runtime (RT, fallback) o
                                da disco per-corpo (TryLoadBakedMaterials(terrain, dir) ← Resources/BakedPlanet[_Cetra])
            SunLight
+           EclipseDriver  — ombre di eclissi analitiche: sceglie l'occlusore allineato col sole, passa gli uniform ai materiali (vedi "Eclissi")
 Player/    PlanetWalker   — camminata su sfera + volo jetpack (volo libero in Newtoniano, spinta scalata alla gravità)
            Flashlight     — torcia che scala con la quota
-           MapMode        — mappa (M): zoom-out + orbite + selezione corpo destinazione
+           MapMode        — mappa (M): zoom-out + orbite + selezione corpo destinazione. Corpi REALI (proxy craterizzato), "TU SEI QUI" + scia della traiettoria (universo, ring buffer)
            RouteIndicator — reticolo di rotta sul corpo selezionato (HUD, texture procedurali)
            OrbitDisplay   — orbite a schermo (O): fili luminosi OW (shader Wanderer/OrbitLine, mesh-nastro cacheata, spessore costante in px)
 Items/     SuitPickup
@@ -243,7 +258,7 @@ Bootstrap/ GameBootstrap        — costruisce la scena di gioco (parametri qui;
            PlanetEditorBootstrap— costruisce la scena editor (pianeta da SmoothSphere + camera orbitale + UI)
 Editor/    SceneSetup (menu "Crea scena di gioco" / "Apri editor pianeti"), PlanetBakeTool ("Bake planet assets": bake offline pianeta + Cetra, #13)
 Debug/     DebugHud
-Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta + GEOMORPH CDLOD nel vert (quadtree)
+Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta + GEOMORPH CDLOD nel vert (quadtree) + ECLISSI analitiche nel surf
            CraterNormalBake (Wanderer/CraterNormalBake) — bake normale crateri per faccia (mippata)
            PlanetBake (Wanderer/PlanetBake)          — bake maschera minerale
            DetailNormalBake                          — bake grana → normal map tileable
@@ -335,9 +350,13 @@ vicino all'origine di Unity → la precisione non degrada mai.
 - **Load time = bake GPU all'avvio (~1.9s), non le mesh.** Le mesh d'appoggio del bake servono solo a
   coprire le UV / dare il frame tangente: tienile a bassa risoluzione (il dettaglio lo fa il fragment
   per-pixel sulle RT a piena risoluzione). Il vero azzeramento del load è il bake-su-disco (#13).
-- **Niente ombre proiettate** (direzionale e torcia): su questa mesh a luce radente
+- **Niente ombre da SHADOW MAP** (direzionale e torcia): su questa mesh a luce radente
   danno "crepe" (shadow acne) e lo "schiarimento" oltre la shadow distance. Il
-  rilievo emerge bene dalle sole normali.
+  rilievo emerge bene dalle sole normali. **Ma le ombre fra corpi (eclissi) si fanno
+  ANALITICHE nello shader** (`EclipseDriver` + `Wanderer/PlanetBaked`): raggio→disco
+  solare in spazio oggetto, niente shadow map → zero acne, nessun limite di shadow
+  distance. È la via giusta per questo progetto: quando serve un'ombra geometrica
+  precisa, calcolala (come walker/normali), non affidarla alla shadow map.
 - **Tassellatura: Metal la regge** (Unity 6, pipeline built-in; `#pragma target 4.6`,
   `tessellate:` + `vertex:disp` a UN parametro — la forma a due parametri con
   `out Input o` NON compila con la tassellatura). Provata e poi **rimossa** dal
@@ -391,6 +410,18 @@ Catena del colore in `surf`:
 4. cappucci chiari sulle creste (`_PeakColor`/`_PeakStr`);
 5. **normale**: un soffio di micro-grana (`_GrainStr`) solo < ~13 m (la normale ad alta
    frequenza è la prima causa di sparkle/moiré sotto luce → quasi spenta).
+6. **eclissi**: ombra analitica di un altro corpo (vedi sotto). Moltiplica l'albedo dove il disco
+   dell'occlusore copre il sole.
+
+**Eclissi (ombre fra corpi)** — `EclipseDriver` (LateUpdate) sceglie per ogni corpo roccioso l'occlusore più
+allineato col sole e gli passa, sui materiali bakeati per faccia, gli uniform `_EclipseOccluderPos/Radius`,
+`_EclipseSunDir`, `_EclipseSunAngular` (= raggio stella / distanza). Nel `surf` si calcola la **copertura del
+disco solare** vista dal punto: separazione angolare sole↔occlusore vs somma dei raggi angolari → umbra piena
+quando l'occlusore ingloba il sole, **sbiadita quando è angolarmente più piccolo** (anulare). Conseguenza voluta:
+l'ombra **si attenua con la distanza** dall'occlusore (l'umbra ha lunghezza finita, oltre resta solo penombra).
+Tutto in **spazio oggetto** (centrato sul corpo, condiviso da mesh in gioco e proxy della mappa → l'eclissi compare
+in entrambi). Le eclissi dipendono dalla geometria: con Cetra inclinata ~23° capitano solo vicino ai nodi (rare,
+come le stagioni delle eclissi reali).
 
 `vert` fa il **geomorph** (CDLOD) leggendo UV2 (xyz = spostamento verso il genitore, w = splitDist): il vertice
 morfa verso la forma del genitore **completando entro la propria distanza di split** (banda [splitDist·(1−`_MorphRange`),

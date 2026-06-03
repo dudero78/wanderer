@@ -32,6 +32,15 @@ Dettaglio tecnico nel `CLAUDE.md`.
   `TryLoadBakedMaterials(terrain, dir)`). `BakedPlanet*` in `.gitignore` (cache rigenerabili).
 - ✅ Colore dei corpi dalla ricetta (`BuildMaterial` imposta `_SoilMean/_MariaColor/...`).
 - ✅ Menu "Crea scena di gioco" (crea `Game.unity` + la registra nei Build Settings).
+- ✅ **Mappa potenziata**: marker **"TU SEI QUI"** alla posizione del giocatore (sollevato sopra il corpo su cui
+  sei) + **scia della traiettoria** percorsa (filo a coda di cometa, in coordinate-universo, ring buffer ~43 km,
+  scarta i salti da ri-ancoraggio) + **#8 corpi reali**: ogni corpo con ricetta è un proxy craterizzato (mesh a
+  bassa res + materiali bakeati, illuminato dal sole) al posto del disco piatto; il marker-sfera resta bersaglio
+  di click invisibile.
+- ✅ **Eclissi analitiche** (`EclipseDriver` + shader): un corpo fra il sole e un altro gli proietta un'ombra
+  vera. Calcolata nello shader come copertura del disco solare via dimensioni ANGOLARI (spazio oggetto) → niente
+  shadow map, zero acne, nessun limite di shadow distance, e l'ombra **sbiadisce con la distanza** dall'occlusore
+  (umbra finita → penombra). Visibile anche sui proxy in mappa.
 
 ## Accantonato (deciso ma rimandato)
 
@@ -53,7 +62,6 @@ Dettaglio tecnico nel `CLAUDE.md`.
 - ⬜ **#10 Teletrasporto** a un corpo selezionato (appoggiato al ri-ancoraggio; corpi residenti all'avvio).
 - ⬜ **#9 Mini-loop giocabile (IL VERBO)**: atterra · cammina · raccogli · vai altrove · puoi fallire. L'MVP.
 - ⬜ Altri corpi DIVERSI (creati con l'editor).
-- 🔄 **#8 Mappa**: mostrare i corpi reali (cratered) invece di dischi uniformi.
 
 ## Più avanti (idee concordate, NON ora)
 
