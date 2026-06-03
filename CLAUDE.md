@@ -358,6 +358,18 @@ vicino all'origine di Unity → la precisione non degrada mai.
   più vicina (`i2`) per `conv`; dove 2ª e 3ª placca sono equidistanti `i2` salta → `conv` salta → gradino. Fix:
   **gate di continuità** `smoothstep((second−third)/boundaryWidth)` che azzera il ridge dove `i2` salterebbe.
   Regola generale: **un artefatto indipendente dalla risoluzione vive nella funzione, non nella mesh.**
+- **PRINCIPIO — ogni processo di `SampleHeight` deve essere C0-continuo (la "crepa" è un gradino della funzione).**
+  Tesoro dalla caccia sopra. Diagnosi in 2 mosse: (1) **la crepa cambia con la risoluzione?** Sì → è *aliasing*
+  di pendenza ripida su griglia fissa (cura = LOD / pareti più dolci, NON la continuità). No → è una *discontinuità
+  della funzione* (cura qui). (2) **quale slider la fa sparire?** → isola il termine colpevole. Le sorgenti tipiche
+  di gradino in un campo procedurale: **(a) swap di IDENTITÀ discreta** (la N-esima cosa più vicina cambia: placca,
+  cella, seme) → gate `smoothstep((d_k − d_{k+1})/width)` che azzera il termine dove l'identità salta; **(b)
+  troncamento di un INTORNO di ricerca** (un contributo entra/esce di colpo dalla finestra di celle) → dimensiona
+  la cella ≳ 2× il raggio d'influenza così il contributo è già ~0 al bordo finestra; **(c) `min`/`max`/`if`** su
+  quote → spigoli a V (usa somme di funzioni lisce o smin con cautela). **Checklist per un processo NUOVO:** la sua
+  funzione è continua attraversando i confini di cella/identità? il contributo va a 0 con una finestra liscia prima
+  di sparire? Esempio FATTO BENE: `CraterTerrainLayer` (SPACING=10 dimensiona la cella sull'influenza 3.08·raggi →
+  niente pop; `Smooth01((OUTER−r)/0.6)` chiude l'ejecta a 0 con C1) → i crateri NON hanno crepe, per costruzione.
 - **Normali da heightfield: usa il bump tangente STANDARD** `float3(-dot(G,T),
   -dot(G,B), 1)` con i tangenti della mesh come base (T,B,N). La normale di mondo
   resta continua anche ai poli perché tangente e bitangente si ribaltano insieme.
