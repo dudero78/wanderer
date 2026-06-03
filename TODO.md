@@ -1,7 +1,10 @@
 # Wanderer — TODO
 
-Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **3 giugno 2026**.
+Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **3 giugno 2026** (sessione editor estesa).
 Dettaglio tecnico nel `CLAUDE.md`.
+
+> **PROSSIMA SESSIONE — PARTI DA QUI:** GPU per l'editor (B1), **tappa 1 = render diretto dai buffer GPU**
+> (no readback) col pezzo HLSL già provato (base+crateri). Vedi sezione "Prossimo". Tutto committato su `main`.
 
 ## Fatto (milestone)
 
@@ -41,32 +44,55 @@ Dettaglio tecnico nel `CLAUDE.md`.
   vera. Calcolata nello shader come copertura del disco solare via dimensioni ANGOLARI (spazio oggetto) → niente
   shadow map, zero acne, nessun limite di shadow distance, e l'ombra **sbiadisce con la distanza** dall'occlusore
   (umbra finita → penombra). Visibile anche sui proxy in mappa.
+- ✅ **EDITOR = generatore di pianeti ricco (sessione 3 giu):** la ricetta è una **lista ORDINATA di PROCESSI**
+  tipizzati (`ProcessStep`/`ProcessType`), l'ordine conta. Tipi:
+  - **Crateri**: rimescola/casuale, quote per taglia (grandi/medi/piccoli), "distribuzione" (ruota il campo → li
+    fa scorrere sul pianeta), seed casuale sui nuovi bombardamenti.
+  - **Mari GEOMETRICI** (allagamento solido walkable, non più solo colore): livello (range fine), saturazione
+    propria, rilievo del fondale con "forma" creste↔liscio↔gobbe. Lo shader ricostruisce il pelo via `n3_fbm`
+    (fedele a `Noise3D`) per tingere seguendo la geometria.
+  - **Tettonica**: placche (soft Voronoi → quota CONTINUA, niente muri-bug), continenti/oceani, catene/rift ai
+    confini, coste frastagliate (warp frattale) + dolcezza coste. Col Mare = look terrestre.
+  - UI a fisarmonica + tooltip; riordino Su/Giù; "+ Nuova pipeline" sceglie il tipo. Texture suolo (tinta
+    visibile) + saturazione. **Anteprima ASINCRONA su thread** (slider fluidi: bassa res nel drag, full res al
+    rilascio). **Bake dal pulsante**; **"Carica" = file picker** sulla cartella dei pianeti.
+- ✅ **Luna** (terzo corpo): creato nell'editor, r800, in orbita al SOLE (semiasse 95000). Ricetta versionata
+  `Resources/Planets/Luna.json`; aggiunta al comando "Bake planet assets".
 
 ## Accantonato (deciso ma rimandato)
 
 - ⏸️ **Stitch di LOD** (transizioni di shading "scalini" ai confini): niente fessure/buchi, ma restano i salti
   di shading (peggio coi salti di 2+ livelli). Fix definitivo = **quadtree bilanciato 2:1** (vicini ≤ 1 livello
   → il morph di un livello basta, si possono togliere gli skirt). Rimandato: troppo tempo, avanti col gioco.
+- ⏸️ **Salti/scarpate netti scalettati nell'ANTEPRIMA editor** (3 giu, decisione: NON priorità ora). I gradini sul
+  bordo di un salto netto sono **aliasing dell'heightfield** (una linea netta su griglia a res fissa = scala, come
+  una diagonale su pixel). NON risolvibile con shading (provata "roccia sulle scarpate" → gole nere, scartata).
+  Cura vera = **LOD**: il GIOCO ce l'ha (quadtree, fine vicino alla camera → gradini sub-pixel); l'anteprima editor
+  usa mesh a res fissa. Fix = far usare all'editor il quadtree (rebuild + switch drag/zoom). RIMANDATO: il GPU per
+  l'editor (sotto) lo risolve gratis (res altissima a costo nullo). Verificare se il gioco già le rende pulite.
 
-## Prossimo
+## Prossimo — FOCUS: GPU per l'editor (= B1)
 
-- ⬜ **B1 — geometria su GPU, render diretto dai buffer (deciso con Dario):** spostare TUTTA la pipeline su GPU e
-  disegnarla dai buffer GPU **senza readback** (era il blocco di B2). Vale perché **non ci sono collisioni della
-  mesh**: il walker è analitico (`SampleHeight` su CPU solo al punto del giocatore), la mesh è puramente visiva.
-  Tappe: (1) portare l'INTERA pipeline in HLSL (base + crateri ordinati + mari + pesi-taglia + rugosità +
-  clustering); (2) render dai buffer (vertex/compute), parametri ricetta come uniform → anteprima editor full-res
-  LIVE, niente thread/bassa-res; (3) **parità** contro il bake CPU (menu già esistente) — l'anteprima DEVE
-  combaciare col baked. Iniziare dall'**editor** (nessun walker = beachhead), poi sostituire SingleMeshPlanet/quadtree
-  in gioco. Reintroduce il mantenere la pipeline in 2 lingue (C#+HLSL), con la parità a fare da guardia.
-- ⬜ **Migliorie editor + ricette:** swap/scala texture (fatto), più tipi di pipeline (montagne/tettonica/ghiaccio),
-  editing per-feature (cancella/modifica singolo cratere), più preset.
-- ⏸️ **Perf/load del quadtree — strada GPU (PARCHEGGIATA il 3 giu, non cancellata):** spostare il calcolo della
-  forma sulla GPU (compute shader), walker analitico su CPU. La **parità C#↔HLSL è PROVATA** (menu "Test parità
-  altezza GPU↔CPU", verde anche sulla griglia del nodo; bug Metal `float3` chiuso → buffer piatto di float). Codice
-  dormiente su disco: `Resources/Shaders/PlanetHeight.compute`, `GpuHeightBaker.cs`, `PlanetGpuParityTest.cs`; il
-  build resta su CPU (un commento in `GameBootstrap.AddSurface` spiega come riattivarlo). **Bloccante:** la lettura
-  asincrona (`AsyncGPUReadback`) TRASCINA → i nodi non diventano visibili in tempo (superficie lontana/buchi). Via
-  giusta = **B1: render diretto dai buffer GPU, niente readback** — sessione dedicata.
+- ⬜ **GPU per l'editor — render diretto dai buffer (deciso con Dario, È la rotta).** Spostare TUTTO il calcolo
+  della geometria dell'editor sulla GPU e disegnarla **dai buffer GPU senza readback** (era il blocco di B2).
+  L'editor è il **beachhead ideale**: nessun walker, nessuna collisione → puro visivo. Doppio guadagno: anteprima
+  **full-res LIVE** (niente thread/bassa-res, e la res altissima risolve anche i gradini delle scarpate) **+** il
+  lavoro è riusabile pari pari per i corpi in gioco (B1). La colorazione resta lo shader `PlanetBaked` (lavora su
+  qualunque mesh) → NON va rifatta; si GPU-genera solo la GEOMETRIA. **TAPPE (verificabili una a una):**
+  - **(1) ← PARTI DA QUI: render-dai-buffer** col pezzo HLSL GIÀ PROVATO (base+crateri, `PlanetHeight.compute`):
+    compute riempie un vertex buffer → `DrawProcedural`/`RenderPrimitives`, niente readback, disegnato nell'editor.
+    Sblocca lo schema (prova che il no-readback funziona).
+  - **(2) estendere l'HLSL** a mari (rugosità/forma) e tettonica (placche/soft-Voronoi/warp/uplift), con **parità**
+    a ogni passo (menu "Test parità altezza GPU↔CPU", da estendere per processo).
+  - **(3) cablare l'editor** sulla mesh GPU (anteprima full-res live), dismettere il percorso CPU del preview.
+  - Disciplina: pipeline in 2 lingue (C# per walker/bake + HLSL per render GPU), la **parità fa da rete**.
+  - Fondazione già pronta: `PlanetHeight.compute` (base+crateri provati al millimetro), `GpuHeightBaker.cs`,
+    `PlanetGpuParityTest.cs`; bug Metal `float3` chiuso → **buffer piatto di float**. B2 (compute→readback→mesh CPU)
+    PARCHEGGIATO perché il readback TRASCINA (il commento in `GameBootstrap.AddSurface` spiega come riattivare il
+    path CPU del gioco). Poi: stessa resa GPU sostituisce SingleMeshPlanet/quadtree IN GIOCO.
+- ⬜ **Acqua liquida** (toggle "liquido" sul Mare): resa trasparente + nuoto/affondamento. Condivide l'allagamento.
+- ⬜ **Altri processi**: montagne (ridged noise per la texture delle catene), ghiaccio, erosione (bake?).
+- ⬜ **Migliorie editor**: editing per-feature (cancella/modifica singolo cratere), più preset.
 
 ## Il GIOCO
 

@@ -33,15 +33,25 @@ seam-free, profilo a **legge di potenza** con bordo netto regolabile `rimSharpne
 + normale bakeata (`CraterNormalBake`) per i bordi fini, filtrata dal mipmap. Col quadtree i crateri
 grandi/medi sono GEOMETRIA, i fini li dà la normale.
 
-**Editor di pianeti** (scena separata, menu "Wanderer → Apri editor pianeti", `PlanetEditor`/`PlanetEditorBootstrap`):
-si compone una RICETTA (`PlanetRecipe`) — forma base (preset), tipo/colore (preset lunare/marziano/ghiacciato),
-N pipeline di crateri — con anteprima live (mesh che si rifinisce + ri-bake della normale quando l'edit si
-assesta) e si salva su disco (JSON in `persistentDataPath/planets`). Le ricette "ufficiali" del gioco vanno in
-`Assets/Resources/Planets/<nome>.json` (asset → nella build). `PlanetRecipe.ScaledTo(raggio)` scala le misure
-assolute conservando l'aspetto → stesso look su corpi di raggio diverso.
+**Editor di pianeti = GENERATORE RICCO** (scena separata, menu "Wanderer → Apri editor pianeti",
+`PlanetEditor`/`PlanetEditorBootstrap`). La RICETTA (`PlanetRecipe`) NON è più `crateri[] + colore`: è una **lista
+ORDINATA di PROCESSI tipizzati** (`ProcessStep`/`ProcessType`), e **l'ordine è la sequenza geologica → cambia il
+risultato** (un cratere DOPO un mare scava una buca asciutta nell'acqua). Tipi: **Crateri** (rimescola/casuale,
+quote per taglia, "distribuzione" = ruota il campo e li fa scorrere), **Mari GEOMETRICI** (allagamento solido
+walkable: livello/saturazione/rilievo-fondale con "forma" creste↔liscio↔gobbe; lo shader ricostruisce il pelo via
+`n3_fbm` per tingere seguendo la geometria), **Tettonica** (placche **soft Voronoi** → quota CONTINUA, continenti/
+oceani + catene/rift ai confini, coste frastagliate; col Mare = look terrestre). UI a fisarmonica + tooltip,
+riordino Su/Giù, "+ Nuova pipeline" sceglie il tipo. Texture suolo + saturazione. **Anteprima ASINCRONA su thread**
+(`SingleMeshPlanet.RebuildAsync`: slider fluidi, bassa res nel drag → full res al rilascio). **Bake dal pulsante**
+(hook iniettato dall'assembly Editor); **"Carica" = file picker**. Salva in `persistentDataPath/planets`; le ricette
+"ufficiali" in `Assets/Resources/Planets/<nome>.json` (→ build). `ScaledTo(raggio)` scala le misure assolute.
+**PROSSIMO FOCUS (deciso): GPU per l'editor (B1)** — render della geometria dai buffer GPU senza readback, parti
+dalla tappa 1 (render-dai-buffer col pezzo `PlanetHeight.compute` base+crateri già provato). Vedi `TODO.md` e
+[[wanderer-terreno-strategia]].
 
-**Due corpi**: il **Pianeta** (lunare, raggio 500) e **Cetra** (luna marziana craterizzata, raggio 300, g 3.0,
-in orbita attorno al pianeta — ricetta creata nell'editor). Aggiungere un corpo roccioso = una `CelestialBody`
+**Tre corpi**: il **Pianeta** (lunare, raggio 500), **Cetra** (luna marziana craterizzata, raggio 300, g 3.0,
+in orbita attorno al pianeta — ricetta creata nell'editor) e **Luna** (creato nell'editor, raggio 800, in orbita
+al SOLE; ricetta `Resources/Planets/Luna.json`). Aggiungere un corpo roccioso = una `CelestialBody`
 + `PlanetTerrain` (ApplyRecipe) sullo stesso GameObject; walker/mappa/viaggio "gratis".
 
 **Superficie — base lunare liscia.** Colore quasi uniforme grigio (`_SoilMean`) + variazione
@@ -211,9 +221,10 @@ il procedurale è uno strumento di CREAZIONE, non un sistema runtime. La superfi
 è a target — costruire il GIOCO: più corpi DIVERSI + un VERBO (atterra · cammina · raccogli · vai altrove ·
 puoi fallire). **MVP: mini-loop su 2-3 corpi.**
 FATTO: hand-off di gravità, mappa+selezione, **viaggio fra corpi + match-velocity**, indicatore di rotta,
-**autopilota**, **editor di pianeti + ricette**, **quadtree CDLOD**, **secondo corpo (Cetra)** — puoi volare
-da un corpo all'altro, atterrare, ripartire. MANCANO: il teletrasporto, il VERBO, altri corpi diversi.
-**Prossima sessione (deciso con Dario):** una serie di **migliorie all'editor di pianeti e alle ricette**.
+**autopilota**, **editor RICCO (processi ordinati: crateri/mari geometrici/tettonica)**, **quadtree CDLOD**, **tre
+corpi (Pianeta, Cetra, Luna)** — puoi volare da un corpo all'altro, atterrare, ripartire. MANCANO: il teletrasporto,
+il VERBO, altri corpi diversi. **PROSSIMA SESSIONE (deciso con Dario): GPU per l'editor (B1)** — render della
+geometria dai buffer GPU senza readback, **dalla tappa 1** (vedi `TODO.md` / [[wanderer-terreno-strategia]]).
 
 ## Come si avvia
 
