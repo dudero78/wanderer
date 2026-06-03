@@ -113,21 +113,25 @@ public static class PlanetMeshBuilder
         int ti = 0;
         float eps = 2f / (res - 1);   // passo per la differenza centrale (~ una cella di griglia)
 
-        // CUCITURE RISOLTE alla radice: niente più skirt/flangia. I vertici di bordo di facce adiacenti sono
-        // BIT-IDENTICI perché la direzione passa per la lattice condivisa (ParamToDir con invStep) → niente
-        // T-junction, niente fessure, anche su scogliere/catene ripide. (Prima si nascondevano con un lembo
-        // abbassato: cerotto con compromesso — poco = crepe, troppo = lembi alla silhouette.)
-        int invStep = res - 1;
+        // SKIRT anti-cucitura: bordo esteso di UNA cella e abbassato di un filo → il lembo si infila SOTTO la
+        // faccia vicina e sigilla la microfessura da arrotondamento. PICCOLO e fisso (∝ ampiezza base): su
+        // terreno moderato basta, e non fa lembi alla silhouette. Le scogliere ripide della tettonica NON
+        // arrivano qui perché la tettonica ora dà quota CONTINUA (soft Voronoi) → niente pareti verticali.
+        float margin = 1f / (res - 1);
+        float skirt = Mathf.Max(2f, terrain.Amplitude * 0.25f);
 
         for (int y = 0; y < res; y++)
         {
             for (int x = 0; x < res; x++)
             {
                 int i = x + y * res;
-                float tx = x / (float)(res - 1);
-                float ty = y / (float)(res - 1);
-                Vector3 dir = ParamToDir(localUp, axisA, axisB, tx, ty, invStep);
-                float h = terrain.SampleHeight(dir);
+                float u = x / (float)(res - 1);
+                float v = y / (float)(res - 1);
+                float tx = -margin + u * (1f + 2f * margin);
+                float ty = -margin + v * (1f + 2f * margin);
+                Vector3 dir = ParamToDir(localUp, axisA, axisB, tx, ty);
+                bool flange = x == 0 || x == res - 1 || y == 0 || y == res - 1;
+                float h = terrain.SampleHeight(dir) - (flange ? skirt : 0f);
                 verts[i] = dir * h;
                 Vector3 nrm = terrain.SurfaceNormal(dir, eps);
                 normals[i] = nrm;
@@ -136,7 +140,7 @@ public static class PlanetMeshBuilder
                 Vector3 refV = Mathf.Abs(nrm.y) < 0.99f ? Vector3.up : Vector3.right;
                 Vector3 tan = Vector3.Normalize(Vector3.Cross(refV, nrm));
                 tangents[i] = new Vector4(tan.x, tan.y, tan.z, 1f);
-                uvs[i] = new Vector2(tx, ty);
+                uvs[i] = new Vector2(Mathf.Clamp01(tx), Mathf.Clamp01(ty));
 
                 if (x < res - 1 && y < res - 1)
                 {

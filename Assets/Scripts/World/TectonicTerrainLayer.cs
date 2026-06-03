@@ -77,35 +77,30 @@ public class TectonicTerrainLayer : TerrainLayer
             d = (unitDir + (w1 * 0.7f + w2 * 0.35f) * warp).normalized;
         }
 
-        // placca più vicina e seconda (per il confine): massimo prodotto scalare = minima distanza angolare
-        int i1 = 0, i2 = 0;
-        float best = -2f, second = -2f;
+        // SOFT VORONOI: la quota base è la media PESATA di TUTTE le placche (peso che sfuma con la distanza
+        // angolare) → CONTINUA ovunque. Niente più salti dove cambia la "seconda placca più vicina" (era la
+        // causa delle PARETI VERTICALI che la griglia scalinava). 'coastSlope' regola la nitidezza: alto =
+        // coste ripide ma sempre continue (la griglia le risolve), basso = piattaforme dolci.
+        float sharp = Mathf.Lerp(40f, 5f, coastSlope);
+        float wsum = 0f, esum = 0f;
+        int i1 = 0, i2 = 0; float best = -2f, second = -2f;   // 2 più vicine: solo per le catene ai confini
         for (int i = 0; i < n; i++)
         {
             float dt = Vector3.Dot(d, seedDir[i]);
+            float w = Mathf.Exp(sharp * (dt - 1f));           // 1 sulla placca, decade con la distanza
+            float bi = (continental[i] ? contrast * 0.5f : -contrast * 0.5f) + elevJitter[i];
+            wsum += w; esum += w * bi;
             if (dt > best) { second = best; i2 = i1; best = dt; i1 = i; }
             else if (dt > second) { second = dt; i2 = i; }
         }
+        float elev = esum / wsum;
 
-        float b1 = (continental[i1] ? contrast * 0.5f : -contrast * 0.5f) + elevJitter[i1];
-        float b2 = (continental[i2] ? contrast * 0.5f : -contrast * 0.5f) + elevJitter[i2];
-
-        float edge = best - second;   // ~0 sul confine, cresce verso l'interno della placca
-
-        // SCARPATA (quota): la transizione fra le due placche avviene su una fascia LARGA quanto 'coastSlope'
-        // → piattaforme continentali dolci invece di altopiani a pareti verticali. Banda separata da quella
-        // del sollevamento, così le coste sono morbide ma le catene restano localizzate sul confine.
-        float coastBand = boundaryWidth * Mathf.Lerp(1f, 12f, coastSlope);
-        float tc = Mathf.Clamp01(edge / coastBand);
-        float wc = tc * tc * (3f - 2f * tc);
-        float elev = Mathf.Lerp((b1 + b2) * 0.5f, b1, wc);
-
-        // CONFINE (sollevamento/rift): fascia STRETTA su boundaryWidth, moto relativo lungo la normale.
-        float tu = Mathf.Clamp01(edge / boundaryWidth);
-        float boundary = 1f - tu * tu * (3f - 2f * tu);     // 1 sul confine, 0 dentro
+        // CONFINI: catene (placche convergenti) / rift (divergenti), localizzati sulla fascia del confine i1↔i2.
+        float tu = Mathf.Clamp01((best - second) / boundaryWidth);
+        float boundary = 1f - tu * tu * (3f - 2f * tu);
         if (boundary > 0.001f && uplift > 0f)
         {
-            Vector3 bn = (seedDir[i1] - seedDir[i2]);
+            Vector3 bn = seedDir[i1] - seedDir[i2];
             float bm = bn.magnitude;
             if (bm > 1e-5f)
             {
