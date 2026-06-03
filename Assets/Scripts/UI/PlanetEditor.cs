@@ -32,6 +32,10 @@ public class PlanetEditor : MonoBehaviour
     static readonly string[] BasePresets = { "Liscia", "Collinare", "Montagnosa", "Irregolare" };
     static readonly string[] BodyPresets = { "Lunare", "Marziano", "Ghiacciato" };
 
+    /// <summary>Aggancio al bake su disco, iniettato dall'assembly Editor (il codice runtime non può
+    /// referenziarlo). (terrain, nome cartella) → ok. Null in build → il pulsante avvisa che serve l'editor.</summary>
+    public static System.Func<PlanetTerrain, string, bool> BakeToDiskHook;
+
     string Dir => Path.Combine(Application.persistentDataPath, "planets");
 
     public void Init(PlanetTerrain t, SingleMeshPlanet s)
@@ -169,6 +173,12 @@ public class PlanetEditor : MonoBehaviour
         if (Button("Nuovo (liscio)", ui)) { recipe = PlanetRecipe.SmoothSphere(); geomDirty = colorDirty = true; }
         GUILayout.EndHorizontal();
 
+        // BAKE: cuoce su disco il corpo che stai componendo (texture pronte per il gioco), senza passare dal
+        // menu globale. Cartella = BakedPlanet_<nome ricetta> (così "Cetra" finisce in BakedPlanet_Cetra, già
+        // usata dal gioco). Disponibile solo dentro l'editor Unity (hook iniettato dall'assembly Editor).
+        GUILayout.Space(6f * ui);
+        if (Button("Bake su disco (fissa il corpo)", ui)) BakeToDisk();
+
         GUILayout.EndScrollView();
         GUILayout.Label("Tasto DESTRO + trascina = ruota · rotella = zoom · si rifinisce quando fermi lo slider", val);
         GUILayout.EndArea();
@@ -231,6 +241,14 @@ public class PlanetEditor : MonoBehaviour
         Debug.Log("Ricetta caricata: " + path);
     }
     static string Sanitize(string s) { foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_'); return string.IsNullOrEmpty(s) ? "pianeta" : s; }
+
+    void BakeToDisk()
+    {
+        if (BakeToDiskHook == null) { Debug.LogWarning("Bake su disco: disponibile solo dentro l'editor Unity."); return; }
+        if (terrain == null) { Debug.LogWarning("Bake su disco: nessun terreno."); return; }
+        terrain.ApplyRecipe(recipe);   // assicura che il terreno rifletta la ricetta corrente prima del bake
+        BakeToDiskHook(terrain, "BakedPlanet_" + Sanitize(recipe.name));
+    }
 
     void EnsureStyles(float ui)
     {

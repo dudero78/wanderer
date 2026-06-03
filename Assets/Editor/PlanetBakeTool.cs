@@ -42,8 +42,7 @@ public static class PlanetBakeTool
         Debug.Log("Bake planet assets: FATTO (pianeta + Cetra). Caricate da disco a runtime.");
     }
 
-    /// <summary>Bakea tutte le texture di UN corpo (mask + crater normal + detail + heightmap) nella cartella data.
-    /// 'configure' prepara il terreno (ricetta + RebuildLayers) come in gioco.</summary>
+    /// <summary>Bakea un corpo creandone uno temporaneo da 'configure' (usato dal menu offline).</summary>
     static void BakeBody(string bakedDirName, System.Action<PlanetTerrain> configure)
     {
         var go = new GameObject("__planetBakeTemp");
@@ -51,7 +50,41 @@ public static class PlanetBakeTool
         {
             var terrain = go.AddComponent<PlanetTerrain>();
             configure(terrain);
+            BakeTerrainToDisk(terrain, bakedDirName);
+        }
+        finally { Object.DestroyImmediate(go); }
+    }
 
+    /// <summary>
+    /// Bake "da dentro l'editor": cuoce su disco il TERRAIN che stai componendo (non un corpo prefissato),
+    /// nella cartella Resources/&lt;bakedDirName&gt;, e aggiorna l'AssetDatabase. È l'aggancio chiamato dal
+    /// pulsante dell'editor di pianeti (PlanetEditor) via hook, così il ciclo "componi → fissa" sta tutto lì.
+    /// Ritorna false (loggando) se gli shader di bake mancano. RebuildLayers prima, così bake = ricetta corrente.
+    /// </summary>
+    public static bool BakeTerrainFromEditor(PlanetTerrain terrain, string bakedDirName)
+    {
+        if (terrain == null) { Debug.LogError("Bake editor: terrain nullo."); return false; }
+        if (Shader.Find("Wanderer/PlanetBaked") == null || Shader.Find("Wanderer/CraterNormalBake") == null)
+        {
+            Debug.LogError("Bake editor: shader Wanderer/* non trovati. Annullo.");
+            return false;
+        }
+        if (!AssetDatabase.IsValidFolder("Assets/Resources")) AssetDatabase.CreateFolder("Assets", "Resources");
+        terrain.RebuildLayers();   // bake = esattamente la ricetta corrente, anche se l'edit non si è assestato
+        BakeTerrainToDisk(terrain, bakedDirName);
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        Debug.Log("Bake editor: FATTO → Assets/Resources/" + bakedDirName + " (a runtime caricato da TryLoadBakedMaterials).");
+        return true;
+    }
+
+    /// <summary>Bakea tutte le texture di UN terrain dato (mask + crater normal + detail + heightmap) nella
+    /// cartella Resources/&lt;bakedDirName&gt; (ricreata pulita). NON crea/distrugge GameObject: lavora sul terrain
+    /// passato. Condiviso da menu offline e bake-da-editor.</summary>
+    static void BakeTerrainToDisk(PlanetTerrain terrain, string bakedDirName)
+    {
+        try
+        {
             // cartella pulita
             string dir = "Assets/Resources/" + bakedDirName;
             if (AssetDatabase.IsValidFolder(dir)) AssetDatabase.DeleteAsset(dir);
@@ -83,7 +116,6 @@ public static class PlanetBakeTool
         finally
         {
             EditorUtility.ClearProgressBar();
-            Object.DestroyImmediate(go);
         }
     }
 
