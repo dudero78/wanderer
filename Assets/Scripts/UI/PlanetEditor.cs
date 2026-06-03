@@ -21,9 +21,14 @@ public class PlanetEditor : MonoBehaviour
     PlanetTerrain terrain;
     SingleMeshPlanet smp;
     GpuPlanetSurface gpu;              // anteprima GPU (Tappa 1): commutabile con la mesh CPU (tasto G)
-    bool gpuPreview;                   // true = sto mostrando la sfera GPU al posto della mesh CPU
+    bool gpuPreview = true;            // true = sfera GPU (DEFAULT: più veloce ad aprirsi e mostra subito tutte le feature)
     PlanetRecipe recipe;
     MeshRenderer[] faceRenderers;
+    // mesh CPU costruita PIGRA: l'editor parte in GPU, la mesh CPU si crea solo al primo passaggio a CPU (tasto G)
+    // → apertura più veloce (niente campionamento del rumore sul main thread all'avvio). Parametri tenuti per allora.
+    Material[] cpuMats;
+    int cpuMeshRes;
+    bool cpuBuilt;
     RenderTexture[] craterRTs;         // normale-crateri per faccia: liberate e rifatte a ogni assestamento
 
     bool geomDirty, colorDirty;
@@ -103,17 +108,34 @@ public class PlanetEditor : MonoBehaviour
 
     string Dir => Path.Combine(Application.persistentDataPath, "planets");
 
-    public void Init(PlanetTerrain t, SingleMeshPlanet s)
+    public void Init(PlanetTerrain t, SingleMeshPlanet s, Material[] cpuMaterials, int meshRes)
     {
         terrain = t; smp = s;
+        cpuMats = cpuMaterials; cpuMeshRes = meshRes;
         recipe = t != null ? t.Recipe : PlanetRecipe.SmoothSphere();
         recipe.Normalize();
-        if (s != null) faceRenderers = s.GetComponentsInChildren<MeshRenderer>();
         Directory.CreateDirectory(Dir);
     }
 
-    /// <summary>Collega l'anteprima GPU (può essere null se i compute non sono supportati).</summary>
-    public void SetGpuSurface(GpuPlanetSurface g) { gpu = g; }
+    /// <summary>Collega l'anteprima GPU. Se è pronta, l'editor PARTE in GPU (apertura veloce, feature subito
+    /// visibili). Se manca o non è supportata (niente compute), ripiega sulla mesh CPU così si vede comunque qualcosa.</summary>
+    public void SetGpuSurface(GpuPlanetSurface g)
+    {
+        gpu = g;
+        if (g != null && g.Ready) { gpuPreview = true; g.Active = true; }
+        else { gpuPreview = false; EnsureCpuBuilt(); }
+    }
+
+    /// <summary>Costruisce la mesh CPU se non è ancora stata creata (build PIGRA: solo quando serve davvero, cioè
+    /// al primo passaggio a CPU o come fallback senza GPU). È il lavoro pesante che prima si pagava all'apertura.</summary>
+    void EnsureCpuBuilt()
+    {
+        if (cpuBuilt || smp == null || cpuMats == null) return;
+        smp.Build(terrain, cpuMats, cpuMeshRes, 48);
+        faceRenderers = smp.GetComponentsInChildren<MeshRenderer>();
+        cpuBuilt = true;
+        PushColors();   // applica i colori correnti alla mesh appena creata
+    }
 
     /// <summary>Commuta fra anteprima CPU (mesh) e anteprima GPU (render-dai-buffer). A/B per il confronto.</summary>
     void ToggleGpuPreview()
@@ -121,6 +143,7 @@ public class PlanetEditor : MonoBehaviour
         if (gpu == null || !gpu.Ready) return;
         gpuPreview = !gpuPreview;
         gpu.Active = gpuPreview;
+        if (!gpuPreview) EnsureCpuBuilt();   // primo passaggio a CPU: costruisci la mesh ORA (era differita)
         if (faceRenderers != null)
             foreach (var r in faceRenderers) if (r != null) r.enabled = !gpuPreview;   // nascondi/mostra la mesh CPU
         if (gpuPreview) gpu.Rebuild(terrain);   // mostra subito lo stato corrente sulla GPU
@@ -362,6 +385,7 @@ public class PlanetEditor : MonoBehaviour
                 p.plateCount = Mathf.RoundToInt(Slider("Placche", "Numero di placche: poche = continenti grandi, molte = frammentato.", p.plateCount, 3, 40, ui, ref geomDirty));
                 p.continentalFraction = Slider("Terre emerse", "Frazione di placche continentali (alte): 0 = quasi tutto oceano, 1 = quasi tutto continente.", p.continentalFraction, 0f, 1f, ui, ref geomDirty);
                 p.elevationContrast = Slider("Dislivello (m)", "Quanto i continenti stanno più in alto dei bacini oceanici.", p.elevationContrast, 0f, 200f, ui, ref geomDirty);
+                p.continentalRelief = Slider("Rilievo continenti (m)", "Colline e terreno irregolare DENTRO i continenti (gli oceani restano lisci): 0 = altopiani piatti, su = continenti accidentati.", p.continentalRelief, 0f, 80f, ui, ref geomDirty);
                 p.boundaryUplift = Slider("Catene/rift (m)", "Sollevamento ai confini convergenti (catene) e sprofondamento ai divergenti (rift).", p.boundaryUplift, 0f, 150f, ui, ref geomDirty);
                 p.boundaryWidth = Slider("Larghezza confini", "Quanto sono larghe le catene/rift lungo i confini di placca.", p.boundaryWidth, 0.02f, 0.3f, ui, ref geomDirty);
                 p.coastSlope = Slider("Dolcezza coste", "0 = coste a scogliera (pareti verticali); 1 = piattaforme continentali graduali.", p.coastSlope, 0f, 1f, ui, ref geomDirty);

@@ -44,36 +44,34 @@ public class PlanetEditorBootstrap : MonoBehaviour
         var terrain = planetGo.AddComponent<PlanetTerrain>();
         terrain.ApplyRecipe(PlanetRecipe.SmoothSphere());
 
+        // I materiali bakeati servono alla mesh CPU (la GPU usa il proprio shader procedurale). Il bake è anche il
+        // test di capacità: se fallisce, shader/bake non disponibili.
         SingleMeshPlanet smp = null;
+        GpuPlanetSurface gpu = null;
         var mats = PlanetBaker.BakeFaceMaterials(terrain, 64);
         if (mats != null)
         {
-            // La normale-crateri bakeata segue la RICETTA (vedi PlanetBaker.PrimaryCrater) → i bordi nitidi
-            // cadono sulle conche della mesh. L'editor la ri-bakea quando un'edit si assesta (PlanetEditor).
+            // La mesh CPU NON viene costruita qui: l'editor parte in GPU e la crea pigra al primo passaggio a CPU
+            // (apertura più veloce — niente campionamento del rumore sul main thread all'avvio). La normale-crateri
+            // bakeata segue la RICETTA; l'editor la ri-bakea quando un edit si assesta.
             smp = planetGo.AddComponent<SingleMeshPlanet>();
-            smp.Build(terrain, mats, meshRes, 48);
+            // --- anteprima GPU (render-dai-buffer senza readback): è il path di default, completo (geometria+colore+
+            //     normali+acqua). Convive con la mesh CPU; il tasto G commuta per il confronto A/B. ---
+            gpu = planetGo.AddComponent<GpuPlanetSurface>();
+            gpu.Setup(terrain, gpuRes);
         }
         else
         {
             Debug.LogError("PlanetEditor: shader/bake non disponibili — impossibile mostrare il pianeta.");
         }
 
-        // --- anteprima GPU (Tappa 1 "GPU per l'editor"): geometria sulla GPU, render-dai-buffer senza
-        //     readback. Convive con la mesh CPU; l'editor commuta fra le due col tasto G per il confronto. ---
-        GpuPlanetSurface gpu = null;
-        if (smp != null)
-        {
-            gpu = planetGo.AddComponent<GpuPlanetSurface>();
-            gpu.Setup(terrain, gpuRes);
-        }
-
         // --- modo luce (L): ancorata (default) / libera (sole agganciato alla vista, da destra) ---
         var lm = camGo.AddComponent<EditorLightMode>();
         lm.sun = dl; lm.cam = camGo.transform; lm.gpu = gpu;
 
-        // --- UI editor ---
+        // --- UI editor --- (Init prima di SetGpuSurface: la build pigra/fallback CPU usa mats+meshRes)
         var ed = gameObject.AddComponent<PlanetEditor>();
-        ed.Init(terrain, smp);
+        ed.Init(terrain, smp, mats, meshRes);
         ed.SetGpuSurface(gpu);
     }
 }
