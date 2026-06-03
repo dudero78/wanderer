@@ -42,6 +42,21 @@ public class PlanetEditor : MonoBehaviour
     Vector2 scroll;
     GUIStyle title, head, val, btn, fold, tip, add;
 
+    // --- UX: identità di zona (colore-firma + icona) + zebra sulle righe ---
+    GUIStyle rowStyle;                 // sfondo riga (1×1 bianco, tinto via backgroundColor) → zebra
+    Texture2D whiteTex;                // 1×1 bianco condiviso
+    Texture2D icoForma, icoColore, icoCrateri, icoMare, icoTettonica;
+    Color groupAccent = Color.gray;    // colore-firma della zona corrente (header + velo righe)
+    Color prevRowBg;
+    int rowParity;                     // alterna lo sfondo zebra all'interno di una zona
+
+    // colori-firma: danno identità immediata a ogni zona → l'occhio la riconosce senza leggere le etichette
+    static readonly Color AccForma   = new Color(0.62f, 0.68f, 0.82f);   // ardesia
+    static readonly Color AccColore  = new Color(0.86f, 0.72f, 0.50f);   // sabbia
+    static readonly Color AccCrateri = new Color(0.95f, 0.66f, 0.34f);   // ambra
+    static readonly Color AccMare    = new Color(0.42f, 0.66f, 1.00f);   // azzurro
+    static readonly Color AccTett    = new Color(0.52f, 0.83f, 0.55f);   // verde
+
     // stato dei pannelli collassabili (le sezioni con molti settings si chiudono per fare spazio)
     bool openBase = true, openColor = true;
     readonly List<bool> openProc = new List<bool>();   // uno per processo della pipeline
@@ -273,8 +288,9 @@ public class PlanetEditor : MonoBehaviour
         scroll = GUILayout.BeginScrollView(scroll);
 
         // === FORMA ===
-        if (openBase = Foldout("FORMA", openBase, ui))
+        if (openBase = Foldout("FORMA", openBase, ui, false, AccForma, icoForma))
         {
+            GroupStart(AccForma);
             int bp = GUILayout.Toolbar(-1, BaseGC, GUILayout.Height(26f * ui));
             if (bp >= 0) { ApplyBasePreset(bp); geomDirty = true; }
             recipe.amplitude = Slider("Ampiezza (m)", "Dislivello massimo del rilievo di base (± dal raggio). Alto = corpo più accidentato.", recipe.amplitude, 0f, 150f, ui, ref geomDirty);
@@ -286,8 +302,9 @@ public class PlanetEditor : MonoBehaviour
         }
 
         // === COLORE & SUPERFICIE ===
-        if (openColor = Foldout("COLORE & SUPERFICIE", openColor, ui))
+        if (openColor = Foldout("COLORE & SUPERFICIE", openColor, ui, false, AccColore, icoColore))
         {
+            GroupStart(AccColore);
             int tp = GUILayout.Toolbar(-1, BodyGC, GUILayout.Height(26f * ui));
             if (tp >= 0) { ApplyBodyPreset(tp); colorDirty = true; }
             int curSoil = System.Array.IndexOf(SoilTextures, recipe.soilTexture);
@@ -309,12 +326,13 @@ public class PlanetEditor : MonoBehaviour
             string kind = p.type == ProcessType.Mare ? "MARE" : p.type == ProcessType.Tettonica ? "TETTONICA" : "CRATERI";
             if (!p.enabled) kind += " (off)";
             GUILayout.BeginHorizontal();
-            openProc[i] = Foldout(kind + "  " + (i + 1), openProc[i], ui, expand: true);
+            openProc[i] = Foldout(kind + "  " + (i + 1), openProc[i], ui, true, AccentFor(p.type), IconFor(p.type));
             if (i > 0 && Button("Su", "Sposta prima nella sequenza (sotto i processi precedenti).", ui, 40f)) pendingMoveUp = i;
             if (i < procs.Count - 1 && Button("Giù", "Sposta dopo nella sequenza.", ui, 40f)) pendingMoveUp = i + 1;
             if (Button("X", "Rimuove questo processo.", ui, 30f)) pendingRemove = i;
             GUILayout.EndHorizontal();
             if (!openProc[i]) continue;
+            GroupStart(AccentFor(p.type));
             p.enabled = Toggle("Attiva", "Accende/spegne il processo senza rimuoverlo.", p.enabled, ui, geometry: true, changed: out bool enabChg);
             if (enabChg) colorDirty = true;   // spegnere un Mare deve togliere la tinta (uniform _SeaOn aggiornati in PushColors)
             if (p.type == ProcessType.Crateri)
@@ -388,9 +406,9 @@ public class PlanetEditor : MonoBehaviour
         {
             GUILayout.Label("Che tipo?", head);
             GUILayout.BeginHorizontal();
-            if (Button("Tettonica", "Continenti, oceani e catene dalle placche.", ui)) { pendingAddType = ProcessType.Tettonica; pendingAddFlag = true; chooseType = false; }
-            if (Button("Crateri", "Un bombardamento di crateri.", ui)) { pendingAddType = ProcessType.Crateri; pendingAddFlag = true; chooseType = false; }
-            if (Button("Mare", "Allaga ciò che sta sotto fino a una quota.", ui)) { pendingAddType = ProcessType.Mare; pendingAddFlag = true; chooseType = false; }
+            if (TypeButton("Tettonica", "Continenti, oceani e catene dalle placche.", ui, AccTett, icoTettonica)) { pendingAddType = ProcessType.Tettonica; pendingAddFlag = true; chooseType = false; }
+            if (TypeButton("Crateri", "Un bombardamento di crateri.", ui, AccCrateri, icoCrateri)) { pendingAddType = ProcessType.Crateri; pendingAddFlag = true; chooseType = false; }
+            if (TypeButton("Mare", "Allaga ciò che sta sotto fino a una quota.", ui, AccMare, icoMare)) { pendingAddType = ProcessType.Mare; pendingAddFlag = true; chooseType = false; }
             GUILayout.EndHorizontal();
             if (Button("Annulla", "", ui)) chooseType = false;
         }
@@ -472,20 +490,41 @@ public class PlanetEditor : MonoBehaviour
         p.rimSharpness = Random.Range(1f, 4f);
     }
 
+    // ---- zona e zebra: ogni sezione/processo è una ZONA con un colore-firma; le righe alternano un velo tenue
+    // di quel colore (zebra) → si segue label→slider→valore in orizzontale e si riconosce la zona a colpo d'occhio.
+    Color AccentFor(ProcessType t) => t == ProcessType.Mare ? AccMare : t == ProcessType.Tettonica ? AccTett : AccCrateri;
+    Texture2D IconFor(ProcessType t) => t == ProcessType.Mare ? icoMare : t == ProcessType.Tettonica ? icoTettonica : icoCrateri;
+    void GroupStart(Color accent) { groupAccent = accent; rowParity = 0; }
+    void BeginRow(float ui)
+    {
+        rowParity++;
+        float a = (rowParity & 1) == 1 ? 0.11f : 0.05f;   // zebra appena percettibile, nella tinta della zona
+        prevRowBg = GUI.backgroundColor;
+        GUI.backgroundColor = new Color(groupAccent.r, groupAccent.g, groupAccent.b, a);
+        GUILayout.BeginHorizontal(rowStyle, GUILayout.Height(22f * ui));
+        // ripristino SUBITO: lo sfondo della riga è già stato disegnato col tint, ma i figli (maniglia slider,
+        // casella toggle) usano backgroundColor per la loro texture → con l'alpha bassa sparirebbero.
+        GUI.backgroundColor = prevRowBg;
+    }
+    void EndRow() { GUILayout.EndHorizontal(); }
+
     // ---- widget (con tooltip: l'etichetta porta la spiegazione mostrata nel riquadro in basso) ----
     float Slider(string label, string tipText, float v, float min, float max, float ui, ref bool flag)
     {
-        GUILayout.BeginHorizontal(GUILayout.Height(22f * ui));
+        BeginRow(ui);
         GUILayout.Label(new GUIContent(label, tipText), head, GUILayout.Width(170f * ui));
         float nv = GUILayout.HorizontalSlider(v, min, max, GUILayout.ExpandWidth(true), GUILayout.Height(18f * ui));
         GUILayout.Label(Mathf.Abs(nv) >= 100f ? nv.ToString("F0") : nv.ToString("F2"), val, GUILayout.Width(52f * ui));
-        GUILayout.EndHorizontal();
+        EndRow();
         if (!Mathf.Approximately(nv, v)) flag = true;
         return nv;
     }
     bool Toggle(string label, string tipText, bool v, float ui, bool geometry, out bool changed)
     {
+        BeginRow(ui);
         bool nv = GUILayout.Toggle(v, new GUIContent("  " + label, tipText), GUILayout.Height(20f * ui));
+        GUILayout.FlexibleSpace();   // la striscia zebra copre tutta la larghezza (come le righe slider)
+        EndRow();
         changed = nv != v;
         if (changed && geometry) geomDirty = true;
         return nv;
@@ -497,13 +536,47 @@ public class PlanetEditor : MonoBehaviour
                           : GUILayout.Button(c, btn, GUILayout.Height(26f * ui));
     }
 
-    /// <summary>Intestazione di sezione cliccabile: ▾ aperta / ▸ chiusa. Restituisce il nuovo stato.</summary>
-    bool Foldout(string label, bool open, float ui, bool expand = false)
+    /// <summary>Pulsante di SCELTA TIPO (Crateri/Mare/Tettonica) con lo stesso colore-firma e icona della zona →
+    /// scegli il processo riconoscendolo a colpo d'occhio, come poi lo ritrovi nella lista.</summary>
+    bool TypeButton(string label, string tipText, float ui, Color accent, Texture2D icon)
+    {
+        var prevBg = GUI.backgroundColor; var prevC = GUI.contentColor;
+        GUI.backgroundColor = new Color(accent.r, accent.g, accent.b, 0.85f);
+        GUI.contentColor = Color.Lerp(Color.white, accent, 0.15f);
+        bool clicked = GUILayout.Button(new GUIContent("   " + label, tipText), btn, GUILayout.Height(28f * ui), GUILayout.ExpandWidth(true));
+        Rect r = GUILayoutUtility.GetLastRect();
+        GUI.backgroundColor = prevBg; GUI.contentColor = prevC;
+        if (icon != null && Event.current.type == EventType.Repaint)
+        {
+            var pc = GUI.color; GUI.color = Color.Lerp(Color.white, accent, 0.5f);
+            float sz = 15f * ui;
+            GUI.DrawTexture(new Rect(r.x + 9f * ui, r.y + (r.height - sz) * 0.5f, sz, sz), icon);
+            GUI.color = pc;
+        }
+        return clicked;
+    }
+
+    /// <summary>Intestazione di sezione cliccabile (▾ aperta / ▸ chiusa) con BARRA colorata e ICONA della zona →
+    /// identità immediata. L'icona è disegnata a mano nello spazio del padding sinistro. Ritorna il nuovo stato.</summary>
+    bool Foldout(string label, bool open, float ui, bool expand, Color accent, Texture2D icon)
     {
         string s = (open ? "▾  " : "▸  ") + label;
+        var prevBg = GUI.backgroundColor;
+        GUI.backgroundColor = new Color(accent.r, accent.g, accent.b, 0.75f);              // barra colorata della zona
+        fold.normal.textColor = fold.hover.textColor = fold.active.textColor = Color.Lerp(Color.white, accent, 0.25f);
         bool clicked = expand
-            ? GUILayout.Button(s, fold, GUILayout.Height(24f * ui), GUILayout.ExpandWidth(true))
-            : GUILayout.Button(s, fold, GUILayout.Height(24f * ui));
+            ? GUILayout.Button(s, fold, GUILayout.Height(26f * ui), GUILayout.ExpandWidth(true))
+            : GUILayout.Button(s, fold, GUILayout.Height(26f * ui));
+        Rect r = GUILayoutUtility.GetLastRect();
+        GUI.backgroundColor = prevBg;
+        if (icon != null && Event.current.type == EventType.Repaint)
+        {
+            var prevC = GUI.color;
+            GUI.color = Color.Lerp(Color.white, accent, 0.5f);
+            float sz = 16f * ui;
+            GUI.DrawTexture(new Rect(r.x + 7f * ui, r.y + (r.height - sz) * 0.5f, sz, sz), icon);
+            GUI.color = prevC;
+        }
         return clicked ? !open : open;
     }
 
@@ -565,13 +638,76 @@ public class PlanetEditor : MonoBehaviour
             // pulsante "aggiungi pipeline": più in vista (grassetto + accento verde) per distinguerlo dal resto
             add = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold };
             add.normal.textColor = add.hover.textColor = add.active.textColor = new Color(0.55f, 0.95f, 0.6f);
+
+            // sfondo riga per la zebra: texture 1×1 bianca tinta a runtime via GUI.backgroundColor
+            whiteTex = new Texture2D(1, 1); whiteTex.SetPixel(0, 0, Color.white); whiteTex.Apply();
+            rowStyle = new GUIStyle { padding = new RectOffset(6, 6, 1, 1), margin = new RectOffset(0, 0, 1, 1) };
+            rowStyle.normal.background = whiteTex;
+
+            // icone di zona (procedurali, una volta): forma=montagna, colore=disco, crateri=anello, mare=onde, tettonica=rombo
+            icoForma = MakeIcon(0); icoColore = MakeIcon(1); icoCrateri = MakeIcon(2); icoMare = MakeIcon(3); icoTettonica = MakeIcon(4);
         }
         title.fontSize = Mathf.RoundToInt(18f * ui);
         head.fontSize = Mathf.RoundToInt(13f * ui);
         val.fontSize = Mathf.RoundToInt(12f * ui);
         btn.fontSize = Mathf.RoundToInt(12f * ui);
         fold.fontSize = Mathf.RoundToInt(14f * ui);
+        fold.padding.left = Mathf.RoundToInt(28f * ui);   // spazio per l'icona disegnata a sinistra
         tip.fontSize = Mathf.RoundToInt(12f * ui);
         add.fontSize = Mathf.RoundToInt(14f * ui);
+    }
+
+    /// <summary>Icona di zona generata proceduralmente (32², bianca con alpha; tinta a runtime). kind: 0 forma
+    /// (montagna), 1 colore (disco), 2 crateri (anello), 3 mare (onde), 4 tettonica (rombo).</summary>
+    Texture2D MakeIcon(int kind)
+    {
+        const int N = 32;
+        var t = new Texture2D(N, N, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+        var px = new Color32[N * N];
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                float u = (x + 0.5f) / N * 2f - 1f;
+                float v = (y + 0.5f) / N * 2f - 1f;   // +y verso l'alto
+                float r = Mathf.Sqrt(u * u + v * v);
+                float a = 0f;
+                switch (kind)
+                {
+                    case 0:   // FORMA: montagna (triangolo che si stringe verso l'apice in alto)
+                        if (v > -0.72f && v < 0.78f && Mathf.Abs(u) < 0.82f * (0.78f - v) / 1.5f) a = 1f;
+                        break;
+                    case 1:   // COLORE: disco pieno
+                        if (r < 0.72f) a = 1f;
+                        break;
+                    case 2:   // CRATERI: anello
+                        if (r > 0.40f && r < 0.74f) a = 1f;
+                        break;
+                    case 3:   // MARE: due onde orizzontali
+                    {
+                        float w1 = Mathf.Abs(v + 0.28f - 0.16f * Mathf.Sin(u * 4.2f));
+                        float w2 = Mathf.Abs(v - 0.28f - 0.16f * Mathf.Sin(u * 4.2f));
+                        if (Mathf.Abs(u) < 0.82f && (w1 < 0.11f || w2 < 0.11f)) a = 1f;
+                        break;
+                    }
+                    default:  // TETTONICA: contorno a rombo (placche)
+                        if (Mathf.Abs(Mathf.Abs(u) + Mathf.Abs(v) - 0.72f) < 0.13f) a = 1f;
+                        break;
+                }
+                px[y * N + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+            }
+        t.SetPixels32(px);
+        t.Apply();
+        return t;
+    }
+
+    void OnDestroy()
+    {
+        if (whiteTex != null) Destroy(whiteTex);
+        if (icoForma != null) Destroy(icoForma);
+        if (icoColore != null) Destroy(icoColore);
+        if (icoCrateri != null) Destroy(icoCrateri);
+        if (icoMare != null) Destroy(icoMare);
+        if (icoTettonica != null) Destroy(icoTettonica);
+        if (craterRTs != null) foreach (var rt in craterRTs) if (rt != null) rt.Release();
     }
 }
