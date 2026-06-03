@@ -321,6 +321,12 @@ public class GameBootstrap : MonoBehaviour
         if (quadtree)
         {
             var qt = go.AddComponent<PlanetQuadtree>();
+            // Build dei nodi su CPU (percorso noto e stabile). Esiste anche il percorso GPU (GpuHeightBaker +
+            // PlanetHeight.compute, rumore sulla GPU): la PARITÀ C#↔HLSL è provata (menu "Test parità altezza
+            // GPU↔CPU", anche sulla griglia del nodo). MA la lettura asincrona (AsyncGPUReadback) trascina: i
+            // nodi non diventano visibili in fretta → superficie lontana/buchi. Per attivarla servirebbe la
+            // strada B1 (render diretto dai buffer GPU, niente readback). Per riattivare il path attuale:
+            //   var baker = new GpuHeightBaker(terrain, qt.nodeRes); if (baker.Supported) ... qt.Init(..., baker);
             qt.Init(terrain, faceMats, null);   // la camera la prende da Camera.main quando esiste
         }
         else

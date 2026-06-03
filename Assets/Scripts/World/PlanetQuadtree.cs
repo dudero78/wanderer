@@ -112,11 +112,26 @@ public class PlanetQuadtree : MonoBehaviour
         if (found) { var ev = cache[evictKey]; cache.Remove(evictKey); ev.Dispose(); }
     }
 
-    public void Init(PlanetTerrain terrain, Material[] faceMaterials, Transform cam)
+    /// <summary>Baker GPU del rumore (compute shader). Se null o non supportato, i nodi si costruiscono
+    /// su thread CPU come prima. Lo possiede il quadtree: lo libera in OnDestroy.</summary>
+    public GpuHeightBaker Baker { get; private set; }
+
+    public void Init(PlanetTerrain terrain, Material[] faceMaterials, Transform cam, GpuHeightBaker baker = null)
     {
         this.terrain = terrain;
         this.faceMaterials = faceMaterials;
         this.cam = cam;
+        this.Baker = baker;
+
+        // Col baker GPU il rumore non sta più sui thread CPU: il limite di build concorrenti non serve più
+        // a contenere il calore. La lettura asincrona ha però ~2-3 frame di latenza, quindi per riempire in
+        // fretta servono MOLTE build in volo insieme (i dispatch GPU sono quasi gratis). Sciolgo lo strozzo.
+        if (baker != null && baker.Supported)
+        {
+            maxConcurrentBuilds = 48;
+            finalizeBudgetPerFrame = 32;
+            maxQueued = 256;
+        }
 
         roots = new QuadNode[6];
         for (int f = 0; f < 6; f++)
@@ -136,6 +151,8 @@ public class PlanetQuadtree : MonoBehaviour
 
     public bool CanQueueBuild() => buildQueue.Count < maxQueued;
     public void EnqueueBuild(QuadNode n) { buildQueue.Enqueue(n); }
+
+    void OnDestroy() { Baker?.Dispose(); }
 
     void Update()
     {
@@ -391,33 +408,44 @@ public class QuadNode
 
     public void DropData() { dVerts = null; dNormals = null; dTangents = null; dUVs = null; dMorph = null; dTris = null; }
 
-    /// <summary>Avvia il calcolo della mesh su un thread del pool. Solo matematica thread-safe.</summary>
+    /// <summary>Avvia il calcolo della mesh del nodo. Con la GPU disponibile il rumore lo calcola il
+    /// compute shader (dispatch dal MAIN thread, lettura asincrona); l'assemblaggio leggero resta su un
+    /// thread del pool. Senza GPU, tutto su thread come prima. In ogni caso non blocca il frame.</summary>
     public void StartBuildAsync()
     {
         State = BuildState.Building;
-        Task.Run(() =>
+        var baker = qt.Baker;
+        if (baker != null && baker.Supported)
         {
-            try { ComputeData(); }
-            catch { /* nodo scartato nel frattempo: ignora */ }
-            Interlocked.Decrement(ref qt.inFlight);
-            qt.finalizeQueue.Enqueue(this);
-        });
+            baker.RequestNodeGrid(up, axisA, axisB, u0, v0, size / qt.nodeRes, P =>
+            {
+                if (P == null)   // readback fallito: ripiega sul calcolo CPU così il nodo si costruisce comunque
+                {
+                    Task.Run(() => { try { ComputeData(); } catch { } Done(); });
+                    return;
+                }
+                Task.Run(() => { try { AssembleFromGrid(P); } catch { } Done(); });
+            });
+            return;
+        }
+        Task.Run(() => { try { ComputeData(); } catch { } Done(); });
     }
 
-    /// <summary>
-    /// Calcola vertici/normali/tangenti/uv/triangoli della patch (griglia + skirt). THREAD-SAFE:
-    /// usa solo math e letture di campi immutabili (niente API Unity). È il lavoro pesante (rumore).
-    /// </summary>
+    void Done()
+    {
+        Interlocked.Decrement(ref qt.inFlight);
+        qt.finalizeQueue.Enqueue(this);
+    }
+
+    /// <summary>Percorso CPU completo: riempie la griglia estesa col rumore su CPU, poi assembla. Usato
+    /// dalle 6 radici (sincrone all'avvio) e come fallback se la GPU non è disponibile. THREAD-SAFE.</summary>
     public void ComputeData()
     {
-        var terr = qt.Terrain;
         int R = qt.nodeRes;
-        int n = R + 1;
+        int ne = (R + 1) + 2;                 // griglia ESTESA (bordo di 1 vertice per lato) per le normali
         float step = size / R;
-
-        // griglia ESTESA (bordo di 1 vertice per lato) per le normali da differenza finita.
-        int ne = n + 2;
         var P = new Vector3[ne * ne];
+        var terr = qt.Terrain;
         for (int y = 0; y < ne; y++)
             for (int x = 0; x < ne; x++)
             {
@@ -426,6 +454,21 @@ public class QuadNode
                 Vector3 dir = PlanetMeshBuilder.ParamToDir(up, axisA, axisB, tx, ty);
                 P[x + y * ne] = dir * terr.SampleHeight(dir);
             }
+        AssembleFromGrid(P);
+    }
+
+    /// <summary>
+    /// Assembla la mesh della patch (vertici/normali/tangenti/uv/morph/skirt/tris) dalla griglia estesa
+    /// P già calcolata — su CPU (fallback) o letta dalla GPU (compute). Le normali vengono per DIFFERENZA
+    /// FINITA dai vicini in P (niente sample extra), il morph e lo skirt da P. THREAD-SAFE: solo math e
+    /// campi immutabili (niente API Unity). È la parte LEGGERA; il peso (rumore) sta nel riempire P.
+    /// </summary>
+    public void AssembleFromGrid(Vector3[] P)
+    {
+        int R = qt.nodeRes;
+        int n = R + 1;
+        float step = size / R;
+        int ne = n + 2;
 
         var verts = new List<Vector3>(n * n + 4 * n);
         var normals = new List<Vector3>(n * n + 4 * n);

@@ -1,0 +1,279 @@
+// PlanetHeight.compute — calcola sulla GPU la stessa altezza di superficie che il walker
+// (PlanetTerrain.SampleHeight) calcola sulla CPU. È il cuore della strada "geometria su GPU":
+// il quadtree non ricalcola più il rumore per vertice su thread CPU (caldo, lento al load), lo
+// fa qui in parallelo dove c'è il 95% di margine. Il walker resta analitico su CPU.
+//
+// PARITÀ ASSOLUTA con C# (Noise3D + BaseTerrainLayer + CraterTerrainLayer): se le due altezze
+// divergono, il giocatore galleggia/sprofonda sui nodi. Quindi questo file è una traduzione
+// FEDELE, non "equivalente". Trappole chiuse:
+//  - cast int->uint con asuint() (REINTERPRETA i bit, come il cast unchecked di C#); (uint)x in
+//    HLSL fa una CONVERSIONE che sui negativi non combacia → gradienti diversi → terreno diverso.
+//  - gradiente diviso per 511.5 (non 1023/2): identico a Noise3D.Grad.
+//  - rotazione del dominio per ottava (non traslazione), seed+i*1013, normalizzazione su 'norm'.
+//  - hash crateri con le STESSE costanti di CraterTerrainLayer.Hash, U01 su 0xFFFFFF.
+
+#pragma kernel CSNodeGrid
+#pragma kernel CSParity
+
+// ---- parametri della forma base (uniform, una volta per pianeta) ----
+float  _BaseRadius;
+float  _Amplitude;
+float  _Frequency;
+int    _Octaves;
+float  _Lacunarity;
+float  _Gain;
+int    _Seed;
+
+// ---- campo crateri: una voce per pipeline della ricetta ----
+struct CraterGPU
+{
+    float seed;
+    float octaves;
+    float largestRadius;
+    float density;
+    float depthRatio;
+    float rimRatio;
+    float rimSharpness;
+    float hasDominant;     // 0/1
+    float3 dominantDir;    // unitaria
+    float dominantRadius;
+};
+StructuredBuffer<CraterGPU> _Craters;
+int _CraterCount;
+
+// ---- parametri del nodo (per dispatch, kernel grid) ----
+float3 _FaceUp, _AxisA, _AxisB;
+float  _U0, _V0, _Step;
+int    _NE;                       // lato della griglia estesa (nodeRes+3)
+// posizioni locali (dir*altezza), NE*NE punti, scritte PIATTE come float (x,y,z consecutivi). Lo
+// structured buffer di float3 in lettura su Metal può disallinearsi (stride 16 vs 12) → posizioni
+// spazzatura; il buffer di float (4 byte) è privo di ambiguità — è ciò che il test di parità usa con
+// successo.
+RWStructuredBuffer<float> _Pout;
+
+// ---- parità (kernel parità) ----
+StructuredBuffer<float3>   _Dirs;
+RWStructuredBuffer<float>   _Heights;
+int _DirCount;
+
+// =================================================================================================
+// Noise3D (gradient noise di Perlin + fBm) — fedele a Noise3D.cs
+// =================================================================================================
+
+uint UHash(int x, int y, int z, int seed)
+{
+    // mixing sequenziale identico a Noise3D.UHash. asuint(): reinterpreta i bit (= cast unchecked C#).
+    uint h = asuint(seed);
+    h = (h + asuint(x)) * 0x9E3779B1u; h ^= h >> 16;
+    h = (h + asuint(y)) * 0x85EBCA77u; h ^= h >> 13;
+    h = (h + asuint(z)) * 0xC2B2AE3Du; h ^= h >> 16;
+    h *= 0x27D4EB2Fu; h ^= h >> 15;
+    return h;
+}
+
+float3 Grad(int x, int y, int z, int seed)
+{
+    uint h = UHash(x, y, z, seed);
+    return float3(
+        (h & 0x3FFu) / 511.5 - 1.0,
+        ((h >> 10) & 0x3FFu) / 511.5 - 1.0,
+        ((h >> 20) & 0x3FFu) / 511.5 - 1.0);
+}
+
+float Quintic(float t) { return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); }
+
+float NoiseValue(float3 p, int seed)
+{
+    int xi = (int)floor(p.x), yi = (int)floor(p.y), zi = (int)floor(p.z);
+    float fx = p.x - xi, fy = p.y - yi, fz = p.z - zi;
+    float u = Quintic(fx), v = Quintic(fy), w = Quintic(fz);
+
+    float n000 = dot(Grad(xi,     yi,     zi,     seed), float3(fx,       fy,       fz));
+    float n100 = dot(Grad(xi + 1, yi,     zi,     seed), float3(fx - 1.0, fy,       fz));
+    float n010 = dot(Grad(xi,     yi + 1, zi,     seed), float3(fx,       fy - 1.0, fz));
+    float n110 = dot(Grad(xi + 1, yi + 1, zi,     seed), float3(fx - 1.0, fy - 1.0, fz));
+    float n001 = dot(Grad(xi,     yi,     zi + 1, seed), float3(fx,       fy,       fz - 1.0));
+    float n101 = dot(Grad(xi + 1, yi,     zi + 1, seed), float3(fx - 1.0, fy,       fz - 1.0));
+    float n011 = dot(Grad(xi,     yi + 1, zi + 1, seed), float3(fx,       fy - 1.0, fz - 1.0));
+    float n111 = dot(Grad(xi + 1, yi + 1, zi + 1, seed), float3(fx - 1.0, fy - 1.0, fz - 1.0));
+
+    float x00 = lerp(n000, n100, u);
+    float x10 = lerp(n010, n110, u);
+    float x01 = lerp(n001, n101, u);
+    float x11 = lerp(n011, n111, u);
+    return lerp(lerp(x00, x10, v), lerp(x01, x11, v), w);
+}
+
+float3 RotateDomain(float3 v)
+{
+    return float3(
+         0.00 * v.x + 0.80 * v.y + 0.60 * v.z,
+        -0.80 * v.x + 0.36 * v.y - 0.48 * v.z,
+        -0.60 * v.x - 0.48 * v.y + 0.64 * v.z);
+}
+
+float Fbm(float3 p, int octaves, float lacunarity, float gain, int seed)
+{
+    float sum = 0.0, amp = 0.5, freq = 1.0, norm = 0.0;
+    float3 q = p;
+    for (int i = 0; i < octaves; i++)
+    {
+        sum += amp * NoiseValue(q * freq, seed + i * 1013);
+        norm += amp;
+        freq *= lacunarity;
+        amp *= gain;
+        q = RotateDomain(q);
+    }
+    return saturate(sum / norm * 0.5 + 0.5);
+}
+
+// =================================================================================================
+// Campo crateri — fedele a CraterTerrainLayer.cs
+// =================================================================================================
+
+static const float CR_SPACING    = 10.0;
+static const float CR_OUTER      = 2.2;
+static const float CR_JITTER_MAX = 1.4;
+static const float CR_SIMPLE_MAX = 60.0;
+static const float CR_COMPLEX_MAX= 160.0;
+static const float CR_PEAK_HEIGHT= 0.8;
+static const float CR_PEAK_WIDTH = 0.13;
+
+uint CHash(int x, int y, int z, int seed)
+{
+    uint h = asuint(seed);
+    h = (h + asuint(x)) * 0x9E3779B1u; h ^= h >> 16;
+    h = (h + asuint(y)) * 0x85EBCA77u; h ^= h >> 13;
+    h = (h + asuint(z)) * 0xC2B2AE3Du; h ^= h >> 16;
+    h *= 0x27D4EB2Fu; h ^= h >> 15;
+    return h;
+}
+
+float U01(uint h) { return (h & 0xFFFFFFu) / 16777215.0; }
+
+float Smooth01(float t) { return t * t * (3.0 - 2.0 * t); }
+
+// profilo di un singolo cratere sommato a 'total' (= Accumulate in C#)
+void Accumulate(float3 dir, float3 cdir, float radius, float baseRadius,
+                float depthRatio, float rimRatio, float rimSharpness, inout float total)
+{
+    float distM = baseRadius * length(dir - cdir);
+    float r = distM / radius;
+    if (r >= CR_OUTER) return;
+
+    float depth = radius * depthRatio;
+    float rim = depth * rimRatio;
+    float cxm = saturate((radius - CR_SIMPLE_MAX) / (CR_COMPLEX_MAX - CR_SIMPLE_MAX));
+
+    float floorR = 0.3 * cxm;
+    float cav;
+    if (r < floorR) cav = -1.0;
+    else if (r < 1.0) { float t = (r - floorR) / (1.0 - floorR); cav = -(1.0 - pow(max(t, 0.0), rimSharpness)); }
+    else cav = 0.0;
+
+    float dr = r - 1.0;
+    float wid = (r <= 1.0) ? 0.42 : 0.7;
+    float ring = exp(-(dr * dr) / (wid * wid));
+
+    float peak = 0.0;
+    if (cxm > 0.0) { float pr = r / CR_PEAK_WIDTH; peak = cxm * depth * CR_PEAK_HEIGHT * exp(-pr * pr); }
+
+    float off = depth * cav + rim * ring + peak;
+    off *= Smooth01(saturate((CR_OUTER - r) / 0.6));
+    total += off;
+}
+
+// somma di tutte le pipeline di crateri della ricetta su una direzione
+float CraterTotal(float3 unitDir, float baseRadius)
+{
+    float total = 0.0;
+    for (int li = 0; li < _CraterCount; li++)
+    {
+        CraterGPU c = _Craters[li];
+        int seed = (int)c.seed;
+        int octaves = max(1, (int)c.octaves);
+        float depthRatio = c.depthRatio, rimRatio = c.rimRatio;
+        float rimSharp = max(1.0, c.rimSharpness);
+
+        // cratere dominante (piazzato a mano)
+        if (c.hasDominant > 0.5)
+            Accumulate(unitDir, c.dominantDir, c.dominantRadius, baseRadius, depthRatio, rimRatio, rimSharp, total);
+
+        float radius = c.largestRadius;
+        for (int o = 0; o < octaves; o++)
+        {
+            float spacing = radius * CR_SPACING;
+            float cellAng = spacing / baseRadius;
+            float gscale = 1.0 / cellAng;
+
+            float3 g = unitDir * gscale;
+            int cx = (int)floor(g.x), cy = (int)floor(g.y), cz = (int)floor(g.z);
+
+            for (int dz = -1; dz <= 1; dz++)
+            for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int X = cx + dx, Y = cy + dy, Z = cz + dz;
+                uint h = CHash(X, Y, Z, seed + o * 9176);
+                if (U01(h) > c.density) continue;
+
+                float3 cc = float3(
+                    (X + U01(h * 0x9E3779B1u + 1u)) / gscale,
+                    (Y + U01(h * 0x85EBCA77u + 2u)) / gscale,
+                    (Z + U01(h * 0xC2B2AE3Du + 3u)) / gscale);
+                float cm = length(cc);
+                if (cm < 1e-6) continue;
+                float3 cdir = cc / cm;
+
+                float lo = 2.0 - CR_JITTER_MAX;
+                float rad = radius * (lo + (CR_JITTER_MAX - lo) * U01(h * 0x27D4EB2Fu + 4u));
+                Accumulate(unitDir, cdir, rad, baseRadius, depthRatio, rimRatio, rimSharp, total);
+            }
+            radius *= 0.5;
+        }
+    }
+    return total;
+}
+
+// =================================================================================================
+// SampleHeight completo = base + crateri (= pipeline di PlanetTerrain)
+// =================================================================================================
+
+float SampleHeight(float3 unitDir)
+{
+    float n = Fbm(unitDir * _Frequency, _Octaves, _Lacunarity, _Gain, _Seed);  // [0,1]
+    float h = _BaseRadius + (n - 0.5) * 2.0 * _Amplitude;
+    h += CraterTotal(unitDir, _BaseRadius);
+    return h;
+}
+
+// (tx,ty)∈[0,1]² della faccia → direzione unitaria. Identico a PlanetMeshBuilder.ParamToDir.
+float3 ParamToDir(float tx, float ty)
+{
+    float3 pointOnCube = _FaceUp + (tx - 0.5) * 2.0 * _AxisA + (ty - 0.5) * 2.0 * _AxisB;
+    return normalize(pointOnCube);
+}
+
+// =================================================================================================
+// KERNEL
+// =================================================================================================
+
+[numthreads(8, 8, 1)]
+void CSNodeGrid(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _NE || (int)id.y >= _NE) return;
+    float tx = _U0 + ((int)id.x - 1) * _Step;
+    float ty = _V0 + ((int)id.y - 1) * _Step;
+    float3 dir = ParamToDir(tx, ty);
+    float3 p = dir * SampleHeight(dir);
+    int o = (id.x + id.y * _NE) * 3;
+    _Pout[o] = p.x; _Pout[o + 1] = p.y; _Pout[o + 2] = p.z;
+}
+
+[numthreads(64, 1, 1)]
+void CSParity(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _DirCount) return;
+    float3 dir = normalize(_Dirs[id.x]);
+    _Heights[id.x] = SampleHeight(dir);
+}

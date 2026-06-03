@@ -53,9 +53,13 @@ Dettaglio tecnico nel `CLAUDE.md`.
 - ⬜ **Migliorie editor + ricette (FOCUS prossima sessione, deciso con Dario):** swap/scala texture, più tipi di
   pipeline (mari, tettonica, montagne, ghiaccio…), editing per-feature (cancella/modifica singolo cratere),
   più preset, bake da dentro l'editor.
-- ⬜ **Perf/load del quadtree (opzione "a" decisa):** far campionare al quadtree la **heightmap bakeata** invece di
-  ricalcolare il rumore per vertice (CPU giù, load veloce, finestra "seghettata" corta). Campionare per
-  DIREZIONE→faccia (non per-faccia con clamp, o giunture ai 6 spigoli). Walker resta analitico.
+- ⏸️ **Perf/load del quadtree — strada GPU (PARCHEGGIATA il 3 giu, non cancellata):** spostare il calcolo della
+  forma sulla GPU (compute shader), walker analitico su CPU. La **parità C#↔HLSL è PROVATA** (menu "Test parità
+  altezza GPU↔CPU", verde anche sulla griglia del nodo; bug Metal `float3` chiuso → buffer piatto di float). Codice
+  dormiente su disco: `Resources/Shaders/PlanetHeight.compute`, `GpuHeightBaker.cs`, `PlanetGpuParityTest.cs`; il
+  build resta su CPU (un commento in `GameBootstrap.AddSurface` spiega come riattivarlo). **Bloccante:** la lettura
+  asincrona (`AsyncGPUReadback`) TRASCINA → i nodi non diventano visibili in tempo (superficie lontana/buchi). Via
+  giusta = **B1: render diretto dai buffer GPU, niente readback** — sessione dedicata.
 
 ## Il GIOCO
 
