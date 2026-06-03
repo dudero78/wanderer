@@ -33,6 +33,24 @@ public static class PlanetMeshBuilder
         return pointOnCube.normalized;
     }
 
+    /// <summary>Come ParamToDir, ma ARROTONDA le coordinate del punto-cubo a una lattice intera di passo
+    /// 1/invStep PRIMA di normalizzare. I vertici di una griglia stanno su quella lattice (componenti =
+    /// intero/invStep); così due facce/nodi adiacenti, allo stesso bordo, producono il punto-cubo — e quindi la
+    /// direzione e l'altezza — BIT-IDENTICI: niente T-junction, niente cuciture, anche su scogliere ripide.
+    /// invStep = suddivisioni sull'intero spigolo del cubo (res-1 per la mesh singola; 2^depth·nodeRes per un
+    /// nodo del quadtree). I valori veri sono interi → Round è non ambiguo (l'epsilon non attraversa lo 0.5).</summary>
+    public static Vector3 ParamToDir(Vector3 localUp, Vector3 axisA, Vector3 axisB, float tx, float ty, int invStep)
+    {
+        Vector3 p = localUp + (tx - 0.5f) * 2f * axisA + (ty - 0.5f) * 2f * axisB;
+        if (invStep > 0)
+        {
+            p.x = Mathf.Round(p.x * invStep) / invStep;
+            p.y = Mathf.Round(p.y * invStep) / invStep;
+            p.z = Mathf.Round(p.z * invStep) / invStep;
+        }
+        return p.normalized;
+    }
+
     /// <summary>
     /// Inverso di ParamToDir: una direzione unitaria → faccia del cubo + parametri (tx,ty)∈[0,1]².
     /// La faccia è quella verso cui punta la direzione (proiezione massima); poi si riportano gli
@@ -95,31 +113,21 @@ public static class PlanetMeshBuilder
         int ti = 0;
         float eps = 2f / (res - 1);   // passo per la differenza centrale (~ una cella di griglia)
 
-        // SKIRT anti-cucitura: le facce dovrebbero condividere i vertici di bordo (stessa dir → stessa
-        // SampleHeight), ma micro-differenze di arrotondamento aprono T-junction ai seam → a quota bassa, ad
-        // angolo radente, si vedono come fessure nere (lo spazio dietro). Rimedio robusto e standard: estendo il
-        // dominio di UNA cella oltre il quadrante e ABBASSO l'anello esterno → quel lembo si infila SOTTO la
-        // superficie della faccia vicina e sigilla la fessura, senza toccare la superficie calpestabile (l'anello
-        // interno resta a piena quota proprio sul bordo). Nessun triangolo/winding nuovo: solo posizioni.
-        float margin = 1f / (res - 1);                         // ~1 cella di sovrapposizione nel vicino
-        // profondità del lembo nascosto: proporzionata al RILIEVO totale del corpo (non solo all'ampiezza base),
-        // o con scogliere/catene tettoniche da decine di metri il lembo da 2 m non copre e si vedono i lembi
-        // strappati ai bordi delle facce. (Solo anteprima/proxy: il gioco usa il quadtree, con skirt suo.)
-        float skirt = Mathf.Clamp(terrain.ReliefEstimate() * 0.5f, 2f, terrain.BaseRadius * 0.25f);
+        // CUCITURE RISOLTE alla radice: niente più skirt/flangia. I vertici di bordo di facce adiacenti sono
+        // BIT-IDENTICI perché la direzione passa per la lattice condivisa (ParamToDir con invStep) → niente
+        // T-junction, niente fessure, anche su scogliere/catene ripide. (Prima si nascondevano con un lembo
+        // abbassato: cerotto con compromesso — poco = crepe, troppo = lembi alla silhouette.)
+        int invStep = res - 1;
 
         for (int y = 0; y < res; y++)
         {
             for (int x = 0; x < res; x++)
             {
                 int i = x + y * res;
-                float u = x / (float)(res - 1);
-                float v = y / (float)(res - 1);
-                float tx = -margin + u * (1f + 2f * margin);   // dominio [-margin, 1+margin]
-                float ty = -margin + v * (1f + 2f * margin);
-                Vector3 pointOnCube = localUp + (tx - 0.5f) * 2f * axisA + (ty - 0.5f) * 2f * axisB;
-                Vector3 dir = pointOnCube.normalized;
-                bool flange = x == 0 || x == res - 1 || y == 0 || y == res - 1;   // anello esterno = lembo nascosto
-                float h = terrain.SampleHeight(dir) - (flange ? skirt : 0f);
+                float tx = x / (float)(res - 1);
+                float ty = y / (float)(res - 1);
+                Vector3 dir = ParamToDir(localUp, axisA, axisB, tx, ty, invStep);
+                float h = terrain.SampleHeight(dir);
                 verts[i] = dir * h;
                 Vector3 nrm = terrain.SurfaceNormal(dir, eps);
                 normals[i] = nrm;
@@ -128,7 +136,7 @@ public static class PlanetMeshBuilder
                 Vector3 refV = Mathf.Abs(nrm.y) < 0.99f ? Vector3.up : Vector3.right;
                 Vector3 tan = Vector3.Normalize(Vector3.Cross(refV, nrm));
                 tangents[i] = new Vector4(tan.x, tan.y, tan.z, 1f);
-                uvs[i] = new Vector2(Mathf.Clamp01(tx), Mathf.Clamp01(ty));   // [0,1] per il bake (il lembo va appena oltre)
+                uvs[i] = new Vector2(tx, ty);
 
                 if (x < res - 1 && y < res - 1)
                 {

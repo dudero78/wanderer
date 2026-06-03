@@ -73,22 +73,6 @@ public class PlanetRecipe
         return sea;
     }
 
-    /// <summary>Stima il dislivello verticale totale del corpo (m): serve a dimensionare lo skirt anti-cucitura
-    /// dell'anteprima (mesh singola). Somma l'ampiezza base + il contributo di ogni processo attivo.</summary>
-    public float ReliefEstimate()
-    {
-        Normalize();
-        float r = amplitude;
-        foreach (var p in processes)
-        {
-            if (p == null || !p.enabled) continue;
-            if (p.type == ProcessType.Crateri) r += p.largestRadius * p.depthRatio;
-            else if (p.type == ProcessType.Tettonica) r += p.elevationContrast + p.boundaryUplift;
-            else if (p.type == ProcessType.Mare) r += p.seaRoughness;
-        }
-        return r;
-    }
-
     /// <summary>Il primo bombardamento ATTIVO, per il bake della normale-crateri. null se nessuno.</summary>
     public ProcessStep PrimaryCrater()
     {

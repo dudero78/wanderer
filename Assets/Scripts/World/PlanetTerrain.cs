@@ -117,9 +117,6 @@ public class PlanetTerrain : MonoBehaviour
     // Cambiare un parametro dall'inspector invalida la pipeline: si ricostruisce al prossimo sample.
     void OnValidate() { built = false; }
 
-    /// <summary>Stima del dislivello verticale (m): dimensiona lo skirt anti-cucitura della mesh singola.</summary>
-    public float ReliefEstimate() => Recipe != null ? Recipe.ReliefEstimate() : Amplitude * 2f + 50f;
-
     /// <summary>Distanza dal centro della superficie nella direzione (unitaria) data.</summary>
     public float SampleHeight(Vector3 unitDir)
     {

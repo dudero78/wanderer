@@ -12,8 +12,8 @@ using UnityEngine;
 /// </summary>
 public class PlanetEditor : MonoBehaviour
 {
-    const int DragRes = 80;            // mesh DURANTE il drag (bassa res, build su thread → anteprima rapida)
-    const int FinalRes = 256;          // mesh quando l'edit si assesta (nitida)
+    const int DragRes = 96;            // mesh DURANTE il drag (bassa res, build su thread → anteprima rapida)
+    const int FinalRes = 384;          // mesh quando l'edit si assesta (nitida; alta per risolvere le scarpate)
     const int SettleFrames = 10;       // frame di quiete prima di rifinire a full res
     const int BakeMeshRes = 48;        // mesh d'appoggio per il ri-bake della normale-crateri
     const int EditorCraterRt = 512;    // risoluzione RT della normale-crateri nell'editor (rapida da ri-bakeare)
@@ -96,14 +96,14 @@ public class PlanetEditor : MonoBehaviour
         {
             P.RemoveAt(pendingRemove);
             if (pendingRemove < openProc.Count) openProc.RemoveAt(pendingRemove);
-            pendingRemove = -1; geomDirty = true;
+            pendingRemove = -1; geomDirty = true; colorDirty = true;
         }
         if (pendingMoveUp > 0 && pendingMoveUp < P.Count)
         {
             int i = pendingMoveUp;
             (P[i - 1], P[i]) = (P[i], P[i - 1]);                         // scambia col precedente: cambia l'ordine
             if (i < openProc.Count) (openProc[i - 1], openProc[i]) = (openProc[i], openProc[i - 1]);
-            pendingMoveUp = -1; geomDirty = true;
+            pendingMoveUp = -1; geomDirty = true; colorDirty = true;
         }
         if (pendingAddFlag)
         {
@@ -255,7 +255,8 @@ public class PlanetEditor : MonoBehaviour
             if (Button("X", "Rimuove questo processo.", ui, 30f)) pendingRemove = i;
             GUILayout.EndHorizontal();
             if (!openProc[i]) continue;
-            p.enabled = Toggle("Attiva", "Accende/spegne il processo senza rimuoverlo.", p.enabled, ui, geometry: true, changed: out _);
+            p.enabled = Toggle("Attiva", "Accende/spegne il processo senza rimuoverlo.", p.enabled, ui, geometry: true, changed: out bool enabChg);
+            if (enabChg) colorDirty = true;   // spegnere un Mare deve togliere la tinta (uniform _SeaOn aggiornati in PushColors)
             if (p.type == ProcessType.Crateri)
             {
                 GUILayout.BeginHorizontal();
