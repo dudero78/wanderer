@@ -364,12 +364,18 @@ vicino all'origine di Unity → la precisione non degrada mai.
   della funzione* (cura qui). (2) **quale slider la fa sparire?** → isola il termine colpevole. Le sorgenti tipiche
   di gradino in un campo procedurale: **(a) swap di IDENTITÀ discreta** (la N-esima cosa più vicina cambia: placca,
   cella, seme) → gate `smoothstep((d_k − d_{k+1})/width)` che azzera il termine dove l'identità salta; **(b)
-  troncamento di un INTORNO di ricerca** (un contributo entra/esce di colpo dalla finestra di celle) → dimensiona
-  la cella ≳ 2× il raggio d'influenza così il contributo è già ~0 al bordo finestra; **(c) `min`/`max`/`if`** su
-  quote → spigoli a V (usa somme di funzioni lisce o smin con cautela). **Checklist per un processo NUOVO:** la sua
-  funzione è continua attraversando i confini di cella/identità? il contributo va a 0 con una finestra liscia prima
-  di sparire? Esempio FATTO BENE: `CraterTerrainLayer` (SPACING=10 dimensiona la cella sull'influenza 3.08·raggi →
-  niente pop; `Smooth01((OUTER−r)/0.6)` chiude l'ejecta a 0 con C1) → i crateri NON hanno crepe, per costruzione.
+  troncamento di un INTORNO di ricerca** (un contributo entra/esce di colpo dalla finestra di celle) → la finestra
+  deve coprire l'influenza E i contributi truncati devono valere ~0; **(c) `min`/`max`/`if`** su quote → spigoli a
+  V (usa somme di funzioni lisce o smin con cautela); **(d) DEGENERAZIONE RADIALE di un reticolo 3D proiettato sulla
+  sfera** — celle a raggi diversi lungo la stessa direzione proiettano sullo stesso punto e contribuiscono tutte;
+  l'intorno ne tronca un numero arbitrario → pop. Test: allargando la finestra il valore NON converge. Cura: **peso
+  radiale liscio sul guscio unitario** (`Smooth01(1−|c|−1|/half)`, scarta i duplicati fuori-guscio) + finestra
+  abbastanza larga. **Checklist processo NUOVO:** continua attraversando confini di cella/identità? il contributo
+  va a 0 con finestra liscia prima di sparire? se proietta un reticolo 3D sulla sfera, ha la degenerazione (d)?
+  STORIA: `CraterTerrainLayer` sembrava "fatto bene" (SPACING dimensiona la cella, finestra C1 sull'ejecta) ma
+  AVEVA il caso (d) — crepe circolari che scalavano con "Raggio max" (il reticolo si riscala). Riprodotto in Python
+  (scan su cerchio → salto di 3.1 m), risolto col peso radiale + 5×5×5 (`5b8bc0b`). Lezione: NON dare per scontato
+  che un campo sia continuo — **misuralo** (scan + cerca i salti) prima di dire "è già a posto".
 - **Normali da heightfield: usa il bump tangente STANDARD** `float3(-dot(G,T),
   -dot(G,B), 1)` con i tangenti della mesh come base (T,B,N). La normale di mondo
   resta continua anche ai poli perché tangente e bitangente si ribaltano insieme.
