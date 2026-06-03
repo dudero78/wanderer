@@ -94,6 +94,8 @@ Dettaglio tecnico nel `CLAUDE.md`.
     **Index buffer generato sulla GPU** (kernel `CSIndices`, dispatch 2D in `uint`, buffer `Index|Structured`,
     cache per livello) → niente alloc/upload da ~600 MB sul main thread. Lo scatto residuo del 2048 (alloc VRAM)
     si paga solo scegliendolo.
+  - **Leggibilità del pannello (UX)**: colore-firma per zona (header colorato + icona + velo + zebra), pulsanti
+    "Che tipo?" tipizzati, regione PROCESSI distinta (divisoria + titolo "stack" + sottotitolo). Tutto IMGUI.
 
 ## Accantonato (deciso ma rimandato)
 

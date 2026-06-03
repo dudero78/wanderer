@@ -44,8 +44,10 @@ public class PlanetEditor : MonoBehaviour
 
     // --- UX: identità di zona (colore-firma + icona) + zebra sulle righe ---
     GUIStyle rowStyle;                 // sfondo riga (1×1 bianco, tinto via backgroundColor) → zebra
+    GUIStyle lineStyle;                // riga divisoria (1px)
+    GUIStyle procTitle, procHint;      // intestazione della sezione PROCESSI (titolo marcato + sottotitolo discreto)
     Texture2D whiteTex;                // 1×1 bianco condiviso
-    Texture2D icoForma, icoColore, icoCrateri, icoMare, icoTettonica;
+    Texture2D icoForma, icoColore, icoCrateri, icoMare, icoTettonica, icoProcessi;
     Color groupAccent = Color.gray;    // colore-firma della zona corrente (header + velo righe)
     Color prevRowBg;
     int rowParity;                     // alterna lo sfondo zebra all'interno di una zona
@@ -318,7 +320,7 @@ public class PlanetEditor : MonoBehaviour
 
         // === PROCESSI: lista ORDINATA (dall'alto in basso = sequenza geologica). L'ordine cambia l'effetto:
         // un mare allaga ciò che sta sotto; un bombardamento DOPO il mare scava buche asciutte nell'acqua. ===
-        GUILayout.Label("PROCESSI  (l'ordine conta)", head);
+        SectionTitle("PROCESSI", "l'ordine conta · dall'alto in basso", icoProcessi, ui);
         var procs = recipe.processes;
         for (int i = 0; i < procs.Count; i++)
         {
@@ -412,7 +414,9 @@ public class PlanetEditor : MonoBehaviour
             GUILayout.EndHorizontal();
             if (Button("Annulla", "", ui)) chooseType = false;
         }
-        GUILayout.Space(12f * ui);
+        GUILayout.Space(10f * ui);
+        Divider(ui);
+        GUILayout.Space(8f * ui);
 
         // === FILE ===
         GUILayout.BeginHorizontal();
@@ -495,6 +499,38 @@ public class PlanetEditor : MonoBehaviour
     Color AccentFor(ProcessType t) => t == ProcessType.Mare ? AccMare : t == ProcessType.Tettonica ? AccTett : AccCrateri;
     Texture2D IconFor(ProcessType t) => t == ProcessType.Mare ? icoMare : t == ProcessType.Tettonica ? icoTettonica : icoCrateri;
     void GroupStart(Color accent) { groupAccent = accent; rowParity = 0; }
+
+    /// <summary>Riga divisoria sottile, per staccare visivamente le regioni del pannello.</summary>
+    void Divider(float ui)
+    {
+        var prev = GUI.backgroundColor;
+        GUI.backgroundColor = new Color(0.6f, 0.7f, 0.85f, 0.16f);
+        GUILayout.Box(GUIContent.none, lineStyle, GUILayout.Height(Mathf.Max(1f, ui)), GUILayout.ExpandWidth(true));
+        GUI.backgroundColor = prev;
+    }
+
+    /// <summary>Intestazione di una REGIONE (non collassabile): divisoria + icona + titolo marcato + sottotitolo
+    /// discreto. Segnala che qui inizia qualcosa di diverso dalle manopole — es. la pipeline ordinata dei PROCESSI.</summary>
+    void SectionTitle(string text, string hint, Texture2D icon, float ui)
+    {
+        GUILayout.Space(6f * ui);
+        Divider(ui);
+        GUILayout.Space(5f * ui);
+        GUILayout.BeginHorizontal();
+        Rect ir = GUILayoutUtility.GetRect(22f * ui, 20f * ui, GUILayout.Width(22f * ui));
+        if (icon != null && Event.current.type == EventType.Repaint)
+        {
+            var pc = GUI.color; GUI.color = new Color(0.62f, 0.82f, 1f);
+            float sz = 17f * ui;
+            GUI.DrawTexture(new Rect(ir.x, ir.y + (ir.height - sz) * 0.5f, sz, sz), icon);
+            GUI.color = pc;
+        }
+        GUILayout.Label(text, procTitle);
+        GUILayout.Label(hint, procHint);
+        GUILayout.FlexibleSpace();
+        GUILayout.EndHorizontal();
+        GUILayout.Space(5f * ui);
+    }
     void BeginRow(float ui)
     {
         rowParity++;
@@ -643,9 +679,15 @@ public class PlanetEditor : MonoBehaviour
             whiteTex = new Texture2D(1, 1); whiteTex.SetPixel(0, 0, Color.white); whiteTex.Apply();
             rowStyle = new GUIStyle { padding = new RectOffset(6, 6, 1, 1), margin = new RectOffset(0, 0, 1, 1) };
             rowStyle.normal.background = whiteTex;
+            lineStyle = new GUIStyle { margin = new RectOffset(0, 0, 0, 0), padding = new RectOffset(0, 0, 0, 0) };
+            lineStyle.normal.background = whiteTex;
 
-            // icone di zona (procedurali, una volta): forma=montagna, colore=disco, crateri=anello, mare=onde, tettonica=rombo
-            icoForma = MakeIcon(0); icoColore = MakeIcon(1); icoCrateri = MakeIcon(2); icoMare = MakeIcon(3); icoTettonica = MakeIcon(4);
+            // intestazione regione PROCESSI: titolo marcato (come il titolo del pannello) + sottotitolo discreto
+            procTitle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.62f, 0.82f, 1f) } };
+            procHint = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Italic, alignment = TextAnchor.LowerLeft, normal = { textColor = new Color(0.60f, 0.66f, 0.74f) } };
+
+            // icone di zona (procedurali, una volta): forma=montagna, colore=disco, crateri=anello, mare=onde, tettonica=rombo, processi=stack
+            icoForma = MakeIcon(0); icoColore = MakeIcon(1); icoCrateri = MakeIcon(2); icoMare = MakeIcon(3); icoTettonica = MakeIcon(4); icoProcessi = MakeIcon(5);
         }
         title.fontSize = Mathf.RoundToInt(18f * ui);
         head.fontSize = Mathf.RoundToInt(13f * ui);
@@ -655,6 +697,8 @@ public class PlanetEditor : MonoBehaviour
         fold.padding.left = Mathf.RoundToInt(28f * ui);   // spazio per l'icona disegnata a sinistra
         tip.fontSize = Mathf.RoundToInt(12f * ui);
         add.fontSize = Mathf.RoundToInt(14f * ui);
+        procTitle.fontSize = Mathf.RoundToInt(15f * ui);
+        procHint.fontSize = Mathf.RoundToInt(11f * ui);
     }
 
     /// <summary>Icona di zona generata proceduralmente (32², bianca con alpha; tinta a runtime). kind: 0 forma
@@ -689,8 +733,12 @@ public class PlanetEditor : MonoBehaviour
                         if (Mathf.Abs(u) < 0.82f && (w1 < 0.11f || w2 < 0.11f)) a = 1f;
                         break;
                     }
-                    default:  // TETTONICA: contorno a rombo (placche)
+                    case 4:   // TETTONICA: contorno a rombo (placche)
                         if (Mathf.Abs(Mathf.Abs(u) + Mathf.Abs(v) - 0.72f) < 0.13f) a = 1f;
+                        break;
+                    default:  // PROCESSI: tre barre impilate (pipeline ordinata)
+                        if (Mathf.Abs(u) < 0.72f &&
+                            (Mathf.Abs(v + 0.45f) < 0.12f || Mathf.Abs(v) < 0.12f || Mathf.Abs(v - 0.45f) < 0.12f)) a = 1f;
                         break;
                 }
                 px[y * N + x] = new Color32(255, 255, 255, (byte)(a * 255f));
@@ -708,6 +756,7 @@ public class PlanetEditor : MonoBehaviour
         if (icoCrateri != null) Destroy(icoCrateri);
         if (icoMare != null) Destroy(icoMare);
         if (icoTettonica != null) Destroy(icoTettonica);
+        if (icoProcessi != null) Destroy(icoProcessi);
         if (craterRTs != null) foreach (var rt in craterRTs) if (rt != null) rt.Release();
     }
 }

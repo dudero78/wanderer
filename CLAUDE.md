@@ -72,6 +72,14 @@ versanti dei crateri → rimosso). **PROSSIMO:** resa GPU IN GIOCO (B1) · mater
   GPU** (kernel `CSIndices`, dispatch 2D in `uint`, buffer `Index|Structured`) per non allocare/caricare ~600 MB sul
   main thread; cache per livello (`GpuPlanetSurface`). Lo scatto residuo del 2048 (allocazione VRAM) si paga solo
   scegliendolo. `SetResolution` rialloca i buffer a runtime.
+- **Leggibilità del pannello (UX)**: non più un "muro di manopole". Ogni zona ha un **colore-firma** (Forma=ardesia,
+  Colore=sabbia, Crateri=ambra, Mare=azzurro, Tettonica=verde): header a barra colorata + **icona** procedurale +
+  **velo tenue** dello stesso colore dietro le righe, con **zebra** (due intensità) per seguire la riga in
+  orizzontale. I pulsanti "Che tipo?" portano colore+icona del tipo. I **PROCESSI** sono una REGIONE distinta
+  (divisoria + titolo marcato con icona "stack" + sottotitolo "l'ordine conta"), separata dalla base e dai comandi
+  file. Tutto in `PlanetEditor` (stili IMGUI + texture procedurali). **Trappola IMGUI:** `GUI.backgroundColor` con
+  alpha bassa per lo sfondo-riga tinge ANCHE i figli (maniglia slider, casella toggle) → spariscono; va ripristinato
+  SUBITO dopo `BeginHorizontal(rowStyle)` (lo sfondo è già disegnato, i figli no).
 
 **Tre corpi**: il **Pianeta** (lunare, raggio 500), **Cetra** (luna marziana craterizzata, raggio 300, g 3.0,
 in orbita attorno al pianeta — ricetta creata nell'editor) e **Luna** (creato nell'editor, raggio 800, in orbita
