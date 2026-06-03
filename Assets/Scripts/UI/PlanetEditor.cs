@@ -64,6 +64,10 @@ public class PlanetEditor : MonoBehaviour
     /// referenziarlo). (terrain, nome cartella) → ok. Null in build → il pulsante avvisa che serve l'editor.</summary>
     public static System.Func<PlanetTerrain, string, bool> BakeToDiskHook;
 
+    /// <summary>Aggancio al selettore file dell'editor (il runtime non può chiamarlo). Riceve la cartella di
+    /// partenza, ritorna il percorso scelto ("" se annullato). Null in build → "Carica" usa il nome digitato.</summary>
+    public static System.Func<string, string> PickFileHook;
+
     /// <summary>Rettangolo del pannello (coord. GUI, origine in alto). La camera orbitale lo usa per NON
     /// zoomare quando la rotella gira sopra i settings (lì deve scorrere la lista, non il pianeta).</summary>
     public static Rect PanelRect;
@@ -424,8 +428,17 @@ public class PlanetEditor : MonoBehaviour
     }
     void Load()
     {
-        var path = Path.Combine(Dir, Sanitize(recipe.name) + ".json");
-        if (!File.Exists(path)) { Debug.LogWarning("Nessuna ricetta '" + recipe.name + "' in " + Dir); return; }
+        string path;
+        if (PickFileHook != null)
+        {
+            path = PickFileHook(Dir);                 // selettore file nativo, aperto sulla cartella dei pianeti
+            if (string.IsNullOrEmpty(path)) return;   // annullato
+        }
+        else
+        {
+            path = Path.Combine(Dir, Sanitize(recipe.name) + ".json");   // fallback (build): per nome digitato
+            if (!File.Exists(path)) { Debug.LogWarning("Nessuna ricetta '" + recipe.name + "' in " + Dir); return; }
+        }
         // azzera prima: una ricetta VECCHIA (senza 'processes') non sovrascriverebbe i processi correnti →
         // resterebbero quelli vecchi. Pulendo, la migrazione (Normalize) riparte pulita da craters/mare.
         recipe.processes.Clear(); recipe.craters.Clear(); recipe.seaEnabled = false;

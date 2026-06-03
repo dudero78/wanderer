@@ -1,10 +1,10 @@
 using UnityEditor;
 
 /// <summary>
-/// Collega il pulsante "Bake su disco" dell'editor di pianeti (PlanetEditor, assembly runtime) alla logica di
-/// bake che vive nell'assembly Editor (PlanetBakeTool). Il runtime non può referenziare UnityEditor, quindi
-/// l'Editor INIETTA la capacità via hook all'avvio. In una build il file Editor non c'è → l'hook resta null e
-/// il pulsante avvisa (il bake è uno strumento di authoring, non una feature di gioco).
+/// Inietta nelle capacità dell'editor di pianeti (PlanetEditor, assembly runtime) le funzioni che vivono
+/// nell'assembly Editor (UnityEditor): il bake su disco e il selettore file. Il runtime non può referenziare
+/// UnityEditor, quindi l'Editor le INIETTA via hook all'avvio. In una build i file Editor non ci sono → gli hook
+/// restano null e i pulsanti ripiegano (bake avvisa; "Carica" usa il nome digitato).
 /// </summary>
 [InitializeOnLoad]
 public static class PlanetEditorBakeHook
@@ -12,5 +12,7 @@ public static class PlanetEditorBakeHook
     static PlanetEditorBakeHook()
     {
         PlanetEditor.BakeToDiskHook = PlanetBakeTool.BakeTerrainFromEditor;
+        // "Carica" apre un selettore file nativo, di default sulla cartella dove l'editor salva i pianeti.
+        PlanetEditor.PickFileHook = dir => EditorUtility.OpenFilePanel("Carica pianeta", dir, "json");
     }
 }
