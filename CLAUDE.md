@@ -316,7 +316,8 @@ UI/        SettingsMenu   — schermata impostazioni (à): congela i comandi, re
            PlanetEditor   — UI dell'editor di pianeti (scena separata): modifica la RICETTA, anteprima live, salva/carica
            EditorOrbitCam — camera orbitale dell'editor (tasto destro ruota, rotella zoom)
            EditorLightMode— modo luce dell'editor (L): ancorata (sole fisso) / libera (sole agganciato alla vista)
-Bootstrap/ GameBootstrap        — costruisce la scena di gioco (parametri qui; toggle useQuadtree; ApplyCetraRecipe + BuildCetra)
+Bootstrap/ GameBootstrap        — PLUMBING della scena di gioco: chiama SolarSystemSetup.Build(), poi giocatore/camera/luce/mappa/HUD (toggle useQuadtree qui)
+           SolarSystemSetup     — COMPOSIZIONE del sistema: stella + pianeta-casa + corpi in ORBITA (array data-driven: aggiungere un corpo = una riga). Apply*Recipe + costanti raggi/bake. Build() ritorna stella+casa
            PlanetEditorBootstrap— costruisce la scena editor (pianeta da SmoothSphere + camera orbitale + UI)
 Editor/    SceneSetup (menu "Crea scena di gioco" / "Apri editor pianeti"), PlanetBakeTool ("Bake planet assets": bake offline pianeta + Cetra, #13)
 Debug/     DebugHud
