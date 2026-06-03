@@ -415,8 +415,12 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
             float conv = clamp(dot(_Plates[i2].motion.xyz - _Plates[i1].motion.xyz, bn), -1.0, 1.0);
             float along = Fbm(d * 1.8, 3, 2.0, 0.5, seed + 711);
             float rough = 1.0 - abs(NoiseValue(d * 9.0, seed + 712));
-            float profile = boundary * (0.30 + 0.70 * along) * (0.45 + 0.55 * rough);
-            elev += t.uplift * profile * conv;
+            // D: rift (conv<0) meno profondi (×0.35) e meno affilati (meno rough) delle catene — identico al C#.
+            bool rift = conv < 0.0;
+            float convEff = rift ? conv * 0.35 : conv;
+            float rg = rift ? (0.70 + 0.30 * rough) : (0.45 + 0.55 * rough);
+            float profile = boundary * (0.30 + 0.70 * along) * rg;
+            elev += t.uplift * profile * convEff;
         }
     }
     return elev;

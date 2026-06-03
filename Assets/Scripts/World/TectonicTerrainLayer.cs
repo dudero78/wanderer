@@ -36,6 +36,7 @@ public class TectonicTerrainLayer : TerrainLayer
     const float ContReliefScale = 3.0f;   // rilievo continentale: scala dei crinali (basso = forme larghe)
     const float RidgeAlongScale = 1.8f;   // variazione di quota LUNGO la catena (passi/picchi)
     const float RidgeRoughScale = 9.0f;   // ruvidità FINE della cresta (frastagliata, non liscia)
+    const float RiftScale = 0.35f;        // profondità dei rift (divergenti) come frazione delle catene (convergenti)
 
     public TectonicTerrainLayer(float baseRadius, int seed, int plateCount, float continentalFraction,
                                 float elevationContrast, float boundaryUplift, float boundaryWidth, float warp, float coastSlope,
@@ -162,8 +163,14 @@ public class TectonicTerrainLayer : TerrainLayer
                 float conv = Mathf.Clamp(Vector3.Dot(motion[i2] - motion[i1], bn), -1f, 1f);   // >0 catena; <0 rift
                 float along = Noise3D.Fbm(d * RidgeAlongScale, 3, 2f, 0.5f, seed + 711);        // [0,1]
                 float rough = 1f - Mathf.Abs(Noise3D.Value(d * RidgeRoughScale, seed + 712));   // [0,1] picchi dove |n|~0
-                float profile = boundary * (0.30f + 0.70f * along) * (0.45f + 0.55f * rough);
-                elev += uplift * profile * conv;
+                // D: i RIFT (divergenti, conv<0) sono molto meno marcati delle CATENE — più bassi (RiftScale) e
+                // meno affilati (meno peso al rough). Sulla Terra i rift continentali sono tenui; le dorsali profonde
+                // stanno sott'acqua. Evita le "crepe nere" affilate che tagliavano i continenti.
+                bool rift = conv < 0f;
+                float convEff = rift ? conv * RiftScale : conv;
+                float rg = rift ? (0.70f + 0.30f * rough) : (0.45f + 0.55f * rough);
+                float profile = boundary * (0.30f + 0.70f * along) * rg;
+                elev += uplift * profile * convEff;
             }
         }
 
