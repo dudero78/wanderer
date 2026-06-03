@@ -1,18 +1,17 @@
 using UnityEngine;
 
 /// <summary>
-/// Anteprima GPU del pianeta dell'editor — TAPPA 1 del percorso "GPU per l'editor".
+/// Anteprima GPU del pianeta dell'editor (percorso "GPU per l'editor", Tappe 1-3).
 ///
 /// Genera la GEOMETRIA della superficie interamente sulla GPU (PlanetHeight.compute, gli stessi
-/// SampleHeight/ParamToDir provati al millimetro dal walker) e la DISEGNA direttamente dai buffer
-/// con Graphics.RenderPrimitivesIndexed — SENZA mai leggere indietro su CPU (era il blocco che
-/// "trascinava"). Dimostra lo schema no-readback: il compute riempie i buffer di posizioni+normali,
-/// lo shader Wanderer/PlanetProcedural li indicizza con SV_VertexID, niente mesh CPU di mezzo.
+/// SampleHeight/ParamToDir provati al millimetro dal walker) + le NORMALI ANALITICHE, e la DISEGNA
+/// direttamente dai buffer con Graphics.RenderPrimitivesIndexed — SENZA mai leggere indietro su CPU (era
+/// il blocco che "trascinava"). Lo shader Wanderer/PlanetProcedural indicizza i buffer con SV_VertexID e
+/// calcola il COLORE nel fragment dalla ricetta (niente texture bakate). Niente mesh CPU di mezzo.
 ///
 /// Convive con l'anteprima CPU (SingleMeshPlanet): l'editor commuta fra le due (tasto G) per il
-/// confronto A/B. La parità della FORMA con la CPU è garantita da GpuShapeBuffers
-/// (unica fonte dei parametri GPU). La colorazione ricca (PlanetBaked) è una tappa successiva: qui
-/// è un Lambert grigio, basta a provare il render-dai-buffer.
+/// confronto A/B. La parità della FORMA con la CPU è garantita da GpuShapeBuffers (unica fonte dei
+/// parametri GPU). Le 6 facce si sovrappongono di una cella per coprire le cuciture agli spigoli del cubo.
 ///
 /// Robustezza: senza supporto compute (o shader mancante) Ready resta false e l'editor tiene la CPU.
 /// </summary>
@@ -77,11 +76,12 @@ public class GpuPlanetSurface : MonoBehaviour
         if (cs == null) return;
 
         shape?.Dispose();
-        shape = GpuShapeBuffers.Build(cs, terrain, new[] { kFace });
+        // entrambi i kernel chiamano SampleHeight (CSFaceGrid = posizioni, CSFaceNormals = normali analitiche)
+        shape = GpuShapeBuffers.Build(cs, terrain, new[] { kFace, kNorm });
 
         cs.SetInt("_R", res);
         int gFace = (gp + 7) / 8;
-        int gNrm = (res + 7) / 8;
+        int gNrm = (gp + 7) / 8;   // normali su TUTTA la griglia padded (incluso il bordo di sovrapposizione)
         for (int f = 0; f < 6; f++)
         {
             Vector3 up = PlanetMeshBuilder.FaceNormals[f];
@@ -90,8 +90,8 @@ public class GpuPlanetSurface : MonoBehaviour
             cs.SetVector("_AxisA", axisA);
             cs.SetVector("_AxisB", axisB);
             cs.SetInt("_FaceOffset", f * vertsPerFace);
-            cs.Dispatch(kFace, gFace, gFace, 1);   // posizioni (incl. bordo)
-            cs.Dispatch(kNorm, gNrm, gNrm, 1);     // normali geometriche dei vertici interni
+            cs.Dispatch(kFace, gFace, gFace, 1);   // posizioni (incl. bordo di sovrapposizione)
+            cs.Dispatch(kNorm, gNrm, gNrm, 1);     // normali analitiche (tutta la griglia padded)
         }
 
         float radius = terrain.Recipe != null ? terrain.Recipe.baseRadius : terrain.BaseRadius;
@@ -149,21 +149,22 @@ public class GpuPlanetSurface : MonoBehaviour
         }
     }
 
-    /// <summary>Triangoli dei soli vertici INTERNI (1..res) di ogni faccia. Costruito una volta: la topologia
-    /// non cambia, solo le posizioni (sulla GPU) variano con la ricetta.</summary>
+    /// <summary>Triangoli di TUTTA la griglia padded (gp×gp) di ogni faccia: i vertici di bordo estendono la
+    /// faccia di una cella oltre [0,1] → le 6 facce si SOVRAPPONGONO di una cella, coprendo le micro-fessure agli
+    /// spigoli del cubo (le zone sovrapposte sono geometria identica → coincidono, niente z-fighting). Costruito
+    /// una volta: la topologia non cambia, solo le posizioni (sulla GPU) variano con la ricetta.</summary>
     void BuildIndexBuffer()
     {
-        int quadsPerFace = (res - 1) * (res - 1);
+        int quadsPerFace = (gp - 1) * (gp - 1);
         indexCount = quadsPerFace * 6 * 6;
         var idx = new int[indexCount];
         int k = 0;
         for (int f = 0; f < 6; f++)
         {
             int baseV = f * vertsPerFace;
-            for (int iy = 0; iy < res - 1; iy++)
-                for (int ix = 0; ix < res - 1; ix++)
+            for (int py = 0; py < gp - 1; py++)
+                for (int px = 0; px < gp - 1; px++)
                 {
-                    int px = ix + 1, py = iy + 1;          // salta il bordo
                     int i00 = baseV + px + py * gp;
                     int i10 = baseV + (px + 1) + py * gp;
                     int i01 = baseV + px + (py + 1) * gp;

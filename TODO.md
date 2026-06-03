@@ -1,11 +1,12 @@
 # Wanderer — TODO
 
-Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **3 giugno 2026** (sessione GPU-editor, Tappa 1).
+Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **3 giugno 2026** (sessione GPU-editor, Tappe 1-3).
 Dettaglio tecnico nel `CLAUDE.md`.
 
-> **PROSSIMA SESSIONE — PARTI DA QUI:** GPU per l'editor, **Tappa 3 = colore vero** (usare `Wanderer/PlanetBaked`
-> sulla mesh GPU al posto del Lambert segnaposto → mare/saturazione/suolo/minerali; dismettere il preview CPU).
-> Tappe 1 e 2 (render-dai-buffer + crateri/mari/tettonica a parità) FATTE. Vedi "Prossimo". Tutto su `main`.
+> **PROSSIMA SESSIONE — PARTI DA QUI:** l'anteprima GPU dell'editor è COMPLETA (geometria+colore+normali,
+> Tappe 1-3 fatte). Prossimi bivi: (a) portare la resa GPU **IN GIOCO** (B1, sostituire quadtree/SingleMeshPlanet);
+> (b) **materiali per pendenza/quota/curvatura** + tiling triplanare + PBR (roadmap SC/ED, [[wanderer-rendering-roadmap]]);
+> (c) tornare al GIOCO (teletrasporto, il VERBO). Tutto su `main`.
 
 ## Fatto (milestone)
 
@@ -75,8 +76,15 @@ Dettaglio tecnico nel `CLAUDE.md`.
   `(tipo,indice)` + buffer per-tipo (crateri/mari/tettonica + placche). **Mare** (`SeaSurface`/`SeaShape`) e
   **Tettonica** (`TectonicApply`: soft-Voronoi, continenti/oceani, catene/rift, warp coste) portati in HLSL;
   le placche sono generate UNA volta in C# e caricate (niente RNG da replicare → parità per costruzione).
-  Test parità esteso (Crateri+Mare ordine, Tettonica): verde sub-mm. NB: è solo GEOMETRIA — il COLORE del
-  mare/suolo/minerali manca ancora sulla GPU (Lambert segnaposto) → Tappa 3.
+  Test parità esteso (Crateri+Mare ordine, Tettonica): verde sub-mm.
+- ✅ **GPU per l'editor — TAPPA 3 (colore + normali analitiche):** l'anteprima GPU non è più grigia. Il COLORE è
+  calcolato **nel fragment dalla ricetta** (`Wanderer/PlanetProcedural`), **niente texture bakate** (scelta
+  architetturale: risoluzione infinita, niente bake all'avvio, GPU-first; il bake resta solo per simulazioni
+  costose tipo erosione/AO — vedi [[wanderer-rendering-roadmap]]). Catena mirror di PlanetBaked: suolo+macro,
+  minerali, vette, bacini, MARE (blu+saturazione). **Maria/vette seguono la quota di BASE** (ricostruita nel
+  fragment), non i crateri (altrimenti ogni cratere faceva grandi blob). **Normali ANALITICHE** (gradiente di
+  SampleHeight, eps≈1 cella). Cuciture agli spigoli del cubo chiuse facendo **sovrapporre le facce di una cella**
+  (lo snap a lattice, provato prima, terrazzava i versanti dei crateri → crepe → rimosso).
 
 ## Accantonato (deciso ma rimandato)
 
@@ -90,24 +98,21 @@ Dettaglio tecnico nel `CLAUDE.md`.
   usa mesh a res fissa. Fix = far usare all'editor il quadtree (rebuild + switch drag/zoom). RIMANDATO: il GPU per
   l'editor (sotto) lo risolve gratis (res altissima a costo nullo). Verificare se il gioco già le rende pulite.
 
-## Prossimo — FOCUS: GPU per l'editor (= B1)
+## Prossimo
 
-Le **Tappe 1 e 2** sono FATTE (vedi "Fatto": render-dai-buffer + crateri/mari/tettonica a parità). Resta:
+L'anteprima GPU dell'editor è COMPLETA (Tappe 1-3: geometria + colore + normali analitiche, a parità col walker).
+Bivi possibili (da decidere con Dario):
 
-- ⬜ **TAPPA 3 — COLORE vero sulla mesh GPU**: oggi l'anteprima GPU usa il Lambert segnaposto
-  (`Wanderer/PlanetProcedural`) → grigia, manca TUTTO il colore (mare/saturazione/suolo/minerali/vette). Usare
-  lo shader vero **`Wanderer/PlanetBaked`** sulla geometria GPU. Nodi:
-  - PlanetBaked è un *surface shader* legato al vertex input mesh → per disegnarlo dai buffer (no readback)
-    serve un vertex/fragment che legga pos/normale/uv dallo `StructuredBuffer` via `SV_VertexID`, riusando la
-    catena di colore del surf (soil/macro/minerali/mare/eclissi). Valutare: variante procedurale di PlanetBaked
-    vs adattare PlanetBaked. Servono anche le **UV (tx,ty) per faccia** dal compute (per le texture bakeate).
-  - **Normali analitiche** (al posto delle geometriche segnaposto) → via il tratteggio sui bordi dei crateri e
-    la cucitura di shading residua.
-  - Poi: la stessa resa GPU sostituisce SingleMeshPlanet/quadtree **IN GIOCO** (B1).
-- Disciplina: pipeline in 2 lingue (C# per walker/bake + HLSL per render GPU), la **parità fa da rete**.
-- Fondazione: `PlanetHeight.compute`, `GpuShapeBuffers` (unica fonte dei parametri GPU), `GpuPlanetSurface.cs`,
-  `PlanetGpuParityTest.cs`. Bug Metal `float3` chiuso → **buffer piatti di float / float4**. Il vecchio B2
-  (compute→readback→mesh CPU) resta PARCHEGGIATO (il readback TRASCINA): per il GIOCO si usa il render-dai-buffer.
+- ⬜ **Resa GPU IN GIOCO (B1)**: usare il render-dai-buffer (`GpuPlanetSurface`/`PlanetHeight.compute`) anche per i
+  corpi in gioco, sostituendo quadtree/SingleMeshPlanet → elimina pure il bake da 1.9 s all'avvio. Va aggiunto il
+  LOD (l'editor è a faccia singola full-res; in gioco serve view-dependent). Fondazione pronta; il readback (B2)
+  resta parcheggiato (TRASCINA), si usa il render-dai-buffer.
+- ⬜ **Look SC/ED — materiali per pendenza/quota/curvatura** (roccia su bordi cratere, sedimento nel fondo,
+  pinnacolo a parte, neve in quota) + tiling **triplanare** + **PBR**, sopra `PlanetProcedural`. Aggiungere anche
+  la **grana del suolo** (texture tileabile) che ora manca sulla GPU (sfera liscia troppo "pulita"). Vedi
+  [[wanderer-rendering-roadmap]].
+- ⬜ **Residuo minore**: forse restano marcature di shading molto tenui qua e là sull'anteprima GPU (da indagare
+  solo se danno fastidio).
 - ⬜ **Acqua liquida** (toggle "liquido" sul Mare): resa trasparente + nuoto/affondamento. Condivide l'allagamento.
 - ⬜ **Altri processi**: montagne (ridged noise per la texture delle catene), ghiaccio, erosione (bake?).
 - ⬜ **Migliorie editor**: editing per-feature (cancella/modifica singolo cratere), più preset.
