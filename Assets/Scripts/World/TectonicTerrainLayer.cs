@@ -113,15 +113,17 @@ public class TectonicTerrainLayer : TerrainLayer
         // coste ripide ma sempre continue (la griglia le risolve), basso = piattaforme dolci.
         float sharp = Mathf.Lerp(40f, 5f, coastSlope);
         float wsum = 0f, esum = 0f;
-        int i1 = 0, i2 = 0; float best = -2f, second = -2f;   // 2 più vicine: solo per le catene ai confini
+        // 3 più vicine: i1,i2 per la catena; 'third' serve SOLO al gate di continuità sotto.
+        int i1 = 0, i2 = 0; float best = -2f, second = -2f, third = -2f;
         for (int i = 0; i < n; i++)
         {
             float dt = Vector3.Dot(d, seedDir[i]);
             float w = Mathf.Exp(sharp * (dt - 1f));           // 1 sulla placca, decade con la distanza
             float bi = (continental[i] ? contrast * 0.5f : -contrast * 0.5f) + elevJitter[i];
             wsum += w; esum += w * bi;
-            if (dt > best) { second = best; i2 = i1; best = dt; i1 = i; }
-            else if (dt > second) { second = dt; i2 = i; }
+            if (dt > best) { third = second; second = best; i2 = i1; best = dt; i1 = i; }
+            else if (dt > second) { third = second; second = dt; i2 = i; }
+            else if (dt > third) { third = dt; }
         }
         float elev = esum / wsum;
 
@@ -153,7 +155,15 @@ public class TectonicTerrainLayer : TerrainLayer
         // alta) la rende frastagliata invece di liscia. Insieme: catene vere, non vermi incollati.
         float tu = Mathf.Clamp01((best - second) / boundaryWidth);
         float boundary = 1f - tu * tu * (3f - 2f * tu);
-        if (boundary > 0.001f && uplift > 0f)
+        // GATE DI CONTINUITÀ (fix delle "crepe"): il termine usa l'IDENTITÀ della 2ª placca (i2) per conv/bn.
+        // Lungo le linee dove la 2ª e la 3ª placca sono equidistanti, i2 SALTA da una placca all'altra → conv
+        // salta → la quota fa un GRADINO verticale (la crepa, indipendente dalla risoluzione perché è nella
+        // funzione). Smorzando il ridge A ZERO esattamente su quelle linee (gate→0 quando second≈third), il
+        // termine è 0 su entrambi i lati del salto → quota CONTINUA, niente gradino. Lontano da lì gate→1 e la
+        // catena è piena. Conseguenza voluta: i ridge si attenuano vicino ai punti tripli (naturale).
+        float sd = Mathf.Clamp01((second - third) / boundaryWidth);
+        float gate = sd * sd * (3f - 2f * sd);
+        if (boundary * gate > 0.001f && uplift > 0f)
         {
             Vector3 bn = seedDir[i1] - seedDir[i2];
             float bm = bn.magnitude;
@@ -169,7 +179,7 @@ public class TectonicTerrainLayer : TerrainLayer
                 bool rift = conv < 0f;
                 float convEff = rift ? conv * RiftScale : conv;
                 float rg = rift ? (0.70f + 0.30f * rough) : (0.45f + 0.55f * rough);
-                float profile = boundary * (0.30f + 0.70f * along) * rg;
+                float profile = boundary * gate * (0.30f + 0.70f * along) * rg;
                 elev += uplift * profile * convEff;
             }
         }

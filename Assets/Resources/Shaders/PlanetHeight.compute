@@ -371,7 +371,7 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
 
     // SOFT VORONOI: media pesata di TUTTE le placche (peso che sfuma con la distanza angolare) → continua
     float wsum = 0.0, esum = 0.0;
-    int i1 = off, i2 = off; float best = -2.0, second = -2.0;
+    int i1 = off, i2 = off; float best = -2.0, second = -2.0, third = -2.0;
     for (int i = 0; i < n; i++)
     {
         PlateGPU pl = _Plates[off + i];
@@ -379,8 +379,9 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
         float w = exp(sharp * (dt - 1.0));
         float bi = ((pl.seedDir.w > 0.5) ? t.contrast * 0.5 : -t.contrast * 0.5) + pl.motion.w;  // motion.w = elevJitter
         wsum += w; esum += w * bi;
-        if (dt > best) { second = best; i2 = i1; best = dt; i1 = off + i; }
-        else if (dt > second) { second = dt; i2 = off + i; }
+        if (dt > best) { third = second; second = best; i2 = i1; best = dt; i1 = off + i; }
+        else if (dt > second) { third = second; second = dt; i2 = off + i; }
+        else if (dt > third) { third = dt; }
     }
     float elev = esum / wsum;
 
@@ -405,7 +406,11 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
     // (along = quota variabile lungo il confine; rough = cresta frastagliata) — identico al C#.
     float tu = saturate((best - second) / t.boundaryWidth);
     float boundary = 1.0 - tu * tu * (3.0 - 2.0 * tu);
-    if (boundary > 0.001 && t.uplift > 0.0)
+    // GATE DI CONTINUITÀ (fix crepe): annulla il ridge dove la 2ª e la 3ª placca sono equidistanti (lì i2
+    // salterebbe → gradino di quota = crepa). 0 su quelle linee → quota continua. Identico al C#.
+    float sd = saturate((second - third) / t.boundaryWidth);
+    float gate = sd * sd * (3.0 - 2.0 * sd);
+    if (boundary * gate > 0.001 && t.uplift > 0.0)
     {
         float3 bn = _Plates[i1].seedDir.xyz - _Plates[i2].seedDir.xyz;
         float bm = length(bn);
@@ -419,7 +424,7 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
             bool rift = conv < 0.0;
             float convEff = rift ? conv * 0.35 : conv;
             float rg = rift ? (0.70 + 0.30 * rough) : (0.45 + 0.55 * rough);
-            float profile = boundary * (0.30 + 0.70 * along) * rg;
+            float profile = boundary * gate * (0.30 + 0.70 * along) * rg;
             elev += t.uplift * profile * convEff;
         }
     }
