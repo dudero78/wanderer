@@ -156,6 +156,9 @@ public class ProcessStep
     public float depthRatio = 0.20f;
     public float rimRatio = 0.30f;
     public float rimSharpness = 2f;
+    // quota relativa di crateri per FASCIA di taglia (moltiplica la densità): 1 = piena, 0 = nessuno.
+    // Le ottave vanno dalla più grande (grandi) alla più piccola (piccoli); 'medi' è la fascia centrale.
+    public float wLarge = 1f, wMedium = 1f, wSmall = 1f;
     public bool dominant = false;
     public Vector3 dominantDir = new Vector3(0.3f, 1f, 0.2f);
     public float dominantRadius = 230f;

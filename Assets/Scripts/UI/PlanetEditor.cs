@@ -102,6 +102,9 @@ public class PlanetEditor : MonoBehaviour
         if (pendingAddFlag)
         {
             var step = new ProcessStep { type = pendingAddType };   // default per tipo (crateri o mare)
+            // un nuovo BOMBARDAMENTO è un evento diverso: seed casuale → crateri in posti diversi dai precedenti
+            // (col default fisso finivano tutti nelle stesse celle). Lo slider "Distribuzione" lo ritocca a mano.
+            if (step.type == ProcessType.Crateri) step.seed = Random.Range(0, 10000);
             P.Add(step); openProc.Add(true);
             pendingAddFlag = false; geomDirty = true;
         }
@@ -234,9 +237,13 @@ public class PlanetEditor : MonoBehaviour
             p.enabled = Toggle("Attiva", "Accende/spegne il processo senza rimuoverlo.", p.enabled, ui, geometry: true, changed: out _);
             if (p.type == ProcessType.Crateri)
             {
+                if (Button("Rimescola", "Pesca un nuovo seme: ridistribuisce i crateri in posti diversi.", ui)) { p.seed = Random.Range(0, 10000); geomDirty = true; }
                 p.largestRadius = Slider("Raggio max (m)", "Raggio del cratere più grande del campo.", p.largestRadius, 10f, 400f, ui, ref geomDirty);
-                p.density = Slider("Densità", "Probabilità che una cella contenga un cratere: alto = più crateri.", p.density, 0f, 1f, ui, ref geomDirty);
-                p.octaves = Mathf.RoundToInt(Slider("Ottave taglia", "Bande di dimensione: più ottave = più taglie (tanti piccoli + pochi grandi).", p.octaves, 1, 7, ui, ref geomDirty));
+                p.octaves = Mathf.RoundToInt(Slider("Fasce di taglia", "Quante bande di dimensione (dal raggio max, dimezzando): più fasce = gamma di taglie più ampia.", p.octaves, 1, 7, ui, ref geomDirty));
+                p.density = Slider("Quantità", "Quanti crateri in totale: probabilità che una cella ne contenga uno. 0 = nessuno, 1 = fittissimi.", p.density, 0f, 1f, ui, ref geomDirty);
+                p.wLarge = Slider("  Grandi", "Quota di crateri GRANDI (1 = pieni, 0 = nessuno).", p.wLarge, 0f, 1f, ui, ref geomDirty);
+                p.wMedium = Slider("  Medi", "Quota di crateri MEDI.", p.wMedium, 0f, 1f, ui, ref geomDirty);
+                p.wSmall = Slider("  Piccoli", "Quota di crateri PICCOLI.", p.wSmall, 0f, 1f, ui, ref geomDirty);
                 p.depthRatio = Slider("Profondità/raggio", "Quanto è profonda la conca rispetto al suo raggio.", p.depthRatio, 0.05f, 0.5f, ui, ref geomDirty);
                 p.rimRatio = Slider("Bordo/profondità", "Altezza del bordo rialzato rispetto alla profondità.", p.rimRatio, 0.1f, 0.6f, ui, ref geomDirty);
                 p.rimSharpness = Slider("Nitidezza bordi", "Forma della parete: 1 = cono dolce, alto = fondo piatto + bordo a cresta netta.", p.rimSharpness, 1f, 4f, ui, ref geomDirty);

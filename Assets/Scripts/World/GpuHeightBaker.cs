@@ -70,7 +70,8 @@ public class GpuHeightBaker : IDisposable
             cs.SetFloat("_Gain", rec.gain);
             cs.SetInt("_Seed", rec.seed);
 
-            // NB: il path GPU calcola solo base + crateri (il mare è su CPU via SeaTerrainLayer). Parcheggiato.
+            // NB: path GPU PARCHEGGIATO: calcola solo base + crateri a densità uniforme (niente mare, niente
+            // pesi per taglia wLarge/wMedium/wSmall). Per B1 andrà riportato in HLSL (la parità lo segnalerebbe).
             rec.Normalize();
             foreach (var p in rec.processes)
             {

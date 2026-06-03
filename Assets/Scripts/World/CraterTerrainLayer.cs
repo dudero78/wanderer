@@ -28,6 +28,7 @@ public class CraterTerrainLayer : TerrainLayer
     readonly float depthRatio;      // profondità conca = depthRatio × raggio
     readonly float rimRatio;        // altezza bordo   = rimRatio × profondità
     readonly float rimSharpness;    // esponente della parete: 1 = cono, >1 = fondo piatto + bordo a cresta netta
+    readonly float wLarge, wMedium, wSmall;   // quota relativa per fascia di taglia (modula la densità per ottava)
 
     // Crateri "a mano" (es. il dominante tipo Stickney): valutati sempre, fuori dal campo.
     struct Manual { public Vector3 dir; public float radius; }
@@ -53,7 +54,8 @@ public class CraterTerrainLayer : TerrainLayer
     const float PEAK_WIDTH = 0.13f;
 
     public CraterTerrainLayer(float baseRadius, int seed, int octaves, float largestRadius,
-                              float density, float depthRatio, float rimRatio, float rimSharpness = 2f)
+                              float density, float depthRatio, float rimRatio, float rimSharpness = 2f,
+                              float wLarge = 1f, float wMedium = 1f, float wSmall = 1f)
     {
         this.baseRadius = baseRadius;
         this.seed = seed;
@@ -63,6 +65,19 @@ public class CraterTerrainLayer : TerrainLayer
         this.depthRatio = depthRatio;
         this.rimRatio = rimRatio;
         this.rimSharpness = Mathf.Max(1f, rimSharpness);
+        this.wLarge = Mathf.Clamp01(wLarge);
+        this.wMedium = Mathf.Clamp01(wMedium);
+        this.wSmall = Mathf.Clamp01(wSmall);
+    }
+
+    /// <summary>Peso della densità per l'ottava o (0 = taglia più grande … octaves-1 = più piccola): interpola
+    /// fra grandi→medi→piccoli lungo la gamma di taglie. Una sola ottava = trattata come "grandi".</summary>
+    float SizeWeight(int o)
+    {
+        if (octaves <= 1) return wLarge;
+        float t = o / (float)(octaves - 1);                 // 0 = grandi, 1 = piccoli
+        return t <= 0.5f ? Mathf.Lerp(wLarge, wMedium, t * 2f)
+                         : Mathf.Lerp(wMedium, wSmall, (t - 0.5f) * 2f);
     }
 
     /// <summary>Aggiunge un cratere piazzato a mano (il dominante). dir non serve normalizzata.</summary>
@@ -89,6 +104,7 @@ public class CraterTerrainLayer : TerrainLayer
             float spacing = radius * SPACING;            // m
             float cellAng = spacing / baseRadius;        // dimensione cella sulla sfera unitaria (~rad)
             float gscale = 1f / cellAng;                 // unitDir*gscale → coordinate di cella
+            float octDensity = density * SizeWeight(o);  // meno/più crateri di questa fascia di taglia
 
             Vector3 g = unitDir * gscale;
             int cx = Mathf.FloorToInt(g.x), cy = Mathf.FloorToInt(g.y), cz = Mathf.FloorToInt(g.z);
@@ -99,7 +115,7 @@ public class CraterTerrainLayer : TerrainLayer
             {
                 int X = cx + dx, Y = cy + dy, Z = cz + dz;
                 uint h = Hash(X, Y, Z, seed + o * 9176);
-                if (U01(h) > density) continue;          // questa cella non ha cratere
+                if (U01(h) > octDensity) continue;       // questa cella non ha cratere di questa fascia
 
                 // centro jitterato dentro la cella, proiettato sulla sfera
                 Vector3 c = new Vector3(

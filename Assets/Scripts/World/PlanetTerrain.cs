@@ -81,7 +81,8 @@ public class PlanetTerrain : MonoBehaviour
                 if (p.type == ProcessType.Crateri)
                 {
                     var cl = new CraterTerrainLayer(Recipe.baseRadius, p.seed, p.octaves,
-                        p.largestRadius, p.density, p.depthRatio, p.rimRatio, p.rimSharpness);
+                        p.largestRadius, p.density, p.depthRatio, p.rimRatio, p.rimSharpness,
+                        p.wLarge, p.wMedium, p.wSmall);
                     if (p.dominant) cl.AddManual(p.dominantDir, p.dominantRadius);
                     layers.Add(cl);
                 }
