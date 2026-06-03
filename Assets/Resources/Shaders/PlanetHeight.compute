@@ -191,7 +191,6 @@ float Ridged(float3 p, int octaves, float lacunarity, float gain, int seed)
 static const float CR_SPACING    = 10.0;
 static const float CR_OUTER      = 2.2;
 static const float CR_JITTER_MAX = 1.4;
-static const float CR_SHELL_HALF = 0.6;   // peso radiale sul guscio (fix crepe circolari) — vedi CraterTerrainLayer
 static const float CR_SIMPLE_MAX = 60.0;
 static const float CR_COMPLEX_MAX= 160.0;
 static const float CR_PEAK_HEIGHT= 0.8;
@@ -246,9 +245,9 @@ float SizeWeight(int o, int octaves, float wL, float wM, float wS)
     return w;
 }
 
-// profilo di un singolo cratere sommato a 'total', scalato per 'weight' (peso radiale sul guscio) (= Accumulate C#)
+// profilo di un singolo cratere sommato a 'total' (= Accumulate in C#)
 void Accumulate(float3 dir, float3 cdir, float radius, float baseRadius,
-                float depthRatio, float rimRatio, float rimSharpness, float irregular, float irregScale, int irrSeed, float weight, inout float total)
+                float depthRatio, float rimRatio, float rimSharpness, float irregular, float irregScale, int irrSeed, inout float total)
 {
     float distM = baseRadius * length(dir - cdir);
     float r = distM / radius;
@@ -270,16 +269,17 @@ void Accumulate(float3 dir, float3 cdir, float radius, float baseRadius,
     else if (r < 1.0) { float t = (r - floorR) / (1.0 - floorR); cav = -(1.0 - pow(max(t, 0.0), rimSharpness)); }
     else cav = 0.0;
 
+    // bordo NETTO: dentro (r≤1) raccordo morbido, fuori (r>1) caduta esponenziale stretta → cresta affilata +
+    // fianco ripido, non un bulge a cupola (= CraterTerrainLayer).
     float dr = r - 1.0;
-    float wid = (r <= 1.0) ? 0.42 : 0.40;   // coda esterna ristretta (era 0.70): bordo = cresta ripida, non bulge largo
-    float ring = exp(-(dr * dr) / (wid * wid));
+    float ring = (dr <= 0.0) ? exp(-(dr * dr) / (0.42 * 0.42)) : exp(-dr / 0.16);
 
     float peak = 0.0;
     if (cxm > 0.0) { float pr = r / CR_PEAK_WIDTH; peak = cxm * depth * CR_PEAK_HEIGHT * exp(-pr * pr); }
 
     float off = depth * cav + rim * ring + peak;
     off *= Smooth01(saturate((CR_OUTER - r) / 0.6));
-    total += off * weight;
+    total += off;
 }
 
 // contributo di UNA pipeline di crateri su una direzione (= CraterTerrainLayer.Apply, parte additiva)
@@ -294,7 +294,7 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
     // cratere dominante (piazzato a mano): nel frame del MONDO, NON scivola con la distribuzione
     if (c.hasDominant > 0.5)
         Accumulate(unitDir, c.dominantDir, c.dominantRadius, baseRadius, c.domDepthRatio, c.domRimRatio,
-                   max(1.0, c.domRimSharp), c.domIrregular, c.domIrregScale, seed + 4242, 1.0, total);   // profilo+irregolarità propri
+                   max(1.0, c.domRimSharp), c.domIrregular, c.domIrregScale, seed + 4242, total);   // profilo+irregolarità propri
 
     float dist = c.distribution;
 
@@ -309,9 +309,9 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
         float3 g = unitDir * gscale;
         int cx = (int)floor(g.x), cy = (int)floor(g.y), cz = (int)floor(g.z);
 
-        for (int dz = -2; dz <= 2; dz++)
-        for (int dy = -2; dy <= 2; dy++)
-        for (int dx = -2; dx <= 2; dx++)
+        for (int dz = -1; dz <= 1; dz++)
+        for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++)
         {
             int X = cx + dx, Y = cy + dy, Z = cz + dz;
             uint h = CHash(X, Y, Z, seed + o * 9176);
@@ -324,15 +324,14 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
                 (Z + Jitter(h * 0xC2B2AE3Du + 3u, h * 0xC2B2AE3Du + 13u, dist)) / gscale);
             float cm = length(cc);
             if (cm < 1e-6) continue;
-            // peso radiale sul guscio (= CraterTerrainLayer): sfuma a 0 i duplicati fuori-guscio
-            float radOff = abs(cm - 1.0) / CR_SHELL_HALF;
-            if (radOff >= 1.0) continue;
-            float radialW = Smooth01(1.0 - radOff);
             float3 cdir = cc / cm;
+            // OWNED-CELL (= CraterTerrainLayer): il cratere è di QUESTA cella solo se la sua direzione ci ricade
+            // → niente duplicati radiali (niente crepe), a qualsiasi scala. Intorno 3×3×3 basta (influenza < 1 cella).
+            if ((int)floor(cdir.x * gscale) != X || (int)floor(cdir.y * gscale) != Y || (int)floor(cdir.z * gscale) != Z) continue;
 
             float lo = 2.0 - CR_JITTER_MAX;
             float rad = radius * (lo + (CR_JITTER_MAX - lo) * U01(h * 0x27D4EB2Fu + 4u));
-            Accumulate(unitDir, cdir, rad, baseRadius, depthRatio, rimRatio, rimSharp, 0.0, 1.0, 0, radialW, total);   // campo: niente irregolarità
+            Accumulate(unitDir, cdir, rad, baseRadius, depthRatio, rimRatio, rimSharp, 0.0, 1.0, 0, total);   // campo: niente irregolarità
         }
         radius *= 0.5;
     }
