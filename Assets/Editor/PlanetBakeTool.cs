@@ -38,14 +38,15 @@ public static class PlanetBakeTool
 
         // Un corpo per cartella. Il configuratore prepara il terreno (ricetta → pipeline) come in gioco:
         // stessa fonte di verità → bake coerente con ciò che il gioco renderizza a runtime.
-        BakeBody(PlanetBaker.BakedDir, PlanetPresets.ConfigureDemoPlanet);
-        BakeBody(SolarSystemSetup.CetraBakedDir, t => SolarSystemSetup.ApplyCetraRecipe(t));
-        BakeBody(SolarSystemSetup.LunaBakedDir, t => SolarSystemSetup.ApplyLunaRecipe(t));
-        BakeBody(SolarSystemSetup.ValentinaBakedDir, t => SolarSystemSetup.ApplyValentinaRecipe(t));
+        BakeBody(PlanetBaker.BakedDir, PlanetPresets.ConfigureDemoPlanet);   // pianeta-casa (demo)
+        // tutti i corpi in orbita del gioco, presi da SolarSystemSetup → la lista è UNA sola: aggiungere un corpo
+        // al gioco lo include automaticamente nel bake (niente più sync manuale qui).
+        int n = 1;
+        foreach (var t in SolarSystemSetup.BodyBakeTargets()) { BakeBody(t.bakedDir, terrain => t.apply(terrain)); n++; }
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
-        Debug.Log("Bake planet assets: FATTO (pianeta + Cetra + Luna + Valentina2). Caricate da disco a runtime.");
+        Debug.Log($"Bake planet assets: FATTO ({n} corpi: pianeta + corpi in orbita). Caricate da disco a runtime.");
     }
 
     /// <summary>Bakea un corpo creandone uno temporaneo da 'configure' (usato dal menu offline).</summary>
@@ -113,13 +114,16 @@ public static class PlanetBakeTool
             }
 
             // HEIGHTMAP per faccia (Stage 1): displacement float mippato, dalla VERA SampleHeight (CPU, offline).
-            // Disattivata di default (non usata a runtime): vedi BakeHeightmaps.
+            // Disattivata di default (non usata a runtime): vedi BakeHeightmaps. Il pragma zittisce il CS0162
+            // (codice irraggiungibile) dovuto al const false: è voluto, riaccendendo BakeHeightmaps torna vivo.
+#pragma warning disable 162
             if (BakeHeightmaps)
                 for (int f = 0; f < 6; f++)
                 {
                     EditorUtility.DisplayProgressBar("Bake " + bakedDirName, "Heightmap faccia " + (f + 1) + "/6", 0.5f + f / 12f);
                     SaveHeightmap(terrain, f, dir + "/Height" + f + ".asset");
                 }
+#pragma warning restore 162
         }
         finally
         {

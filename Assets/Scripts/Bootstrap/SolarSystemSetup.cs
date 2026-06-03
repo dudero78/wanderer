@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -15,9 +16,9 @@ public static class SolarSystemSetup
     // --- Cetra: piccola luna craterizzata in orbita attorno al PIANETA (ricetta creata nell'editor) ---
     public const float CetraRadius = 300f;
     public const string CetraBakedDir = "BakedPlanet_Cetra";
-    // --- Luna: corpo creato nell'editor (crateri + mare), in orbita attorno al SOLE. Raggio 800 m ---
-    public const float LunaRadius = 800f;
-    public const string LunaBakedDir = "BakedPlanet_Luna";
+    // --- Luna6: corpo creato nell'editor, in orbita attorno al SOLE. Raggio 500 m (dalla ricetta) ---
+    public const float Luna6Radius = 500f;
+    public const string Luna6BakedDir = "BakedPlanet_Luna6";
     // --- Valentina2: corpo dell'editor, bakeato su disco, in orbita attorno al SOLE. Raggio 500 m ---
     public const float ValentinaRadius = 500f;
     public const string ValentinaBakedDir = "BakedPlanet_Valentina2";
@@ -25,8 +26,8 @@ public static class SolarSystemSetup
     /// <summary>Applica la ricetta di Cetra (Resources/Planets/Cetra.json), scalata al raggio. Una sola fonte di
     /// verità per gioco e bake offline. Ritorna false se la ricetta manca.</summary>
     public static bool ApplyCetraRecipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Cetra", CetraRadius);
-    /// <summary>Applica la ricetta di Luna (Resources/Planets/Luna.json), scalata al raggio.</summary>
-    public static bool ApplyLunaRecipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Luna", LunaRadius);
+    /// <summary>Applica la ricetta di Luna6 (Resources/Planets/Luna6.json), scalata al raggio.</summary>
+    public static bool ApplyLuna6Recipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Luna6", Luna6Radius);
     /// <summary>Applica la ricetta di Valentina2 (Resources/Planets/Valentina2.json), scalata al raggio.</summary>
     public static bool ApplyValentinaRecipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Valentina2", ValentinaRadius);
 
@@ -61,8 +62,8 @@ public static class SolarSystemSetup
             Orbit = new KeplerOrbit { SemiMajorAxis = 4000, Eccentricity = 0.05, Period = 240, Inclination = 0.4 },
         },
         new OrbitBody {
-            Name = "Luna", Radius = LunaRadius, Gravity = 6.0, AroundStar = true, ProxyRes = 40,
-            BakedDir = LunaBakedDir, Apply = ApplyLunaRecipe,
+            Name = "Luna6", Radius = Luna6Radius, Gravity = 9.81, AroundStar = true, ProxyRes = 32,
+            BakedDir = Luna6BakedDir, Apply = ApplyLuna6Recipe,
             Orbit = new KeplerOrbit { SemiMajorAxis = 95000, Eccentricity = 0.08, Period = 1150, Inclination = 0.25 },
         },
         new OrbitBody {
@@ -71,6 +72,14 @@ public static class SolarSystemSetup
             Orbit = new KeplerOrbit { SemiMajorAxis = 130000, Eccentricity = 0.05, Period = 1840, Inclination = 0.15 },
         },
     };
+
+    /// <summary>Per "Bake planet assets": i corpi in orbita da bakeare (cartella + applicatore di ricetta), nello
+    /// STESSO insieme del gioco → il comando segue automaticamente la lista. Aggiungere un corpo a 'Orbiting' lo
+    /// include nel bake senza toccare il tool.</summary>
+    public static IEnumerable<(string bakedDir, System.Func<PlanetTerrain, bool> apply)> BodyBakeTargets()
+    {
+        foreach (var d in Orbiting) yield return (d.BakedDir, d.Apply);
+    }
 
     /// <summary>Riferimenti che il resto della scena (giocatore, luce, mappa, HUD) deve conoscere.</summary>
     public struct Built
