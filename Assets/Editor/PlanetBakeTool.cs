@@ -37,10 +37,11 @@ public static class PlanetBakeTool
         BakeBody(PlanetBaker.BakedDir, PlanetPresets.ConfigureDemoPlanet);
         BakeBody(GameBootstrap.CetraBakedDir, t => GameBootstrap.ApplyCetraRecipe(t));
         BakeBody(GameBootstrap.LunaBakedDir, t => GameBootstrap.ApplyLunaRecipe(t));
+        BakeBody(GameBootstrap.ValentinaBakedDir, t => GameBootstrap.ApplyValentinaRecipe(t));
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
-        Debug.Log("Bake planet assets: FATTO (pianeta + Cetra + Luna). Caricate da disco a runtime.");
+        Debug.Log("Bake planet assets: FATTO (pianeta + Cetra + Luna + Valentina2). Caricate da disco a runtime.");
     }
 
     /// <summary>Bakea un corpo creandone uno temporaneo da 'configure' (usato dal menu offline).</summary>

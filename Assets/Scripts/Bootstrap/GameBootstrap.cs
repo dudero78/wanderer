@@ -114,6 +114,9 @@ public class GameBootstrap : MonoBehaviour
         // --- Luna: pianeta creato nell'editor (crateri + mare) in orbita attorno al SOLE, raggio 800 m ---
         BuildLuna(solar, star, useQuadtree);
 
+        // --- Valentina2: corpo dell'editor (bakeato su disco) in orbita attorno al SOLE, raggio 500 m ---
+        BuildValentina2(solar, star, useQuadtree);
+
         // origine ancorata al pianeta: resta a ~(0,0,0), il resto dell'universo si muove
         solar.Anchor = planet;
         planet.UpdatePosition(0);
@@ -281,6 +284,10 @@ public class GameBootstrap : MonoBehaviour
     public const float LunaRadius = 800f;
     public const string LunaBakedDir = "BakedPlanet_Luna";
 
+    // Valentina2: corpo creato nell'editor, bakeato su disco, in orbita attorno al SOLE. Raggio 500 m (dalla ricetta).
+    public const float ValentinaRadius = 500f;
+    public const string ValentinaBakedDir = "BakedPlanet_Valentina2";
+
     /// <summary>Applica la ricetta di Cetra (caricata dagli asset, scalata al raggio) a un PlanetTerrain. Una sola
     /// fonte di verità per gioco e bake offline. Ritorna false se la ricetta manca.</summary>
     public static bool ApplyCetraRecipe(PlanetTerrain terrain)
@@ -352,6 +359,43 @@ public class GameBootstrap : MonoBehaviour
         if (faceMats != null)
             AddSurface(go, terrain, faceMats, useQuadtree, 256, 40);   // corpo più grande del pianeta: proxy 40
         else Debug.LogWarning("Luna: bake non riuscito, niente superficie (corpo comunque presente per gravità/mappa).");
+
+        solar.Register(body);
+    }
+
+    /// <summary>Applica la ricetta di Valentina2 (Resources/Planets/Valentina2.json, creata nell'editor), scalata al raggio.</summary>
+    public static bool ApplyValentinaRecipe(PlanetTerrain terrain)
+    {
+        var recipe = PlanetRecipe.LoadResource("Valentina2");
+        if (recipe == null) return false;
+        terrain.ApplyRecipe(recipe.ScaledTo(ValentinaRadius));   // baseRadius della ricetta → raggio target: mesh e gravità in scala
+        terrain.RebuildLayers();
+        return true;
+    }
+
+    /// <summary>Valentina2: corpo dell'editor (bakeato su disco) in orbita attorno al SOLE, più esterno di Luna.</summary>
+    static void BuildValentina2(SolarSystem solar, CelestialBody star, bool useQuadtree)
+    {
+        var go = new GameObject("Valentina2");
+        var terrain = go.AddComponent<PlanetTerrain>();
+        if (!ApplyValentinaRecipe(terrain)) { Destroy(go); return; }   // ricetta assente: salta, il resto parte comunque
+
+        var body = go.AddComponent<CelestialBody>();
+        body.Radius = ValentinaRadius;
+        body.SurfaceGravity = 9.81;                 // dalla ricetta (~1 g)
+        body.Parent = star;
+        body.Orbit = new KeplerOrbit
+        {
+            SemiMajorAxis = 130000,  // più esterna di Luna (95000): separata, raggiungibile col viaggio
+            Eccentricity = 0.05,
+            Period = 1840,           // più lenta di Luna (1150), coerente con l'orbita più larga
+            Inclination = 0.15       // piano ancora diverso
+        };
+
+        var faceMats = PlanetBaker.TryLoadBakedMaterials(terrain, ValentinaBakedDir) ?? PlanetBaker.BakeFaceMaterials(terrain, 64);
+        if (faceMats != null)
+            AddSurface(go, terrain, faceMats, useQuadtree, 256, 32);   // raggio 500 come il Pianeta: proxy 32
+        else Debug.LogWarning("Valentina2: bake non riuscito, niente superficie (corpo comunque presente per gravità/mappa).");
 
         solar.Register(body);
     }
