@@ -44,6 +44,10 @@ struct CraterGPU
     float wMedium;
     float wSmall;
     float distribution;    // fase 0..1: drift dei centri (ridistribuzione)
+    float domDepthRatio;   // profilo+irregolarità PROPRI del dominante
+    float domRimRatio;
+    float domRimSharp;
+    float domIrregular;
 };
 StructuredBuffer<CraterGPU> _Craters;
 
@@ -243,10 +247,16 @@ float SizeWeight(int o, int octaves, float wL, float wM, float wS)
 
 // profilo di un singolo cratere sommato a 'total', scalato per 'weight' (peso radiale sul guscio) (= Accumulate C#)
 void Accumulate(float3 dir, float3 cdir, float radius, float baseRadius,
-                float depthRatio, float rimRatio, float rimSharpness, float weight, inout float total)
+                float depthRatio, float rimRatio, float rimSharpness, float irregular, int irrSeed, float weight, inout float total)
 {
     float distM = baseRadius * length(dir - cdir);
     float r = distM / radius;
+    // IRREGOLARITÀ (= CraterTerrainLayer): warp del raggio per-direzione → rim frastagliato/asimmetrico. Solo dominante.
+    if (irregular > 0.0)
+    {
+        float n = Fbm(dir * 6.0, 4, 2.0, 0.5, irrSeed);
+        r *= 1.0 + irregular * 0.5 * (n * 2.0 - 1.0);
+    }
     if (r >= CR_OUTER) return;
 
     float depth = radius * depthRatio;
@@ -282,7 +292,8 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
 
     // cratere dominante (piazzato a mano): nel frame del MONDO, NON scivola con la distribuzione
     if (c.hasDominant > 0.5)
-        Accumulate(unitDir, c.dominantDir, c.dominantRadius, baseRadius, depthRatio, rimRatio, rimSharp, 1.0, total);
+        Accumulate(unitDir, c.dominantDir, c.dominantRadius, baseRadius, c.domDepthRatio, c.domRimRatio,
+                   max(1.0, c.domRimSharp), c.domIrregular, seed + 4242, 1.0, total);   // profilo+irregolarità propri
 
     float dist = c.distribution;
 
@@ -320,7 +331,7 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
 
             float lo = 2.0 - CR_JITTER_MAX;
             float rad = radius * (lo + (CR_JITTER_MAX - lo) * U01(h * 0x27D4EB2Fu + 4u));
-            Accumulate(unitDir, cdir, rad, baseRadius, depthRatio, rimRatio, rimSharp, radialW, total);
+            Accumulate(unitDir, cdir, rad, baseRadius, depthRatio, rimRatio, rimSharp, 0.0, 0, radialW, total);   // campo: niente irregolarità
         }
         radius *= 0.5;
     }

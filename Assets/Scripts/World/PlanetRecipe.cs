@@ -167,6 +167,11 @@ public class ProcessStep
     public bool dominant = false;
     public Vector3 dominantDir = new Vector3(0.3f, 1f, 0.2f);
     public float dominantRadius = 230f;
+    // profilo PROPRIO del dominante (indipendente dai crateri di campo) + irregolarità
+    public float domDepthRatio = 0.20f;         // profondità/raggio del dominante
+    public float domRimRatio = 0.30f;           // altezza bordo / profondità
+    public float domRimSharp = 2f;              // nitidezza bordo (1=cono … alto=cresta netta)
+    public float domIrregular = 0f;             // 0 = circolare liscio; su = rim frastagliato e forma asimmetrica (impatto antico/battuto)
 
     // --- parametri TETTONICA ---
     public int plateCount = 8;                  // numero di placche (poche = continenti grandi, tante = guscio incrinato)

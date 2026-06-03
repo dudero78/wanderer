@@ -376,8 +376,15 @@ public class PlanetEditor : MonoBehaviour
                 p.depthRatio = Slider("Profondità/raggio", "Quanto è profonda la conca rispetto al suo raggio.", p.depthRatio, 0.05f, 0.5f, ui, ref geomDirty);
                 p.rimRatio = Slider("Bordo/profondità", "Altezza del bordo rialzato rispetto alla profondità.", p.rimRatio, 0.1f, 0.6f, ui, ref geomDirty);
                 p.rimSharpness = Slider("Nitidezza bordi", "Forma della parete: 1 = cono dolce, alto = fondo piatto + bordo a cresta netta.", p.rimSharpness, 1f, 4f, ui, ref geomDirty);
-                p.dominant = Toggle("Dominante", "Aggiunge un grande impatto piazzato a mano (tipo Stickney su Phobos).", p.dominant, ui, geometry: true, changed: out _);
-                if (p.dominant) p.dominantRadius = Slider("  raggio dominante", "Raggio del grande impatto dominante (m).", p.dominantRadius, 50f, 500f, ui, ref geomDirty);
+                p.dominant = Toggle("Dominante", "Aggiunge un grande impatto piazzato a mano (tipo Stickney su Phobos), con profilo PROPRIO indipendente dagli altri crateri.", p.dominant, ui, geometry: true, changed: out _);
+                if (p.dominant)
+                {
+                    p.dominantRadius = Slider("  raggio dominante", "Raggio del grande impatto dominante (m).", p.dominantRadius, 50f, 500f, ui, ref geomDirty);
+                    p.domDepthRatio  = Slider("  dom: profondità/raggio", "Profondità del dominante in frazione del raggio (solo lui).", p.domDepthRatio, 0.02f, 0.5f, ui, ref geomDirty);
+                    p.domRimRatio    = Slider("  dom: bordo/profondità", "Altezza del bordo rialzato del dominante (solo lui).", p.domRimRatio, 0f, 0.8f, ui, ref geomDirty);
+                    p.domRimSharp    = Slider("  dom: nitidezza bordo", "Nitidezza del bordo del dominante: 1 = cono dolce, alto = cresta netta + fondo piatto.", p.domRimSharp, 1f, 4f, ui, ref geomDirty);
+                    p.domIrregular   = Slider("  dom: irregolarità", "0 = circolare e liscio; su = rim frastagliato e forma asimmetrica (impatto antico, battuto da impatti successivi).", p.domIrregular, 0f, 1f, ui, ref geomDirty);
+                }
             }
             else if (p.type == ProcessType.Tettonica)
             {
