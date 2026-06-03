@@ -307,7 +307,7 @@ public class MapMode : MonoBehaviour
         {
             playerMarker.transform.position = walker.transform.position;
             playerMarker.transform.localScale = Vector3.one *
-                (Vector3.Distance(camPos, walker.transform.position) * markerScreenSize * 0.9f);
+                (Vector3.Distance(camPos, walker.transform.position) * markerScreenSize * 0.6f);
         }
         if (trail != null)
         {
@@ -382,9 +382,15 @@ public class MapMode : MonoBehaviour
             if (hereStyle == null) hereStyle = new GUIStyle(GUI.skin.label)
                 { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0.45f, 1f, 0.55f) } };
             hereStyle.fontSize = Mathf.RoundToInt(13f * ui);
-            Vector3 sp = mapCam.WorldToScreenPoint(playerMarker.transform.position);
+            // l'etichetta fluttua SOPRA l'eventuale pianeta su cui ti trovi (offset lungo l'alto-schermo pari al
+            // suo raggio apparente) → non si sovrappone alla superficie. In spazio profondo l'offset è minimo.
+            float clear = playerMarker.transform.localScale.x;
+            var gb = walker != null ? walker.GravityBody : null;
+            if (gb != null && proxies.TryGetValue(gb, out var gpx)) clear = gpx.localScale.x * (float)gb.Radius;
+            Vector3 anchor = playerMarker.transform.position + mapCam.transform.up * (clear * 1.4f);
+            Vector3 sp = mapCam.WorldToScreenPoint(anchor);
             if (sp.z > 0f)
-                GUI.Label(new Rect(sp.x - 100f * ui, Screen.height - sp.y - 34f * ui, 200f * ui, 20f * ui), "TU SEI QUI", hereStyle);
+                GUI.Label(new Rect(sp.x - 100f * ui, Screen.height - sp.y - 10f * ui, 200f * ui, 20f * ui), "TU SEI QUI", hereStyle);
         }
     }
 }
