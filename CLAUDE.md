@@ -96,10 +96,11 @@ versanti dei crateri → rimosso). **PROSSIMO:** resa GPU IN GIOCO (B1) · mater
   alpha bassa per lo sfondo-riga tinge ANCHE i figli (maniglia slider, casella toggle) → spariscono; va ripristinato
   SUBITO dopo `BeginHorizontal(rowStyle)` (lo sfondo è già disegnato, i figli no).
 
-**Tre corpi**: il **Pianeta** (lunare, raggio 500), **Cetra** (luna marziana craterizzata, raggio 300, g 3.0,
-in orbita attorno al pianeta — ricetta creata nell'editor) e **Luna** (creato nell'editor, raggio 800, in orbita
-al SOLE; ricetta `Resources/Planets/Luna.json`). Aggiungere un corpo roccioso = una `CelestialBody`
-+ `PlanetTerrain` (ApplyRecipe) sullo stesso GameObject; walker/mappa/viaggio "gratis".
+**Corpi** (composti in `SolarSystemSetup`, array `Orbiting[]` = unica lista): il **Pianeta-casa** (lunare, raggio 500)
++ corpi in orbita al SOLE — **Cetra** (luna marziana craterizzata, raggio 300), **Luna6** (creato nell'editor, raggio
+500, g 9.81; `Resources/Planets/Luna6.json`), **Valentina2** (raggio 500). Aggiungere un corpo roccioso = **una riga
+in `Orbiting[]`** (`SolarSystemSetup.Build()` crea `CelestialBody` + `PlanetTerrain`/ApplyRecipe + lo registra; il
+bake offline lo prende da solo via `BodyBakeTargets()`); walker/mappa/viaggio "gratis".
 
 **Superficie — base lunare liscia.** Colore quasi uniforme grigio (`_SoilMean`) + variazione
 macro a bassa frequenza; il bello lo fanno la FORMA (crateri + colline) e la LUCE. Dettaglio
@@ -268,8 +269,8 @@ il procedurale è uno strumento di CREAZIONE, non un sistema runtime. La superfi
 è a target — costruire il GIOCO: più corpi DIVERSI + un VERBO (atterra · cammina · raccogli · vai altrove ·
 puoi fallire). **MVP: mini-loop su 2-3 corpi.**
 FATTO: hand-off di gravità, mappa+selezione, **viaggio fra corpi + match-velocity**, indicatore di rotta,
-**autopilota**, **editor RICCO (processi ordinati: crateri/mari geometrici/tettonica)**, **quadtree CDLOD**, **tre
-corpi (Pianeta, Cetra, Luna)**, **GPU per l'editor Tappe 1-3 (anteprima GPU completa: geometria+colore+normali a parità)** —
+**autopilota**, **editor RICCO (processi ordinati: crateri/mari geometrici/tettonica)**, **quadtree CDLOD**, **corpi
+(Pianeta, Cetra, Luna6, Valentina2) astratti in SolarSystemSetup**, **GPU per l'editor Tappe 1-3 (anteprima GPU completa: geometria+colore+normali a parità)** —
 puoi volare da un corpo all'altro, atterrare, ripartire. MANCANO: il teletrasporto, il VERBO, altri corpi diversi.
 **PROSSIMO:** resa GPU IN GIOCO (B1) · materiali per pendenza/quota + PBR (SC/ED) · il GIOCO. Vedi `TODO.md` / [[wanderer-rendering-roadmap]].
 
@@ -279,7 +280,8 @@ Unity 6, menu **Wanderer → Crea scena di gioco**, poi **Play** (il comando cre
 registra nei Build Settings → niente "build nera"). Tutta la scena è costruita da codice in
 `GameBootstrap.cs`: niente setup manuale nell'editor. I parametri (raggi, gravità, terreno, orbite,
 torcia) sono lì, commentati. Altri menu: **Wanderer → Apri editor pianeti** (scena editor) e
-**Wanderer → Bake planet assets** (bake offline su disco di pianeta + Cetra).
+**Wanderer → Bake planet assets** (bake offline su disco del pianeta-casa + tutti i corpi in orbita, via
+`SolarSystemSetup.BodyBakeTargets()` — heightmap off + BC7 → ~15-23 MB a cartella).
 
 ## Architettura
 
@@ -317,9 +319,9 @@ UI/        SettingsMenu   — schermata impostazioni (à): congela i comandi, re
            EditorOrbitCam — camera orbitale dell'editor (tasto destro ruota, rotella zoom)
            EditorLightMode— modo luce dell'editor (L): ancorata (sole fisso) / libera (sole agganciato alla vista)
 Bootstrap/ GameBootstrap        — PLUMBING della scena di gioco: chiama SolarSystemSetup.Build(), poi giocatore/camera/luce/mappa/HUD (toggle useQuadtree qui)
-           SolarSystemSetup     — COMPOSIZIONE del sistema: stella + pianeta-casa + corpi in ORBITA (array data-driven: aggiungere un corpo = una riga). Apply*Recipe + costanti raggi/bake. Build() ritorna stella+casa
+           SolarSystemSetup     — COMPOSIZIONE del sistema: stella + pianeta-casa + corpi in ORBITA (array Orbiting[] data-driven: aggiungere un corpo = una riga). Apply*Recipe + costanti raggi/bake. Build() ritorna stella+casa. BodyBakeTargets() = stessa lista per il bake offline
            PlanetEditorBootstrap— costruisce la scena editor (pianeta da SmoothSphere + camera orbitale + UI)
-Editor/    SceneSetup (menu "Crea scena di gioco" / "Apri editor pianeti"), PlanetBakeTool ("Bake planet assets": bake offline pianeta + Cetra, #13)
+Editor/    SceneSetup (menu "Crea scena di gioco" / "Apri editor pianeti"), PlanetBakeTool ("Bake planet assets": bake offline pianeta-casa + corpi di SolarSystemSetup.BodyBakeTargets(), heightmap off + BC7, #13)
 Debug/     DebugHud
 Shaders/   PlanetSurfaceBaked (Wanderer/PlanetBaked) — superficie del pianeta + GEOMORPH CDLOD nel vert (quadtree) + ECLISSI analitiche nel surf + mare liquido (_SeaLiquid)
            CraterNormalBake (Wanderer/CraterNormalBake) — bake normale crateri per faccia (mippata)
@@ -486,8 +488,9 @@ vicino all'origine di Unity → la precisione non degrada mai.
   mano; in gioco serve qui.
 - **Performance/load del quadtree (prossimo passo, opzione "a" decisa, NON ancora fatto):** il collo di bottiglia è la
   CPU che ricalcola il rumore per ogni vertice di ogni nodo (load lento + finestra "seghettata" finché rifinisce). Il
-  bake produce GIÀ le HEIGHTMAP per faccia: far campionare al quadtree la heightmap (un fetch) invece del rumore =
-  CPU scarica, build veloce. Attenzione: campionare per DIREZIONE→faccia (non per-faccia con clamp) o si reintroducono
+  bake PUÒ produrre le HEIGHTMAP per faccia (oggi `BakeHeightmaps=false` per non zavorrare la cartella — riaccendere
+  quando si fa questo path): far campionare al quadtree la heightmap (un fetch) invece del rumore = CPU scarica, build
+  veloce. Attenzione: campionare per DIREZIONE→faccia (non per-faccia con clamp) o si reintroducono
   giunture ai 6 spigoli del cubo. Walker resta analitico (opzione a).
 
 ## Superficie e shader (Wanderer/PlanetBaked)
