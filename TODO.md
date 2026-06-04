@@ -3,11 +3,35 @@
 Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **4 giugno 2026** (sessione B1 — resa GPU in gioco).
 Dettaglio tecnico nel `CLAUDE.md`.
 
-> **PARTI DA QUI:** siamo dentro **B1 — resa GPU IN GIOCO** (vedi sezione dedicata sotto). Tappa 1 SCRITTA, in
-> attesa di test su schermo. Bersaglio deciso con Dario: scaricare la CPU + qualità + **≥60 fps**, con
-> indirect/instancing **dall'inizio**. Misura: a finestra piccola si è GIÀ a 60 fps (GPU 0.8–3 ms); il solo caso
-> che rompeva i 60 era a schermo intero/2× = **fragment + overdraw** (costo per-pixel, NON CPU → B1 non lo
-> sistema, è un fronte GPU separato). Cap fps alzato da 30 a **60** (`PerformanceGovernor`).
+> **PARTI DA QUI:** **B1 GIRA** (resa GPU in gioco: quadtree CDLOD su GPU + 1 draw indirect + colore procedurale +
+> LOD + walker analitico). Artefatti spariti, fermo/crociera 60 fps. **Load RISOLTO** (era la compilazione del
+> compute: split + `[loop]`, vedi sotto). Restano due colli, entrambi sul **cambio-quota** (avvicinamento/radente):
+> **(1)** churn del LOD = 64 fill/frame → **batch debuggato** (con banco di verifica) + budget nodi; **(2)** il
+> **fragment del mare** GPU-bound (~21 ms) → per-vertice + overdraw. La strategia è confermata e raffinata in
+> `RENDERING_STRATEGY.md` §13 (R1-R5). Cap fps a **60** (`PerformanceGovernor`).
+>
+> **MISURA-CAUTELA (R5):** il "CPU ms" e la traccia CPU rossa includono l'**attesa-GPU** quando sei GPU-bound. La
+> verità GPU è **GPU Frametime** (Stats). Conferma lì prima di ottimizzare la CPU.
+>
+> **DECISIONE (4 giu, dopo confronto con Dario): obiettivo = ROCK-SOLID SMOOTH (alla Quake/Doom moderno) PRIMA della
+> grafica.** Non sono "ottimizzazioni finite": fluidità è un obiettivo a sé, NON fatto. Ma prima di altri fix:
+> **MISURARE LA VERITÀ SU UNA BUILD** — l'editor gonfia la CPU (lezione dura nel CLAUDE.md), i "14 ms" potrebbero
+> essere in gran parte overhead-editor. Aggiunto contatore FPS+**picco/sec** nell'HUD (visibile in build) +
+> `EnsureIncludedShaders` (auto: la build non esce magenta). PIANO: build → misura reale (fermo / avvicinamento /
+> radente veloce) → fix del collo VERO (taratura o passo strutturale, deciso dal dato). Grafica e Fase 2-scala = DOPO
+> la fluidità. ✅ Always Included Shaders ora gestito da `EnsureIncludedShaders` (era un TODO B1).
+>
+> **ESITO FLUIDITÀ (5 giu) — il meter `trav·fill·invio` ha inchiodato il collo:**
+> - **Lo stutter era la TRAVERSATA CPU del quadtree** (`trav` 14ms, fill/invio≈0). DUE fix STRUTTURALI: (1) `UpdateLod`
+>   non passa più matrice+vettori PER COPIA a ogni nodo (→ campi del frame) + costanti orizzonte calcolate una volta;
+>   (2) **`ComputeBounds` non chiama più `SampleHeight`** (3×/nodo=12×/split, il picco) → per il LOD basta la SFERA.
+>   **→ 60 FPS in gioco normale** (era 11-22). Walker intatto.
+> - **Valentina2 (mare) è GPU-bound** (fragment del mare ~120-140ms a bassa quota, NON CPU). Leva messa: **RISOLUZIONE
+>   DINAMICA** (`RenderScaler` adattivo). **`Cull Back` ROTTO** (skirt a doppia faccia → buchi; serve 2:1/depth-prepass).
+> - **ARCHITETTURA:** estratto **`PlayerSpawn`** (spawn isolato) + **`spawnOnBody`** (default "Valentina2", test rapido).
+>   GameBootstrap ora è regìa. **Da estrarre ancora:** LightingSetup (sole+ambient+eclissi) e UiSetup (mappa+rotta+orbite+HUD+impostazioni).
+> - **PROSSIMO (da fresco):** mare strutturale = **pelo per-vertice** (il compute calcola già `SeaSurface` 4 oct → emetterlo
+>   come il `baseN`, parità ok) + normali-dai-vicini per il fill. Poi batch debuggato se la CPU torna collo. Poi look/Fase 2.
 
 ## Fatto (milestone)
 
@@ -141,10 +165,50 @@ GPU↔CPU fa da rete. Componenti nuovi: `GpuPlanetRenderer.cs`, shader `Wanderer
     `RenderPrimitivesIndexedIndirect` non filtra per camera → filtrare (layer/camera) o disattivare in MapMode.
   - ⬜ GPU Frametime alto già ora (10–35 ms @2× con fragment di DEBUG cheap) → conferma il fronte fragment/overdraw
     (Tappa 4); il fragment vero sarà più caro.
-- ⬜ **Tappa 2 — LOD agganciato al pool.** Il cervello del quadtree (split/merge/orizzonte, già esistente) gira su
-  struct leggere (niente GameObject): split → alloca+riempi una fetta (compute, dal kernel `CSNodeGrid`), merge →
-  libera; lista visibile → buffer di indirezione; **geomorph nel vertex shader** dal buffer; **skirt nel compute**.
-  Qui la CPU crolla: misurare col **Profiler** (non solo Stats) e verificare la tabella "dove va ogni costo CPU".
+- 🟡 **Tappa 2 — LOD (quadtree GPU) (SCRITTA, da testare).** Quadtree di nodi LEGGERI (niente GameObject) in
+  `GpuPlanetRenderer`: split/merge per distanza + horizon culling; ogni foglia = una FETTA del pool riempita dai
+  kernel nuovi `CSNodeSlab`+`CSNodeSkirt`; lista foglie visibili → 1 draw indirect. Niente thread/readback/coda (sulla
+  GPU il "build" è un dispatch). Skirt nel compute (nasconde le crepe fra LOD). Budget split/frame (no spike).
+  **Fix multi-corpo:** ogni renderer `Instantiate` il proprio ComputeShader (lo shared si clobbererebbe i binding
+  fra i 4 corpi). Atteso: crateri NITIDI sotto i piedi, rado/cullato lontano → calore GIÙ. Debug `debugMode` 1/2 se rotto.
+  - ✅ **CACHE LRU delle fette** (fix del "delirio": redraw/spariscono/stutter). Una regione che esce di vista NON
+    si ricalcola: la fetta (geometria statica) resta in cache e si riusa al ritorno. Pool 512→1024, budget split
+    24→64, isteresi 1.4→2.0. Ogni corpo `Instantiate` il proprio ComputeShader (no clobber multi-corpo).
+  - ⬜ **Tappa 2b — GEOMORPH** (transizioni LOD lisce, niente "pop"): morph delta per-vertice dal compute + lerp nel
+    vertex shader con la distanza camera. Resta il "pop" allo split/merge (skirt evita i buchi, non il pop).
+  - ⬜ warning compute `CSNodeSlab/Skirt` ("uint if possible") = perf, non bug.
+  - 🟡 **MISURATO (4 giu mattina):** è **GPU-bound dal FRAGMENT**. Test con `debugMode=1` (fragment banale):
+    GPU fermo **9.3→2.3 ms**, volo **20.4→5.6 ms** → ~7–15 ms erano il rumore per-pixel (`n3_fbm` 5 ott. per `baseN`
+    + mare). + picco CPU intermittente. Applicato: **baseN 5→2 ott.** e **mare 4→3 ott.** nel fragment.
+  - ✅ **TAGLI FILL SICURI (4 giu, geometria invariata):** **normali a 2 campioni** (differenza-in-avanti, riusa il
+    centro → fill GPU ~dimezzato), **property-ID cachati** (niente hash-stringa per chiamata CPU), `_NN`/`_NSkirtStart`
+    una volta sola. **`lodFactor` 4→3** (R3): `visibili` ~1023→~700 (era al tetto del pool 1024) → meno disegno + meno fill.
+  - ❌ **BATCH dei fill (1 dispatch) — ANNULLATO.** Provato (toglie le ~600 chiamate API/frame), ma ha dato
+    **corruzione di geometria** (spuntoni/lamine = vertici sbagliati): bug d'indicizzazione/hazard non trovato. Tornati
+    ai fill per-nodo (corretti). Da ri-fare con **banco di verifica** (vertici batch↔per-nodo) — vedi §13 R1.
+  - ⬜ se il churn resta: batch debuggato + per-vertice i campi a bassa freq (`baseN` interpolato → fragment quasi gratis).
+  - 🟡 **SINTOMI segnalati da Dario (4 giu, bersaglio del prossimo lavoro LOD) — "nessun caricamento lungo IN GIOCO"
+    (§13 R2) è IL requisito:** (a) ambiente che **carica troppo tardi** (fill a budget + split solo dentro splitDist
+    → ritardo) → cura: fill economici/batch + **LOD predittivo** (split un filo prima); (b) **scarica troppo presto**
+    → isteresi di merge più larga; (c) **scarica e ricarica un pezzo DAVANTI** (il più importante) = **thrashing**
+    sulla soglia o **cache LRU che sfratta una fetta ancora in vista** → isteresi + non sfrattare regioni visibili +
+    budget nodi. Questi tre sono l'acceptance-test del batch/tuning LOD.
+  - ✅ **LOD PREDITTIVO** (4 giu): split valutato dalla posizione "dove sarai fra ~0.7s" (`lookaheadTime`), velocità
+    relativa al centro pianeta (stabile con floating origin) → il dettaglio davanti si carica PRIMA. Fermo = identico.
+  - 🟡 **POP all'ORIZZONTE a quota bassa (diagnosticato dai frame di Dario):** un pezzo nero (=niente geometria) che
+    compare/sparisce alle STESSE quote = **horizon culling**: a quota bassa `acos(R/camDist)` è ipersensibile, e il
+    test culla in base al CENTRO ignorando che le **creste delle dune bucano l'orizzonte** (visibili). **Cerotto
+    applicato:** **isteresi per-nodo** (margine ampio per nascondere ≈8°, stretto per ri-mostrare ≈2° → banda morta,
+    niente flip) — `Node.horizonHidden`. **Fix VERO (dopo la perf):** orizzonte **height-aware** (quanto sporgono le
+    creste) + **geomorph** (sfuma le transizioni invece di farle scattare). NON bloccante (parola di Dario).
+- 🟡 **LOAD = compilazione della pipeline Metal del compute** (la `SampleHeight` enorme), NON bake/alloc. **PRIORITÀ
+  DI SOLO SVILUPPO** — decisione di Dario (§13 R2): il load iniziale del gioco NON è un problema per il giocatore;
+  l'unico requisito è **nessun caricamento lungo MENTRE giochi**. In build gli shader sono precompilati. Quindi pesa
+  solo sulla nostra iterazione → non spenderci troppo. **Cosa ha aiutato:** **SPLIT del compute** (22→15 s) in
+  `PlanetHeightCore.hlsl` (core condiviso = UNA `SampleHeight`, parità intatta) + `PlanetHeight.compute` (gioco: 2
+  kernel) + `PlanetHeightEditor.compute` (editor/baker: 5; loader aggiornati). **Cosa ha FALLITO:** `[loop]` sul
+  ciclo crateri 5×5×5 → PEGGIORATO (15→50 s + rotella 25 s allo stop): l'unroll a limiti letterali compila più
+  veloce. **`[loop]` ANNULLATO.** Lezione: misura il compile, non assumere "meno codice = compila prima".
 - ⬜ **Tappa 3 — spegnere il bake in gioco.** Colore tutto procedurale → via la dipendenza da `PlanetBaked` per la
   superficie. NB: i **proxy della mappa** usano ancora i materiali bakeati → "togliere gli 1.9 s" è parziale, da
   ragionare (serve un materiale per i proxy comunque).

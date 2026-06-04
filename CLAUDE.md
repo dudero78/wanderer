@@ -288,7 +288,7 @@ torcia) sono lì, commentati. Altri menu: **Wanderer → Apri editor pianeti** (
 ```
 Core/      Vector3d, FloatingOrigin   — doppia precisione, origine ancorata al pianeta
            PerformanceGovernor        — cap fps (30 attivi / 15 idle): leva sul calore CPU
-           RenderScaler               — render a frazione di risoluzione (ora 1.0: GPU libera)
+           RenderScaler               — risoluzione DINAMICA (adattiva): abbassa i pixel quando la GPU è in affanno per tenere ~60 fps, rialza al nitido quando c'è margine (tecnica AAA, sicura). minScale 0.4. Usato per il mare GPU-bound
            GameSettings               — opzioni runtime (facilitazioni) statiche + PlayerPrefs
 Physics/   KeplerOrbit, CelestialBody (UniversePosition + UniverseVelocityAt), SolarSystem (Reference: corpo ancorato; preserva la velocità allo switch)
 World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di TerrainLayer, unica verità mesh+walker. Recipe + ApplyRecipe + FaceMaterials (per proxy mappa ed eclissi)
@@ -318,8 +318,11 @@ UI/        SettingsMenu   — schermata impostazioni (à): congela i comandi, re
            PlanetEditor   — UI dell'editor di pianeti (scena separata): modifica la RICETTA, anteprima live, salva/carica
            EditorOrbitCam — camera orbitale dell'editor (tasto destro ruota, rotella zoom)
            EditorLightMode— modo luce dell'editor (L): ancorata (sole fisso) / libera (sole agganciato alla vista)
-Bootstrap/ GameBootstrap        — PLUMBING della scena di gioco: chiama SolarSystemSetup.Build(), poi giocatore/camera/luce/mappa/HUD (toggle useQuadtree qui)
-           SolarSystemSetup     — COMPOSIZIONE del sistema: stella + pianeta-casa + corpi in ORBITA (array Orbiting[] data-driven: aggiungere un corpo = una riga). Apply*Recipe + costanti raggi/bake. Build() ritorna stella+casa. BodyBakeTargets() = stessa lista per il bake offline
+Bootstrap/ GameBootstrap        — REGÌA della scena, 4 righe pulite: SolarSystemSetup.Build() → PlayerSpawn.Spawn() → LightingSetup.Setup() → UiSetup.Setup(). Toggle useQuadtree/useGpuSurface + `spawnOnBody` (nasci su qualunque corpo, default "Valentina2" per test) qui. Ogni pezzo è isolato nel suo file → niente "minestrone"
+           SolarSystemSetup     — COMPOSIZIONE del sistema: stella + pianeta-casa + corpi in ORBITA (array Orbiting[] data-driven: aggiungere un corpo = una riga). Apply*Recipe + costanti raggi/bake. Build(...spawnOnBody) àncora l'origine al corpo di spawn e lo ritorna. BodyBakeTargets() = stessa lista per il bake offline
+           PlayerSpawn          — SPAWN ISOLATO del giocatore: dato il corpo, crea giocatore+tuta+camera+torcia all'alba sull'equatore. Ritorna il rig (camera/walker/torcia/tuta) per luce/mappa/HUD
+           LightingSetup        — ILLUMINAZIONE isolata: sole direzionale + eclissi analitiche (EclipseDriver) + luce ambiente. Niente shadow map (acne a luce radente)
+           UiSetup              — INTERFACCIA isolata: mappa (M) + rotta + orbite (O) + HUD + impostazioni (à). Prende i riferimenti dal rig e dal sistema solare
            PlanetEditorBootstrap— costruisce la scena editor (pianeta da SmoothSphere + camera orbitale + UI)
 Editor/    SceneSetup (menu "Crea scena di gioco" / "Apri editor pianeti"), PlanetBakeTool ("Bake planet assets": bake offline pianeta-casa + corpi di SolarSystemSetup.BodyBakeTargets(), heightmap off + BC7, #13)
 Debug/     DebugHud
