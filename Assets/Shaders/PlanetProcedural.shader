@@ -96,7 +96,7 @@ Shader "Wanderer/PlanetProcedural"
             // sia al vettore vista del glint). Il colore è nell'include condiviso PlanetShade.
             fixed4 frag(v2f IN) : SV_Target
             {
-                return fixed4(PlanetShade(IN.lp, IN.lp, IN.nrm, IN.bnrm, IN.depth), 1);
+                return fixed4(PlanetShade(IN.lp, IN.lp, IN.nrm, IN.bnrm, IN.depth, 0.0), 1);   // editor: _PerVertexFields=0 → baseN per-pixel, lo 0.0 è ignorato
             }
             ENDCG
         }

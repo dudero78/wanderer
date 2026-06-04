@@ -22,6 +22,9 @@ float3 _SunDir, _SunColor, _Ambient;
 // termine nullo, nessun costo visivo. Posizione/direzione in spazio MONDO (la lampada è figlia della camera).
 float3 _TorchPos, _TorchDir, _TorchColor;
 float _TorchRange, _TorchCosInner, _TorchCosOuter;
+// 1 = baseN arriva GIÀ PRONTO per-vertice (gioco: il fragment non rifà il rumore gradiente per ogni pixel).
+// 0 = calcolalo qui per-pixel (editor: massima qualità, non è perf-critico). Default 0 se non impostato.
+float _PerVertexFields;
 
 // modella il rumore centrato 'c' secondo 'forma' (= SeaTerrainLayer.Shape / PlanetBaked.SeaShape)
 float SeaShape(float c, float forma)
@@ -35,7 +38,8 @@ float SeaShape(float c, float forma)
 // worldP = posizione in spazio MONDO: serve solo al vettore vista del glint del mare.
 // nrmW   = normale del pelo in spazio MONDO (per la luce). bnrmW = normale del fondo sommerso (mondo).
 // depth  = profondità dell'acqua al vertice (pelo − fondo), interpolata; 0 dove asciutto.
-float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float depth)
+// baseNField = ondulazione di base [0,1] PRE-CALCOLATA per-vertice (usata solo se _PerVertexFields>0.5).
+float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float depth, float baseNField)
 {
     float3 P = Pobj;
     float h = max(length(P), 1e-4);
@@ -46,7 +50,8 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     float seaSurf = _SeaLevel;
     if (_SeaRough > 0.0)
     {
-        float cc = (n3_fbm(sdir * _SeaRoughScale, 4, 2.0, 0.5, (int)_SeaSeed) - 0.5) * 2.0;
+        // 3 ottave bastano per la TINTA del pelo (basso costo per-pixel; era 4). La geometria del pelo è nel compute.
+        float cc = (n3_fbm(sdir * _SeaRoughScale, 3, 2.0, 0.5, (int)_SeaSeed) - 0.5) * 2.0;
         seaSurf += SeaShape(cc, _SeaForma) * _SeaRough;
     }
     float seaMask = (_SeaOn > 0.5) ? (1.0 - smoothstep(2.0, 4.0, abs(h - seaSurf))) : 0.0;
@@ -64,7 +69,10 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
 
     // cappucci/maria seguono l'ondulazione di BASE (dune/bacini), NON i crateri: altrimenti ogni
     // cratere innescherebbe vette/maria → grandi blob. Ricostruisco la quota base nel fragment.
-    float baseN = n3_fbm(sdir * _Frequency, _Octaves, _Lacunarity, _Gain, _Seed);
+    // 2 ottave: serve solo il TREND a bassa frequenza per le maschere maria/vette. In GIOCO arriva già pronto
+    // per-vertice (interpolato): il fragment NON rifà questo rumore gradiente per ogni pixel (era il costo maggiore).
+    // Nell'editor (_PerVertexFields=0) lo calcola qui, per-pixel, a piena qualità. Il valore è identico (Fbm≡n3_fbm).
+    float baseN = (_PerVertexFields > 0.5) ? baseNField : n3_fbm(sdir * _Frequency, 2, _Lacunarity, _Gain, _Seed);
     float baseH = _BaseRadius + (baseN - 0.5) * 2.0 * _Amplitude;
     float t = saturate((baseH - (_BaseRadius - _Amplitude)) / (2.0 * _Amplitude));
     alb = lerp(alb, _PeakColor.rgb, smoothstep(0.74, 0.97, t) * _PeakStr);

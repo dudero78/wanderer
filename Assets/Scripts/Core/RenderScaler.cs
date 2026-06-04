@@ -21,6 +21,14 @@ using UnityEngine;
 public class RenderScaler : MonoBehaviour
 {
     [Range(0.4f, 1f)] public float scale = 0.7f;   // 1.0 = nativo; 0.7 ≈ densità 1080p su Retina
+    // RISOLUZIONE DINAMICA (tecnica AAA per restare fluidi): quando la GPU non tiene i ~60 fps, abbasso la
+    // risoluzione di render (meno pixel = shader del mare più economico) per non scattare; quando c'è margine,
+    // rialzo piano verso il nitido. Maschera il costo GPU senza toccare geometria/shader. minScale = quanto
+    // morbido al massimo nei momenti peggiori (volo radente veloce sul mare).
+    public bool dynamic = true;
+    [Range(0.35f, 1f)] public float minScale = 0.4f;
+    float smoothDt;
+    float dynScale = 1f;
 
     Camera gameCam;
     Camera presentCam;
@@ -55,7 +63,23 @@ public class RenderScaler : MonoBehaviour
     }
 
     // Update gira prima del rendering: garantiamo la RT giusta prima che la camera disegni.
-    void Update() { Ensure(); }
+    void Update()
+    {
+        if (dynamic) UpdateDynamic();
+        Ensure();
+    }
+
+    // Feedback semplice: se non teniamo ~57 fps (il cap è 60) la GPU è in affanno → abbassa in fretta; se siamo al
+    // cap c'è margine → rialza piano (creep). 'scale' è a gradini di 0.05 → la RenderTexture si rialloca di rado.
+    void UpdateDynamic()
+    {
+        float dt = Time.unscaledDeltaTime;
+        smoothDt = smoothDt <= 0f ? dt : Mathf.Lerp(smoothDt, dt, 0.1f);
+        if (smoothDt > 1f / 57f) dynScale -= 0.8f * dt;   // affanno → meno pixel, subito
+        else dynScale += 0.12f * dt;                       // margine → più nitido, piano
+        dynScale = Mathf.Clamp(dynScale, minScale, 1f);
+        scale = Mathf.Round(dynScale / 0.05f) * 0.05f;
+    }
 
     void Ensure()
     {

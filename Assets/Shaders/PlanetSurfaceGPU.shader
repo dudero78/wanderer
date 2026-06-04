@@ -56,7 +56,11 @@ Shader "Wanderer/PlanetSurfaceGPU"
         Tags { "RenderType" = "Opaque" }
         Pass
         {
-            Cull Off    // il verso dei triangoli dipende dall'orientamento delle 6 facce del cubo
+            // Cull Off: gli SKIRT (anelli tappabuchi ai confini di LOD) DEVONO essere a doppia faccia — coprono la
+            // fessura da qualunque angolo. Con Cull Back sparivano dal lato sbagliato → buchi/muri. La superficie
+            // interna avrebbe verso coerente, ma non si può avere Cull diverso per interno e skirt nello stesso draw.
+            // Il dimezzamento del per-pixel via culling tornerà col quadtree 2:1 (niente skirt) o un depth pre-pass.
+            Cull Off
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -68,6 +72,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
             StructuredBuffer<float> _VNrm;       // pool: normale del pelo (3 float/v)
             StructuredBuffer<float> _VBedNrm;    // pool: normale del fondo sommerso (3 float/v)
             StructuredBuffer<float> _VDepth;     // pool: profondità acqua (1 float/v)
+            StructuredBuffer<float> _VField;     // pool: baseN per-vertice (ondulazione di base, per le maschere colore)
             StructuredBuffer<uint>  _SlabOfInstance;   // istanza → indice di fetta nel pool
             uint _VertsPerSlab;                  // vertici per fetta (gp*gp)
             float4x4 _ObjectToWorld;             // pianeta locale → mondo (floating origin: aggiornata ogni frame)
@@ -81,6 +86,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 float  depth : TEXCOORD2;
                 float3 bnrm : TEXCOORD3;  // normale del fondo sommerso in MONDO
                 float3 wp  : TEXCOORD4;   // posizione MONDO (per il vettore vista del glint)
+                float  baseN : TEXCOORD5; // ondulazione di base per-vertice (interpolata → niente rumore per-pixel)
             };
 
             v2f vert(uint vid : SV_VertexID, uint iid : SV_InstanceID)
@@ -97,6 +103,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 o.lp   = p;        // spazio oggetto: i campi di colore sono centrati sul pianeta
                 o.wp   = world;
                 o.depth = _VDepth[g];
+                o.baseN = _VField[g];
                 return o;
             }
 
@@ -108,7 +115,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
                     return fixed4(normalize(IN.nrm) * 0.5 + 0.5, 1);
                 if (_DebugView > 0.5)
                     return fixed4(normalize(IN.lp) * 0.5 + 0.5, 1);
-                return fixed4(PlanetShade(IN.lp, IN.wp, IN.nrm, IN.bnrm, IN.depth), 1);
+                return fixed4(PlanetShade(IN.lp, IN.wp, IN.nrm, IN.bnrm, IN.depth, IN.baseN), 1);
             }
             ENDCG
         }
