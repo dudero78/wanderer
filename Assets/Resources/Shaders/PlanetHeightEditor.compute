@@ -1,0 +1,109 @@
+#pragma kernel CSNodeGrid
+#pragma kernel CSParity
+#pragma kernel CSFaceGrid
+#pragma kernel CSFaceNormals
+#pragma kernel CSIndices
+#include "PlanetHeightCore.hlsl"
+
+[numthreads(8, 8, 1)]
+void CSNodeGrid(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _NE || (int)id.y >= _NE) return;
+    float tx = _U0 + ((int)id.x - 1) * _Step;
+    float ty = _V0 + ((int)id.y - 1) * _Step;
+    float3 dir = ParamToDir(tx, ty);
+    float3 p = dir * SampleHeight(dir);
+    int o = (id.x + id.y * _NE) * 3;
+    _Pout[o] = p.x; _Pout[o + 1] = p.y; _Pout[o + 2] = p.z;
+}
+
+[numthreads(64, 1, 1)]
+void CSParity(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _DirCount) return;
+    float3 dir = normalize(_Dirs[id.x]);
+    _Heights[id.x] = SampleHeight(dir);
+}
+
+[numthreads(8, 8, 1)]
+void CSFaceGrid(uint3 id : SV_DispatchThreadID)
+{
+    int gp = _R + 2;
+    if ((int)id.x >= gp || (int)id.y >= gp) return;
+    float step = 1.0 / (_R - 1);
+    float tx = ((int)id.x - 1) * step;     // id=1 → tx=0, id=_R → tx=1; id=0 e id=_R+1 = bordo
+    float ty = ((int)id.y - 1) * step;
+    // NIENTE snap: lo snap a lattice terrazzava i versanti ripidi dei crateri (crepe). Le cuciture fra le
+    // facce sono coperte dalla SOVRAPPOSIZIONE di una cella (vedi index buffer), non più dallo snap.
+    float3 dir = ParamToDir(tx, ty);
+    float depth;
+    float3 p = dir * SampleHeightD(dir, depth);
+    int vi = _FaceOffset + id.x + id.y * gp;
+    int o = vi * 3;
+    _VPos[o] = p.x; _VPos[o + 1] = p.y; _VPos[o + 2] = p.z;
+    _VDepth[vi] = depth;
+}
+
+[numthreads(8, 8, 1)]
+void CSFaceNormals(uint3 id : SV_DispatchThreadID)
+{
+    int gp = _R + 2;
+    if ((int)id.x >= gp || (int)id.y >= gp) return;   // TUTTA la griglia padded (anche il bordo di sovrapposizione)
+    int px = (int)id.x, py = (int)id.y;
+    float step = 1.0 / (_R - 1);
+    float3 dir = ParamToDir((px - 1) * step, (py - 1) * step);   // niente snap (vedi CSFaceGrid)
+
+    float3 refV = (abs(dir.y) < 0.99) ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+    float3 tA = normalize(cross(dir, refV));
+    float3 tB = cross(dir, tA);
+    float eps = 1.5707963 / (_R - 1);   // ≈ una cella (arco per cella)
+
+    float3 dAp = normalize(dir + tA * eps);
+    float3 dAm = normalize(dir - tA * eps);
+    float3 dBp = normalize(dir + tB * eps);
+    float3 dBm = normalize(dir - tB * eps);
+    float3 pAp = dAp * SampleHeight(dAp);
+    float3 pAm = dAm * SampleHeight(dAm);
+    float3 pBp = dBp * SampleHeight(dBp);
+    float3 pBm = dBm * SampleHeight(dBm);
+
+    float3 n = normalize(cross(pBp - pBm, pAp - pAm));
+    if (dot(n, dir) < 0.0) n = -n;                 // verso l'esterno
+    int o = (_FaceOffset + px + py * gp) * 3;
+    _VNrm[o] = n.x; _VNrm[o + 1] = n.y; _VNrm[o + 2] = n.z;
+
+    // normale del FONDO (terreno sommerso, senza allagamento): stesse direzioni tangenti, quota = BedHeight.
+    // Solo se c'è un mare (branch UNIFORME, niente divergenza): senza acqua coinciderebbe con la normale del
+    // pelo → inutile pagare i 4 BedHeight extra. Se non c'è mare, copia la normale del pelo.
+    float3 bn = n;
+    if (_HasSea != 0)
+    {
+        float3 bAp = dAp * BedHeight(dAp);
+        float3 bAm = dAm * BedHeight(dAm);
+        float3 bBp = dBp * BedHeight(dBp);
+        float3 bBm = dBm * BedHeight(dBm);
+        bn = normalize(cross(bBp - bBm, bAp - bAm));
+        if (dot(bn, dir) < 0.0) bn = -bn;
+    }
+    _VBedNrm[o] = bn.x; _VBedNrm[o + 1] = bn.y; _VBedNrm[o + 2] = bn.z;
+}
+
+[numthreads(64, 1, 1)]
+void CSIndices(uint3 id : SV_DispatchThreadID)
+{
+    uint q = id.x + id.y * _IdxThreadW;
+    if (q >= _IdxQuadsTotal) return;
+    uint f = q / _IdxQuadsPerFace;
+    uint local = q % _IdxQuadsPerFace;
+    uint gpm1 = _IdxGp - 1u;
+    uint px = local % gpm1;
+    uint py = local / gpm1;
+    uint baseV = f * _IdxVertsPerFace;
+    uint i00 = baseV + px + py * _IdxGp;
+    uint i10 = baseV + (px + 1u) + py * _IdxGp;
+    uint i01 = baseV + px + (py + 1u) * _IdxGp;
+    uint i11 = baseV + (px + 1u) + (py + 1u) * _IdxGp;
+    uint o = q * 6u;
+    _Indices[o + 0u] = i00; _Indices[o + 1u] = i01; _Indices[o + 2u] = i11;   // Cull Off → il verso non conta
+    _Indices[o + 3u] = i00; _Indices[o + 4u] = i11; _Indices[o + 5u] = i10;
+}

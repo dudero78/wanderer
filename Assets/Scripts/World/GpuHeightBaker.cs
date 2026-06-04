@@ -35,7 +35,7 @@ public class GpuHeightBaker : IDisposable
     {
         ne = nodeRes + 3;
         if (!SystemInfo.supportsComputeShaders) return;
-        cs = Resources.Load<ComputeShader>("Shaders/PlanetHeight");
+        cs = Resources.Load<ComputeShader>("Shaders/PlanetHeightEditor");   // kernel CSNodeGrid/CSParity; core condiviso
         if (cs == null) { Debug.LogWarning("GpuHeightBaker: PlanetHeight.compute non trovato → quadtree su CPU."); return; }
 
         kNode = cs.FindKernel("CSNodeGrid");

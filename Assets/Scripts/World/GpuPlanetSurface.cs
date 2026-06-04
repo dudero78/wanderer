@@ -50,7 +50,7 @@ public class GpuPlanetSurface : MonoBehaviour
         vertsPerFace = gp * gp;
 
         if (!SystemInfo.supportsComputeShaders) return;
-        cs = Resources.Load<ComputeShader>("Shaders/PlanetHeight");
+        cs = Resources.Load<ComputeShader>("Shaders/PlanetHeightEditor");   // kernel editor (CSFaceGrid/Normals/Indices); core condiviso
         var sh = Shader.Find("Wanderer/PlanetProcedural");
         if (cs == null || sh == null)
         {
