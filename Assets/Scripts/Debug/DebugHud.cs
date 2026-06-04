@@ -20,6 +20,20 @@ public class DebugHud : MonoBehaviour
     GUIStyle banner;
     string cachedText;
     float nextRebuild;
+    // contatore di performance VISIBILE ANCHE IN BUILD (gli Stats di Unity sono solo editor). Mostra la media
+    // e — cruciale per i micro-scatti — il PICCO (fotogramma peggiore dell'ultimo secondo): se la media è bassa
+    // ma il picco è alto, c'è uno stutter. È la misura vera, fuori dall'editor che gonfia i numeri.
+    float avgMs, worstMs, displayWorst, windowEnd;
+    bool showPerf = true;   // riga performance: si accende/spegne con "è" (come à apre le impostazioni)
+
+    void Update()
+    {
+        if (Input.inputString.Contains("è") || Input.inputString.Contains("È")) showPerf = !showPerf;
+        float ms = Time.unscaledDeltaTime * 1000f;
+        avgMs = avgMs <= 0f ? ms : avgMs + (ms - avgMs) * 0.1f;   // media morbida
+        if (ms > worstMs) worstMs = ms;
+        if (Time.unscaledTime >= windowEnd) { displayWorst = worstMs; worstMs = 0f; windowEnd = Time.unscaledTime + 1f; }
+    }
 
     public void Init(Transform p, CelestialBody pl, CelestialBody st, SolarSystem s, PlanetWalker w, Flashlight fl, Transform suit, Transform cam)
     {
@@ -130,7 +144,11 @@ public class DebugHud : MonoBehaviour
             destLine = $"Distanza ({solar.Destination.gameObject.name}) : {ds}\n";
         }
 
+        string perfLine = showPerf
+            ? $"FPS {(avgMs > 0f ? 1000f / avgMs : 0f):F0}   ·   fotogramma {avgMs:F1} ms   ·   picco/sec {displayWorst:F1} ms   ('è' nascondi)\n"
+            : "";
         return
+            perfLine +
             $"Tempo simulazione  : {solar.SimTime:F0} s   (TimeScale {solar.TimeScale})\n" +
             $"Altitudine ({grav.gameObject.name}) : {altitude:F1} m\n" +
             destLine +
