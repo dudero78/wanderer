@@ -1,0 +1,33 @@
+using UnityEngine;
+
+/// <summary>
+/// INTERFACCIA della scena, isolata (come SolarSystemSetup / PlayerSpawn): mappa (M), indicatore di rotta,
+/// orbite a schermo (O), HUD di debug, schermata impostazioni (à). Tutti componenti sull'host (il GameObject del
+/// bootstrap). Prende i riferimenti dal rig del giocatore e dal sistema solare già costruiti.
+/// </summary>
+public static class UiSetup
+{
+    public static void Setup(GameObject host, SolarSystem solar, PlayerSpawn.Built rig, SolarSystemSetup.Built sys)
+    {
+        // Mappa (M): zoom-out sul sistema, orbite disegnate, click per selezionare un corpo destinazione.
+        var map = host.AddComponent<MapMode>();
+        map.Init(rig.Cam, rig.Walker, solar);
+
+        // Indicatore di rotta: reticolo stile Outer Wilds sul corpo selezionato (bussola del viaggio).
+        var route = host.AddComponent<RouteIndicator>();
+        route.Init(rig.Cam, rig.Walker, solar, map);
+
+        // Orbite a schermo (O): linee delle orbite del sistema, anche in volo.
+        var orbitDisplay = host.AddComponent<OrbitDisplay>();
+        orbitDisplay.Init(solar);
+
+        // HUD di debug (FPS+picco/sec con toggle "è", floating origin, volo, tuta, rotta).
+        var hud = host.AddComponent<DebugHud>();
+        hud.Init(rig.PlayerGo.transform, sys.HomePlanet, sys.Star, solar, rig.Walker, rig.Flashlight,
+                 rig.SuitTransform, rig.CamTransform);
+
+        // Schermata impostazioni (à): facilitazioni opzionali (es. autopilota stazionario), tarature live.
+        var settings = host.AddComponent<SettingsMenu>();
+        settings.Init(rig.Walker, rig.Cam);
+    }
+}

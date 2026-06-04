@@ -19,17 +19,22 @@ public static class SolarSystemSetup
     // --- Luna6: corpo creato nell'editor, in orbita attorno al SOLE. Raggio 500 m (dalla ricetta) ---
     public const float Luna6Radius = 500f;
     public const string Luna6BakedDir = "BakedPlanet_Luna6";
-    // --- Valentina2: corpo dell'editor, bakeato su disco, in orbita attorno al SOLE. Raggio 500 m ---
-    public const float ValentinaRadius = 500f;
-    public const string ValentinaBakedDir = "BakedPlanet_Valentina2";
+    // --- terra-test3: corpo dell'editor (con mare), bakeato su disco, in orbita attorno al SOLE. Raggio 700 m ---
+    public const float TerraTest3Radius = 700f;
+    public const string TerraTest3BakedDir = "BakedPlanet_terra-test3";
+    // --- Luna7: piccola luna in orbita attorno a TERRA-TEST3 (non alla stella). Raggio 300 m ---
+    public const float Luna7Radius = 300f;
+    public const string Luna7BakedDir = "BakedPlanet_Luna7";
 
     /// <summary>Applica la ricetta di Cetra (Resources/Planets/Cetra.json), scalata al raggio. Una sola fonte di
     /// verità per gioco e bake offline. Ritorna false se la ricetta manca.</summary>
     public static bool ApplyCetraRecipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Cetra", CetraRadius);
     /// <summary>Applica la ricetta di Luna6 (Resources/Planets/Luna6.json), scalata al raggio.</summary>
     public static bool ApplyLuna6Recipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Luna6", Luna6Radius);
-    /// <summary>Applica la ricetta di Valentina2 (Resources/Planets/Valentina2.json), scalata al raggio.</summary>
-    public static bool ApplyValentinaRecipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Valentina2", ValentinaRadius);
+    /// <summary>Applica la ricetta di terra-test3 (Resources/Planets/terra-test3.json), scalata al raggio.</summary>
+    public static bool ApplyTerraTest3Recipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "terra-test3", TerraTest3Radius);
+    /// <summary>Applica la ricetta di Luna7 (Resources/Planets/Luna7.json), scalata al raggio.</summary>
+    public static bool ApplyLuna7Recipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Luna7", Luna7Radius);
 
     static bool ApplyRecipe(PlanetTerrain terrain, string resourceName, float radius)
     {
@@ -47,6 +52,7 @@ public static class SolarSystemSetup
         public float Radius;
         public double Gravity;
         public bool AroundStar;     // true = orbita la stella; false = orbita il pianeta-casa
+        public string ParentName;   // se valorizzato, orbita QUESTO corpo (per nome, dev'essere costruito PRIMA) → lune di lune
         public KeplerOrbit Orbit;
         public string BakedDir;
         public int ProxyRes;        // risoluzione del proxy nella mappa
@@ -67,9 +73,14 @@ public static class SolarSystemSetup
             Orbit = new KeplerOrbit { SemiMajorAxis = 95000, Eccentricity = 0.08, Period = 1150, Inclination = 0.25 },
         },
         new OrbitBody {
-            Name = "Valentina2", Radius = ValentinaRadius, Gravity = 9.81, AroundStar = true, ProxyRes = 32,
-            BakedDir = ValentinaBakedDir, Apply = ApplyValentinaRecipe,
+            Name = "terra-test3", Radius = TerraTest3Radius, Gravity = 9.81, AroundStar = true, ProxyRes = 32,
+            BakedDir = TerraTest3BakedDir, Apply = ApplyTerraTest3Recipe,
             Orbit = new KeplerOrbit { SemiMajorAxis = 130000, Eccentricity = 0.05, Period = 1840, Inclination = 0.15 },
+        },
+        new OrbitBody {
+            Name = "Luna7", Radius = Luna7Radius, Gravity = 3.0, ParentName = "terra-test3", ProxyRes = 24,
+            BakedDir = Luna7BakedDir, Apply = ApplyLuna7Recipe,
+            Orbit = new KeplerOrbit { SemiMajorAxis = 4500, Eccentricity = 0.05, Period = 280, Inclination = 0.3 },
         },
     };
 
@@ -93,7 +104,7 @@ public static class SolarSystemSetup
 
     /// <summary>Costruisce stella + pianeta-casa + corpi in orbita, registra tutto nel SolarSystem, ancora
     /// l'origine alla casa e posiziona i corpi al tempo 0. Ritorna i riferimenti chiave.</summary>
-    public static Built Build(SolarSystem solar, bool useQuadtree, int singleMeshRes, bool useGpuSurface = false, int gpuSurfaceRes = 256)
+    public static Built Build(SolarSystem solar, bool useQuadtree, int singleMeshRes, bool useGpuSurface = false, int gpuSurfaceRes = 256, string spawnOnBody = "")
     {
         // --- Stella (corpo centrale, fisso all'origine dell'universo) ---
         var starGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -151,29 +162,42 @@ public static class SolarSystemSetup
         }
         solar.Register(planet);
 
-        // --- Corpi in orbita (data-driven): identici a meno dei parametri ---
+        // --- Corpi in orbita (data-driven). Genitore risolto per nome (lune di lune): ParentName dev'essere costruito
+        //     PRIMA nell'array. Senza ParentName → stella o pianeta-casa. Cattura il corpo su cui nascere (test). ---
+        CelestialBody spawnBody = planet; GameObject spawnGo = planetGo; PlanetTerrain spawnTerrain = terrain;
+        var byName = new Dictionary<string, CelestialBody> { { "Pianeta", planet } };
         foreach (var def in Orbiting)
-            BuildOrbitBody(def, solar, def.AroundStar ? star : planet, useQuadtree, useGpuSurface, gpuSurfaceRes);
+        {
+            CelestialBody parent = !string.IsNullOrEmpty(def.ParentName) && byName.TryGetValue(def.ParentName, out var p)
+                ? p : (def.AroundStar ? star : planet);
+            var b = BuildOrbitBody(def, solar, parent, useQuadtree, useGpuSurface, gpuSurfaceRes);
+            if (b == null) continue;
+            byName[def.Name] = b;
+            if (!string.IsNullOrEmpty(spawnOnBody) && def.Name == spawnOnBody)
+            {
+                spawnBody = b; spawnGo = b.gameObject; spawnTerrain = b.GetComponent<PlanetTerrain>();
+            }
+        }
 
-        // origine ancorata alla casa: resta a ~(0,0,0), il resto dell'universo si muove. Posiziona i corpi al tempo 0
-        // PRIMA che GameBootstrap legga la posizione del pianeta per lo spawn del giocatore.
-        solar.Anchor = planet;
-        planet.UpdatePosition(0);
+        // origine ancorata al corpo di SPAWN (la casa, o quello scelto per il test): resta a ~(0,0,0). Posiziona i
+        // corpi al tempo 0 PRIMA che GameBootstrap legga la posizione del corpo per lo spawn del giocatore.
+        solar.Anchor = spawnBody;
+        spawnBody.UpdatePosition(0);
         solar.Step();
 
         return new Built {
             Star = star, StarTransform = starGo.transform,
-            HomePlanet = planet, HomePlanetGo = planetGo, HomeTerrain = terrain,
+            HomePlanet = spawnBody, HomePlanetGo = spawnGo, HomeTerrain = spawnTerrain,
         };
     }
 
     /// <summary>Costruisce un corpo in orbita dalla sua descrizione. Walker/mappa/viaggio lo gestiscono "gratis"
     /// (leggono PlanetTerrain/CelestialBody). Se la ricetta manca, salta il corpo (il resto del gioco parte).</summary>
-    static void BuildOrbitBody(OrbitBody def, SolarSystem solar, CelestialBody parent, bool useQuadtree, bool useGpuSurface, int gpuSurfaceRes)
+    static CelestialBody BuildOrbitBody(OrbitBody def, SolarSystem solar, CelestialBody parent, bool useQuadtree, bool useGpuSurface, int gpuSurfaceRes)
     {
         var go = new GameObject(def.Name);
         var terrain = go.AddComponent<PlanetTerrain>();
-        if (!def.Apply(terrain)) { Object.Destroy(go); return; }
+        if (!def.Apply(terrain)) { Object.Destroy(go); return null; }
 
         var body = go.AddComponent<CelestialBody>();
         body.Radius = def.Radius;
@@ -188,6 +212,7 @@ public static class SolarSystemSetup
         else Debug.LogWarning($"{def.Name}: bake non riuscito, niente superficie (corpo comunque presente per gravità/mappa).");
 
         solar.Register(body);
+        return body;
     }
 
     /// <summary>Aggiunge la superficie renderizzata a un corpo roccioso: quadtree CDLOD (geometria view-dependent
