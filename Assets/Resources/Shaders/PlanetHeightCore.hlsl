@@ -94,6 +94,7 @@ RWStructuredBuffer<float> _VPos; // posizioni locali (dir*altezza)
 RWStructuredBuffer<float> _VNrm; // normali analitiche
 RWStructuredBuffer<float> _VDepth; // profondità dell'acqua per vertice (pelo − fondo, m); 0 dove asciutto. Per la resa trasparente del mare
 RWStructuredBuffer<float> _VBedNrm; // normale del FONDO sommerso (terreno senza allagamento): dà il rilievo del fondale visto attraverso l'acqua trasparente
+RWStructuredBuffer<float> _VSurf; // QUOTA del pelo del mare attivo per vertice (m). La maschera del mare nel fragment confronta length(pos) con questo valore ESATTO invece di RICOSTRUIRE il pelo dal rumore: robusto a qualunque rugosità (la ricostruzione 3-vs-4 ottave sbagliava → "dipinto") e un fbm per-pixel in meno sul mare GPU-bound
 RWStructuredBuffer<float> _VField;  // baseN per-vertice (ondulazione di BASE [0,1]): il fragment lo usa per le maschere maria/vette invece di rifare il rumore per-pixel
 
 // ---- LOD in gioco (B1 Tappa 2): una FETTA del pool per NODO del quadtree. Riusa _FaceUp/_AxisA/_AxisB +
@@ -474,11 +475,14 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
 // non è geometria: la superficie disegnata È il pelo, quindi la profondità va portata fuori esplicitamente).
 // Un cratere scavato DOPO il mare riabbassa h sotto il pelo, ma waterDepth resta quella del mare: lì la
 // maschera del mare nel fragment è 0 (h lontano dal pelo) → asciutto, la profondità non viene usata.
-float SampleHeightD(float3 unitDir, out float waterDepth)
+// seaSurf (out) = quota del pelo dell'ULTIMO mare applicato (= quello che ApplyColor passa al fragment via
+// Recipe.LastSea). 0 se la ricetta non ha mari (lì _SeaOn=0 nel fragment → la maschera è comunque 0).
+float SampleHeightD(float3 unitDir, out float waterDepth, out float seaSurf)
 {
     float n = Fbm(unitDir * _Frequency, _Octaves, _Lacunarity, _Gain, _Seed);  // [0,1]
     float h = _BaseRadius + (n - 0.5) * 2.0 * _Amplitude;
     waterDepth = 0.0;
+    seaSurf = 0.0;
 
     // processi nell'ORDINE della ricetta (un cratere dopo un mare scava all'asciutto)
     for (int pi = 0; pi < _ProcessCount; pi++)
@@ -487,13 +491,13 @@ float SampleHeightD(float3 unitDir, out float waterDepth)
         int type = (int)pr.x;
         int idx = (int)pr.y;
         if (type == 0)      h += CraterApply(_Craters[idx], unitDir, _BaseRadius);
-        else if (type == 1) { float s = SeaSurface(_Seas[idx], unitDir); waterDepth = max(0.0, s - h); h = max(h, s); }
+        else if (type == 1) { float s = SeaSurface(_Seas[idx], unitDir); seaSurf = s; waterDepth = max(0.0, s - h); h = max(h, s); }
         else                h += TectonicApply(_Tectonics[idx], unitDir);
     }
     return h;
 }
 
-float SampleHeight(float3 unitDir) { float wd; return SampleHeightD(unitDir, wd); }
+float SampleHeight(float3 unitDir) { float wd, ss; return SampleHeightD(unitDir, wd, ss); }
 
 // Quota del FONDO: la pipeline completa MA senza allagamento (il Mare non alza la quota). Crateri/tettonica
 // prima e dopo il mare contano (un cratere sommerso fa parte del fondale) → è il rilievo del terreno sotto

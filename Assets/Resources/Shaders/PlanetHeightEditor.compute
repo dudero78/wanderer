@@ -36,12 +36,13 @@ void CSFaceGrid(uint3 id : SV_DispatchThreadID)
     // NIENTE snap: lo snap a lattice terrazzava i versanti ripidi dei crateri (crepe). Le cuciture fra le
     // facce sono coperte dalla SOVRAPPOSIZIONE di una cella (vedi index buffer), non più dallo snap.
     float3 dir = ParamToDir(tx, ty);
-    float depth;
-    float3 p = dir * SampleHeightD(dir, depth);
+    float depth, surf;
+    float3 p = dir * SampleHeightD(dir, depth, surf);
     int vi = _FaceOffset + id.x + id.y * gp;
     int o = vi * 3;
     _VPos[o] = p.x; _VPos[o + 1] = p.y; _VPos[o + 2] = p.z;
     _VDepth[vi] = depth;
+    _VSurf[vi] = surf;
 }
 
 [numthreads(8, 8, 1)]

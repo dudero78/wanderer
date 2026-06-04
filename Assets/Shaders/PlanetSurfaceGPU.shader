@@ -73,6 +73,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
             StructuredBuffer<float> _VBedNrm;    // pool: normale del fondo sommerso (3 float/v)
             StructuredBuffer<float> _VDepth;     // pool: profondità acqua (1 float/v)
             StructuredBuffer<float> _VField;     // pool: baseN per-vertice (ondulazione di base, per le maschere colore)
+            StructuredBuffer<float> _VSurf;      // pool: quota del pelo del mare (1 float/v) → maschera del mare esatta, niente ricostruzione
             StructuredBuffer<uint>  _SlabOfInstance;   // istanza → indice di fetta nel pool
             uint _VertsPerSlab;                  // vertici per fetta (gp*gp)
             float4x4 _ObjectToWorld;             // pianeta locale → mondo (floating origin: aggiornata ogni frame)
@@ -87,6 +88,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 float3 bnrm : TEXCOORD3;  // normale del fondo sommerso in MONDO
                 float3 wp  : TEXCOORD4;   // posizione MONDO (per il vettore vista del glint)
                 float  baseN : TEXCOORD5; // ondulazione di base per-vertice (interpolata → niente rumore per-pixel)
+                float  seaSurf : TEXCOORD6; // quota del pelo del mare per-vertice (maschera esatta)
             };
 
             v2f vert(uint vid : SV_VertexID, uint iid : SV_InstanceID)
@@ -104,6 +106,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 o.wp   = world;
                 o.depth = _VDepth[g];
                 o.baseN = _VField[g];
+                o.seaSurf = _VSurf[g];
                 return o;
             }
 
@@ -115,7 +118,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
                     return fixed4(normalize(IN.nrm) * 0.5 + 0.5, 1);
                 if (_DebugView > 0.5)
                     return fixed4(normalize(IN.lp) * 0.5 + 0.5, 1);
-                return fixed4(PlanetShade(IN.lp, IN.wp, IN.nrm, IN.bnrm, IN.depth, IN.baseN), 1);
+                return fixed4(PlanetShade(IN.lp, IN.wp, IN.nrm, IN.bnrm, IN.depth, IN.baseN, IN.seaSurf), 1);
             }
             ENDCG
         }

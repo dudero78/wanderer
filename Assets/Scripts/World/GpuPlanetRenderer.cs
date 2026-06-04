@@ -57,7 +57,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     static readonly int ID_Step = Shader.PropertyToID("_Step");
     static readonly int ID_NSlabOff = Shader.PropertyToID("_NSlabOff");
     static readonly int ID_NSkirtDrop = Shader.PropertyToID("_NSkirtDrop");
-    GraphicsBuffer posBuf, nrmBuf, bedNrmBuf, depthBuf, fieldBuf;   // POOL: maxSlabs * vertsPerSlab
+    GraphicsBuffer posBuf, nrmBuf, bedNrmBuf, depthBuf, fieldBuf, surfBuf;   // POOL: maxSlabs * vertsPerSlab
     GraphicsBuffer idxBuf;                                // topologia di UNA fetta (interno + skirt), condivisa
     GraphicsBuffer slabOfInstance;                        // istanza visibile → indice di fetta
     GraphicsBuffer argsBuf;
@@ -139,6 +139,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         bedNrmBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
         depthBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
         fieldBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);   // baseN per-vertice
+        surfBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);    // pelo del mare per-vertice
         foreach (int k in new[] { kSlab, kSkirt })
         {
             cs.SetBuffer(k, "_VPos", posBuf);
@@ -146,6 +147,7 @@ public class GpuPlanetRenderer : MonoBehaviour
             cs.SetBuffer(k, "_VBedNrm", bedNrmBuf);
             cs.SetBuffer(k, "_VDepth", depthBuf);
             cs.SetBuffer(k, "_VField", fieldBuf);
+            cs.SetBuffer(k, "_VSurf", surfBuf);
         }
         shape = GpuShapeBuffers.Build(cs, terrain, new[] { kSlab, kSkirt });   // base+ricetta, parità col walker
         cs.SetInt("_NN", n);                 // costanti per i kernel dei fill (non più per-fill)
@@ -167,6 +169,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         mat.SetBuffer("_VBedNrm", bedNrmBuf);
         mat.SetBuffer("_VDepth", depthBuf);
         mat.SetBuffer("_VField", fieldBuf);
+        mat.SetBuffer("_VSurf", surfBuf);
         mat.SetBuffer("_SlabOfInstance", slabOfInstance);
         mat.SetInt("_VertsPerSlab", vertsPerSlab);
         mat.SetFloat("_PerVertexFields", 1f);   // in gioco: usa baseN per-vertice (fragment più economico)
@@ -561,7 +564,7 @@ public class GpuPlanetRenderer : MonoBehaviour
 
     void OnDestroy()
     {
-        posBuf?.Release(); nrmBuf?.Release(); bedNrmBuf?.Release(); depthBuf?.Release(); fieldBuf?.Release();
+        posBuf?.Release(); nrmBuf?.Release(); bedNrmBuf?.Release(); depthBuf?.Release(); fieldBuf?.Release(); surfBuf?.Release();
         idxBuf?.Release(); slabOfInstance?.Release(); argsBuf?.Release();
         shape?.Dispose();
         if (mat != null) Destroy(mat);

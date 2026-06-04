@@ -68,6 +68,7 @@ Shader "Wanderer/PlanetProcedural"
             StructuredBuffer<float> _VNrm;
             StructuredBuffer<float> _VBedNrm; // 3 float per vertice: normale del fondo sommerso (rilievo del fondale)
             StructuredBuffer<float> _VDepth; // 1 float per vertice: profondità dell'acqua (pelo − fondo)
+            StructuredBuffer<float> _VSurf;  // 1 float per vertice: quota del pelo del mare (maschera esatta, niente ricostruzione)
 
             struct v2f
             {
@@ -76,6 +77,7 @@ Shader "Wanderer/PlanetProcedural"
                 float3 lp  : TEXCOORD1;   // posizione in spazio oggetto (= mondo, pianeta all'origine)
                 float  depth : TEXCOORD2; // profondità dell'acqua al vertice, interpolata sul triangolo
                 float3 bnrm : TEXCOORD3;  // normale del fondo sommerso (rilievo del fondale)
+                float  seaSurf : TEXCOORD4; // quota del pelo del mare al vertice (maschera esatta)
             };
 
             v2f vert(uint vid : SV_VertexID)
@@ -89,6 +91,7 @@ Shader "Wanderer/PlanetProcedural"
                 o.bnrm = UnityObjectToWorldNormal(bn);
                 o.lp = p;
                 o.depth = _VDepth[vid];
+                o.seaSurf = _VSurf[vid];
                 return o;
             }
 
@@ -96,7 +99,7 @@ Shader "Wanderer/PlanetProcedural"
             // sia al vettore vista del glint). Il colore è nell'include condiviso PlanetShade.
             fixed4 frag(v2f IN) : SV_Target
             {
-                return fixed4(PlanetShade(IN.lp, IN.lp, IN.nrm, IN.bnrm, IN.depth, 0.0), 1);   // editor: _PerVertexFields=0 → baseN per-pixel, lo 0.0 è ignorato
+                return fixed4(PlanetShade(IN.lp, IN.lp, IN.nrm, IN.bnrm, IN.depth, 0.0, IN.seaSurf), 1);   // editor: _PerVertexFields=0 → baseN per-pixel, lo 0.0 è ignorato
             }
             ENDCG
         }

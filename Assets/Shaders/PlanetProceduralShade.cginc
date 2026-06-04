@@ -39,21 +39,18 @@ float SeaShape(float c, float forma)
 // nrmW   = normale del pelo in spazio MONDO (per la luce). bnrmW = normale del fondo sommerso (mondo).
 // depth  = profondità dell'acqua al vertice (pelo − fondo), interpolata; 0 dove asciutto.
 // baseNField = ondulazione di base [0,1] PRE-CALCOLATA per-vertice (usata solo se _PerVertexFields>0.5).
-float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float depth, float baseNField)
+// seaSurfField = QUOTA del pelo del mare attivo, PRE-CALCOLATA per-vertice dal compute (= SeaSurface esatta).
+float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float depth, float baseNField, float seaSurfField)
 {
     float3 P = Pobj;
     float h = max(length(P), 1e-4);
     float3 sdir = P / h;        // direzione radiale (spazio oggetto) per i campi di colore
 
-    // MARE: ricostruisco il pelo (eventualmente rugoso) come SeaTerrainLayer → tingo dove h È quel pelo
-    // (i crateri scavati DOPO il mare restano sotto e asciutti). Stesso n3_fbm della geometria.
-    float seaSurf = _SeaLevel;
-    if (_SeaRough > 0.0)
-    {
-        // 3 ottave bastano per la TINTA del pelo (basso costo per-pixel; era 4). La geometria del pelo è nel compute.
-        float cc = (n3_fbm(sdir * _SeaRoughScale, 3, 2.0, 0.5, (int)_SeaSeed) - 0.5) * 2.0;
-        seaSurf += SeaShape(cc, _SeaForma) * _SeaRough;
-    }
+    // MARE: il pelo arriva ESATTO per-vertice dal compute (= SeaSurface della geometria allagata). Tingo dove la
+    // quota h coincide col pelo; un cratere scavato DOPO il mare abbassa h sotto il pelo → asciutto, niente acqua.
+    // Niente più ricostruzione del rumore nel fragment: la 3-vs-4 ottave sbagliava ad alta rugosità (acqua "dipinta")
+    // e costava un fbm per-pixel sul mare GPU-bound. La banda 2..4 m dà il bordo (pelo netto + battigia anti-alias).
+    float seaSurf = seaSurfField;
     float seaMask = (_SeaOn > 0.5) ? (1.0 - smoothstep(2.0, 4.0, abs(h - seaSurf))) : 0.0;
 
     // suolo: colore base × variazione MACRO a bassa frequenza (campo dunale) — procedurale, niente texture

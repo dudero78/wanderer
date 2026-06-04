@@ -30,8 +30,14 @@ Dettaglio tecnico nel `CLAUDE.md`.
 >   DINAMICA** (`RenderScaler` adattivo). **`Cull Back` ROTTO** (skirt a doppia faccia → buchi; serve 2:1/depth-prepass).
 > - **ARCHITETTURA:** estratto **`PlayerSpawn`** (spawn isolato) + **`spawnOnBody`** (default "Valentina2", test rapido).
 >   GameBootstrap ora è regìa. **Da estrarre ancora:** LightingSetup (sole+ambient+eclissi) e UiSetup (mappa+rotta+orbite+HUD+impostazioni).
-> - **PROSSIMO (da fresco):** mare strutturale = **pelo per-vertice** (il compute calcola già `SeaSurface` 4 oct → emetterlo
->   come il `baseN`, parità ok) + normali-dai-vicini per il fill. Poi batch debuggato se la CPU torna collo. Poi look/Fase 2.
+> - ✅ **MARE STRUTTURALE = pelo per-vertice (FATTO).** Il compute emette la quota del pelo `SeaSurface` per-vertice
+>   (`_VSurf`, come `depth`/`baseN`); il fragment costruisce la maschera del mare da `abs(length(pos) − seaSurf)`
+>   ESATTO, niente più ricostruzione del rumore. Quella ricostruzione (3-vs-4 ottave) sbagliava ad alta rugosità →
+>   acqua "dipinta" a chiazze. Ora: pelo netto, trasparenza/fondale affidabili, glint dove serve — e un `fbm`
+>   per-pixel in meno sul mare GPU-bound. Editor e gioco condividono il dato (niente divergenza). **NB resa acqua:** a
+>   rugosità alta (es. terra-test3 ~17 m) il pelo È geometricamente ondulato di ±17 m → legge come colline blu; per un
+>   mare calmo abbassare `seaRoughness` nell'editor. Increspatura animata (normal-map sul pelo piatto) = polish futuro.
+> - **PROSSIMO (da fresco):** batch dei fill in 1 dispatch CON banco di verifica (R1). Poi look/Fase 2.
 
 ## Fatto (milestone)
 

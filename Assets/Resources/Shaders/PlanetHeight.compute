@@ -9,12 +9,13 @@ void CSNodeSlab(uint3 id : SV_DispatchThreadID)
     float tx = _U0 + (int)id.x * _Step;
     float ty = _V0 + (int)id.y * _Step;
     float3 dir = ParamToDir(tx, ty);
-    float depth;
-    float3 p = dir * SampleHeightD(dir, depth);
+    float depth, surf;
+    float3 p = dir * SampleHeightD(dir, depth, surf);
     int vi = _NSlabOff + (int)id.x + (int)id.y * _NN;
     int o = vi * 3;
     _VPos[o] = p.x; _VPos[o + 1] = p.y; _VPos[o + 2] = p.z;
     _VDepth[vi] = depth;
+    _VSurf[vi] = surf;
     // baseN per-vertice: STESSA formula del fragment (Fbm ≡ n3_fbm, parità verificata) → il fragment non rifà
     // il rumore gradiente per ogni pixel, lo legge interpolato. 2 ottave = solo il trend per le maschere maria/vette.
     _VField[vi] = Fbm(dir * _Frequency, 2, _Lacunarity, _Gain, _Seed);
@@ -56,7 +57,8 @@ void CSNodeSkirt(uint3 id : SV_DispatchThreadID)
     float tx = _U0 + i * _Step;
     float ty = _V0 + j * _Step;
     float3 dir = ParamToDir(tx, ty);
-    float3 p = dir * SampleHeight(dir);
+    float depth, surf;
+    float3 p = dir * SampleHeightD(dir, depth, surf);
     float3 sp = p - dir * _NSkirtDrop;     // abbassa lungo il radiale
     int vi = _NSlabOff + _NSkirtStart + k;
     int o = vi * 3;
@@ -64,5 +66,6 @@ void CSNodeSkirt(uint3 id : SV_DispatchThreadID)
     _VNrm[o] = dir.x; _VNrm[o + 1] = dir.y; _VNrm[o + 2] = dir.z;       // radiale → si illumina come terreno piatto
     _VBedNrm[o] = dir.x; _VBedNrm[o + 1] = dir.y; _VBedNrm[o + 2] = dir.z;
     _VDepth[vi] = 0.0;
+    _VSurf[vi] = surf;     // pelo continuo col bordo interno; lo skirt è abbassato (sp sotto il pelo) → la maschera lo legge asciutto
     _VField[vi] = Fbm(dir * _Frequency, 2, _Lacunarity, _Gain, _Seed);   // baseN per-vertice (come l'interno)
 }
