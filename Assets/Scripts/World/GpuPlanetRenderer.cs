@@ -647,9 +647,11 @@ public class GpuPlanetRenderer : MonoBehaviour
     {
         if (!Ready) return;
         if (SuppressDraw) return;   // mappa aperta: niente disegno della superficie GPU
-        // Dopo un domain reload in Play i GraphicsBuffer (non serializzabili) tornano null mentre Ready resta:
-        // non disegnare finché non sono validi.
-        if (mat == null || posBuf == null || !posBuf.IsValid() || idxBuf == null || !idxBuf.IsValid() || argsBuf == null) return;
+        // Dopo un domain reload in Play (es. una mia modifica ricompilata MENTRE sei in Play) gli stati statici si
+        // azzerano (sRefCount→0, pool perso) e i binding del compute si invalidano, ma Ready resta dal backup →
+        // senza guardia i fill dispatcherebbero con buffer non legati ("_Craters non impostato at kernel 2/3"). Skip
+        // finché non si rifà il Setup (ri-Play / ricrea scena). DEV-ONLY: in una build non c'è domain reload.
+        if (sRefCount == 0 || mat == null || posBuf == null || !posBuf.IsValid() || idxBuf == null || !idxBuf.IsValid() || argsBuf == null) return;
         if (cam == null) { var c = Camera.main; if (c == null) return; cam = c.transform; }
 
         Matrix4x4 m = planetTf.localToWorldMatrix;
