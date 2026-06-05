@@ -110,4 +110,15 @@ public class SingleMeshPlanet : MonoBehaviour
         }
         if (allDone) faces = null;   // tutto applicato: smetti di pollare
     }
+
+    void OnDestroy()
+    {
+        // Le 6 Mesh di faccia NON vengono distrutte da sole quando il corpo sparisce: Unity libera gli
+        // oggetti-faccia (sono figli del transform) ma NON le Mesh assegnate a sharedMesh. Senza questo,
+        // ogni corpo/proxy distrutto (es. i proxy della mappa, ricreati spesso) lascia 6 Mesh in memoria.
+        if (filters == null) return;
+        for (int f = 0; f < filters.Length; f++)
+            if (filters[f] != null && filters[f].sharedMesh != null)
+                Destroy(filters[f].sharedMesh);
+    }
 }

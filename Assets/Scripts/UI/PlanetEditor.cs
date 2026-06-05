@@ -255,23 +255,10 @@ public class PlanetEditor : MonoBehaviour
         {
             var m = r != null ? r.sharedMaterial : null;
             if (m == null) continue;
-            m.SetColor("_SoilMean", recipe.soilMean);
-            m.SetColor("_MariaColor", recipe.mariaColor);
-            m.SetFloat("_MariaScale", recipe.mariaScale);
-            m.SetFloat("_MariaStr", recipe.mariaStrength);
-            m.SetFloat("_SeaOn", sea != null ? 1f : 0f);
-            if (sea != null)
-            {
-                m.SetFloat("_SeaLevel", recipe.baseRadius + sea.seaLevel);
-                m.SetColor("_SeaColor", sea.seaColor);
-                m.SetFloat("_SeaSat", sea.seaSaturation);
-                m.SetFloat("_SeaRough", sea.seaRoughness);
-                m.SetFloat("_SeaRoughScale", sea.seaRoughScale);
-                m.SetFloat("_SeaForma", sea.seaForma);
-                m.SetFloat("_SeaSeed", sea.seed);
-                m.SetFloat("_SeaLiquid", sea.liquid ? 1f : 0f);
-            }
-            m.SetFloat("_Saturation", recipe.saturation);
+            // COLORE/MARE dalla ricetta (fonte unica: PlanetRecipeUniforms). Anteprima CPU dell'editor
+            // (shader PlanetBaked): liquido sì, trasparenza no (la profondità per-vertice è solo sul path GPU).
+            PlanetRecipeUniforms.ApplyColor(m, recipe);
+            PlanetRecipeUniforms.ApplySea(m, recipe, sea, liquid: true, transparency: false);
             if (st != null) m.SetTexture("_SoilSand", st);
         }
     }

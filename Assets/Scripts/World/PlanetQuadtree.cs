@@ -152,7 +152,22 @@ public class PlanetQuadtree : MonoBehaviour
     public bool CanQueueBuild() => buildQueue.Count < maxQueued;
     public void EnqueueBuild(QuadNode n) { buildQueue.Enqueue(n); }
 
-    void OnDestroy() { Baker?.Dispose(); }
+    void OnDestroy()
+    {
+        Baker?.Dispose();
+        // Libera Mesh + GameObject di TUTTI i nodi vivi (sotto le radici) e di quelli in cache. La Dispose()
+        // del nodo li distrugge ricorsivamente; è idempotente (null-guard), quindi un nodo presente sia nel
+        // sotto-albero sia in cache si libera senza danni. Senza questo, distruggere il pianeta lasciava in
+        // memoria tutte le Mesh dei nodi del quadtree.
+        if (roots != null)
+            for (int f = 0; f < roots.Length; f++)
+                roots[f]?.Dispose();
+        if (cache != null)
+        {
+            foreach (var kv in cache) kv.Value?.Dispose();
+            cache.Clear();
+        }
+    }
 
     void Update()
     {

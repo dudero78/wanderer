@@ -89,26 +89,10 @@ public static class PlanetBaker
         var rec = terrain.Recipe;
         if (rec != null)
         {
-            mat.SetColor("_SoilMean", rec.soilMean);
-            mat.SetColor("_MariaColor", rec.mariaColor);
-            mat.SetFloat("_MariaScale", rec.mariaScale);
-            mat.SetFloat("_MariaStr", rec.mariaStrength);
-            // MARE geometrico: il pelo dell'acqua (ultimo mare attivo) è a raggio assoluto; lo shader tinge
-            // i punti a quel livello (la mesh li ha già allagati via SeaTerrainLayer).
-            var sea = rec.LastSea();
-            if (sea != null)
-            {
-                mat.SetFloat("_SeaOn", 1f);
-                mat.SetFloat("_SeaLevel", rec.baseRadius + sea.seaLevel);
-                mat.SetColor("_SeaColor", sea.seaColor);
-                mat.SetFloat("_SeaSat", sea.seaSaturation);
-                mat.SetFloat("_SeaRough", sea.seaRoughness);
-                mat.SetFloat("_SeaRoughScale", sea.seaRoughScale);
-                mat.SetFloat("_SeaForma", sea.seaForma);
-                mat.SetFloat("_SeaSeed", sea.seed);
-            }
-            else mat.SetFloat("_SeaOn", 0f);
-            mat.SetFloat("_Saturation", rec.saturation);
+            // COLORE/MARE dalla ricetta (fonte unica: PlanetRecipeUniforms). Bake CPU = shader PlanetBaked,
+            // opaco e senza profondità per-vertice → niente liquido né trasparenza (il pelo è solo tinta piatta).
+            PlanetRecipeUniforms.ApplyColor(mat, rec);
+            PlanetRecipeUniforms.ApplySea(mat, rec, rec.LastSea(), liquid: false, transparency: false);
         }
         if (maskTex != null) mat.SetTexture("_MaskMap", maskTex);
         if (detailTex != null) mat.SetTexture("_DetailNormal", detailTex);

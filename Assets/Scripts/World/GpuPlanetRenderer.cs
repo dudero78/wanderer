@@ -157,6 +157,13 @@ public class GpuPlanetRenderer : MonoBehaviour
         surfBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);    // pelo del mare per-vertice
         jobsBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 5 * 16); // NodeJob = 5×float4
         jobScratch = new NodeJob[maxSlabs];
+
+        // VRAM del pool, resa VISIBILE (era un costo nascosto): è maxSlabs × vertsPerSlab × 48 byte/vertice
+        // (pos+nrm+bedNrm = 3 float ciascuno, depth+field+surf = 1 ciascuno). Cresce col QUADRATO di nodeRes.
+        // È la leva grossa sulla memoria video: a nodeRes=128 un corpo occupa ~843 MB, ×6 corpi ≈ 5 GB allocati
+        // GIÀ alla costruzione della scena. Il fix strutturale (pool condiviso fra i corpi) è in NOTES_pool_vram.md.
+        long poolBytes = (long)maxSlabs * vertsPerSlab * 48L;
+        Debug.Log($"[GpuPlanet {terrain.name}] pool VRAM ~{poolBytes / (1024 * 1024)} MB (nodeRes={nodeRes}, maxSlabs={maxSlabs}, vertsPerSlab={vertsPerSlab})");
         // i 4 kernel (per-nodo + batch) scrivono lo STESSO pool; i batch leggono anche _Jobs
         foreach (int k in new[] { kSlab, kSkirt, kSlabBatch, kSkirtBatch })
         {
@@ -213,8 +220,55 @@ public class GpuPlanetRenderer : MonoBehaviour
             if (!batchReady) Debug.LogWarning($"{terrain.name}: batch fill NON attivato (parità fallita) → resto sul per-nodo.");
         }
 
+        VerifyParityRuntime();   // #9: gate non bloccante CPU↔GPU (un readback dei root, una volta sola)
         ApplyColor();
         Ready = true;
+    }
+
+    /// <summary>GATE DI PARITÀ a runtime (#9): all'avvio del corpo confronta la geometria che il renderer ha
+    /// DAVVERO prodotto sulla GPU (i 6 root, già riempiti in posBuf) con SampleHeight della CPU sulle stesse
+    /// direzioni. È la verifica più diretta possibile della rete CPU↔GPU: la mesh la fa la GPU
+    /// (PlanetHeightCore.hlsl), la collisione del walker la fa la CPU (PlanetTerrain.SampleHeight). Se un domani
+    /// una divergenza HLSL↔C# si insinua, il giocatore "fluttuerebbe/sprofonderebbe"; il test di parità del menu
+    /// è OFFLINE e manuale, questo invece scatta a OGNI avvio. Non bloccante: solo un LogError, un readback per corpo.</summary>
+    void VerifyParityRuntime()
+    {
+        try
+        {
+            if (posBuf == null || !posBuf.IsValid() || terrain == null || roots == null) return;
+            int interior = n * n;
+            var data = new float[interior * 3];
+            int step = Mathf.Max(1, nodeRes / 8);   // ~8×8 campioni per faccia: copertura ampia, costo trascurabile
+            float invRes = 1f / nodeRes;
+            float maxDiff = 0f; int worstFace = -1; long samples = 0;
+            foreach (var r in roots)
+            {
+                if (r == null || r.slab < 0) continue;
+                posBuf.GetData(data, 0, r.slab * vertsPerSlab * 3, interior * 3);   // solo l'interno (niente skirt)
+                for (int j = 0; j <= nodeRes; j += step)
+                    for (int i = 0; i <= nodeRes; i += step)
+                    {
+                        int vi = i + j * n;
+                        float gx = data[vi * 3], gy = data[vi * 3 + 1], gz = data[vi * 3 + 2];
+                        float gpuH = Mathf.Sqrt(gx * gx + gy * gy + gz * gz);     // |pos| = altezza radiale (GPU)
+                        Vector3 dir = PlanetMeshBuilder.ParamToDir(r.up, r.axisA, r.axisB, i * invRes, j * invRes);
+                        float cpuH = terrain.SampleHeight(dir);                   // stessa direzione, altezza CPU
+                        float d = Mathf.Abs(gpuH - cpuH);
+                        if (d > maxDiff) { maxDiff = d; worstFace = r.face; }
+                        samples++;
+                    }
+            }
+            if (maxDiff > 0.5f)
+                Debug.LogError($"[parità GPU↔CPU] {terrain.name}: DIVERGE di {maxDiff:F3} m (faccia {worstFace}, {samples} campioni) → " +
+                               "la mesh GPU e la collisione CPU (SampleHeight) non combaciano: il giocatore fluttuerà o sprofonderà. " +
+                               "Controlla PlanetHeightCore.hlsl rispetto ai TerrainLayer C#.");
+            else
+                Debug.Log($"[parità GPU↔CPU] {terrain.name}: OK (max diff {maxDiff:F4} m su {samples} campioni).");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning($"[parità GPU↔CPU] {(terrain != null ? terrain.name : "?")}: verifica saltata ({e.GetType().Name}).");
+        }
     }
 
     Node MakeNode(int face, float u0, float v0, float size, int depth)
@@ -625,27 +679,9 @@ public class GpuPlanetRenderer : MonoBehaviour
         mat.SetInt("_Seed", rec != null ? rec.seed : terrain.Seed);
         if (rec != null)
         {
-            mat.SetColor("_SoilMean", rec.soilMean);
-            mat.SetColor("_MariaColor", rec.mariaColor);
-            mat.SetFloat("_MariaScale", rec.mariaScale);
-            mat.SetFloat("_MariaStr", rec.mariaStrength);
-            mat.SetFloat("_Saturation", rec.saturation);
-            var sea = rec.LastSea();
-            if (sea != null)
-            {
-                mat.SetFloat("_SeaOn", 1f);
-                mat.SetFloat("_SeaLevel", rec.baseRadius + sea.seaLevel);
-                mat.SetColor("_SeaColor", sea.seaColor);
-                mat.SetFloat("_SeaSat", sea.seaSaturation);
-                mat.SetFloat("_SeaRough", sea.seaRoughness);
-                mat.SetFloat("_SeaRoughScale", sea.seaRoughScale);
-                mat.SetFloat("_SeaForma", sea.seaForma);
-                mat.SetFloat("_SeaSeed", sea.seed);
-                mat.SetFloat("_SeaLiquid", sea.liquid ? 1f : 0f);
-                mat.SetFloat("_SeaClear", sea.seaClear ? 1f : 0f);
-                mat.SetFloat("_SeaClarity", sea.seaClarity);
-            }
-            else mat.SetFloat("_SeaOn", 0f);
+            // COLORE/MARE dalla ricetta (fonte unica: PlanetRecipeUniforms). Resa GPU in gioco = liquido + trasparenza.
+            PlanetRecipeUniforms.ApplyColor(mat, rec);
+            PlanetRecipeUniforms.ApplySea(mat, rec, rec.LastSea(), liquid: true, transparency: true);
         }
     }
 

@@ -189,27 +189,9 @@ public class GpuPlanetSurface : MonoBehaviour
         mat.SetInt("_Seed", rec != null ? rec.seed : terrain.Seed);
         if (rec != null)
         {
-            mat.SetColor("_SoilMean", rec.soilMean);
-            mat.SetColor("_MariaColor", rec.mariaColor);
-            mat.SetFloat("_MariaScale", rec.mariaScale);
-            mat.SetFloat("_MariaStr", rec.mariaStrength);
-            mat.SetFloat("_Saturation", rec.saturation);
-            var sea = rec.LastSea();   // ultimo mare attivo = il pelo finale (come PlanetBaker)
-            if (sea != null)
-            {
-                mat.SetFloat("_SeaOn", 1f);
-                mat.SetFloat("_SeaLevel", rec.baseRadius + sea.seaLevel);
-                mat.SetColor("_SeaColor", sea.seaColor);
-                mat.SetFloat("_SeaSat", sea.seaSaturation);
-                mat.SetFloat("_SeaRough", sea.seaRoughness);
-                mat.SetFloat("_SeaRoughScale", sea.seaRoughScale);
-                mat.SetFloat("_SeaForma", sea.seaForma);
-                mat.SetFloat("_SeaSeed", sea.seed);
-                mat.SetFloat("_SeaLiquid", sea.liquid ? 1f : 0f);
-                mat.SetFloat("_SeaClear", sea.seaClear ? 1f : 0f);
-                mat.SetFloat("_SeaClarity", sea.seaClarity);
-            }
-            else mat.SetFloat("_SeaOn", 0f);
+            // COLORE/MARE dalla ricetta (fonte unica: PlanetRecipeUniforms). Anteprima GPU = liquido + trasparenza.
+            PlanetRecipeUniforms.ApplyColor(mat, rec);
+            PlanetRecipeUniforms.ApplySea(mat, rec, rec.LastSea(), liquid: true, transparency: true);
         }
     }
 
