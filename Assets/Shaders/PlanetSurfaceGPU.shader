@@ -149,6 +149,12 @@ Shader "Wanderer/PlanetSurfaceGPU"
                     float splitDist = _SplitDistOfInstance[iid];
                     if (splitDist > 0.0)
                     {
+                        // CLAMP di sicurezza: lo spostamento di morph non può superare la SCALA del nodo (splitDist).
+                        // Sul morph normale delta è piccolissimo (curvatura locale ≪ splitDist) → nessun effetto; ma
+                        // se per qualunque ragione un vicino fosse anomalo, il vertice NON può schizzare via e
+                        // ribaltare il triangolo in uno spuntone. Rete di sicurezza, non cambia la transizione liscia.
+                        float dl = length(delta);
+                        if (dl > splitDist) delta *= splitDist / dl;
                         float3 w0 = mul(_ObjectToWorld, float4(p, 1.0)).xyz;
                         float d = distance(w0, _CamPosWorld);
                         float mf = saturate((d - splitDist * (1.0 - _MorphRange)) / (splitDist * _MorphRange));
