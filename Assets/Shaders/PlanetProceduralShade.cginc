@@ -144,8 +144,16 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
         float seaTrans = 0.0;
         if (_SeaClear > 0.5)
         {
-            seaTrans = pow(exp(-max(depth, 0.0) / max(_SeaClarity, 0.05)), 0.6);
-            float3 bedThroughWater = alb * min(_SeaColor.rgb * 1.6, 1.1);
+            // TRASPARENZA ripensata (bug #2): (a) a limpidezza MAX il fondo si vede a QUALUNQUE profondità — il
+            // Beer-Lambert puro non ci arriva mai (exp→0 sul profondo), quindi sfumo verso 1 vicino al massimo dello
+            // slider; (b) la TINTA di trasmissione è separata dalla LUMINOSITÀ e tende al BIANCO alzando la limpidezza
+            // → il fondo emerge col SUO colore, MAI più scuro (basta lo "scurimento al contrario" col mare scuro/saturo).
+            float clarityN = saturate(_SeaClarity / 150.0);                 // 0..1 sul range dello slider (150 = cristallina)
+            float bl = exp(-max(depth, 0.0) / max(_SeaClarity, 0.05));      // assorbimento con la profondità (acqua torbida)
+            float crystal = smoothstep(0.7, 1.0, clarityN);                 // vicino al MAX: acqua cristallina
+            seaTrans = lerp(pow(bl, 0.6), 1.0, crystal);                    // → 1 a limpidezza max: tutti i fondali visibili
+            float3 transTint = lerp(min(_SeaColor.rgb * 1.6, 1.1), float3(1.0, 1.0, 1.0), crystal);
+            float3 bedThroughWater = alb * transTint;
             waterCol = lerp(waterCol, bedThroughWater, seaTrans);
         }
 
