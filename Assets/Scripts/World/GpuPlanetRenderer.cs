@@ -45,7 +45,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     // STATICI (impostati da GameBootstrap). InteriorCull 2=Back; se l'INTERNO sparisce accendendolo, il verso è
     // invertito → mettilo a 1 (Front). Dimezza l'ombreggiatura per-pixel del terreno (niente retro-facce).
     public static bool CullSplit = true;
-    public static int InteriorCull = 2;
+    public static int InteriorCull = 1;   // 1=Front: il verso dell'interno è Front-facing (Cull Back ribaltava tutto). Verificato in gioco
 
     /// <summary>DIAGNOSI: 0 = resa normale · 1 = posizione radiale (fragment banale) · 2 = normale di mondo.</summary>
     public int debugMode = 0;
@@ -170,7 +170,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         // ~1.8× la memoria per fetta con un calo di dettaglio modesto (il quadtree si suddivide comunque per
         // distanza). È un DIAL: 128 = dettaglio pieno/più VRAM, 64 = ~4× meno VRAM/più grossolano. Cap, non default,
         // così vale qualunque gpuSurfaceRes serializzato in scena. (Editor preview = altra classe, non toccata.)
-        nodeRes = Mathf.Clamp(res, 4, 96);
+        nodeRes = Mathf.Clamp(res, 4, 96) & ~1;   // PARI obbligatorio: il geomorph/skirt assumono bordi pari; dispari → letture fuori-griglia = spuntoni
         n = nodeRes + 1;
         skirtStart = n * n;
         vertsPerSlab = n * n + 4 * nodeRes;

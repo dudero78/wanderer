@@ -33,7 +33,7 @@ public class GameBootstrap : MonoBehaviour
     [Tooltip("OVERDRAW: interno Cull Back + skirt Cull Off in 2 draw (due materiali) → dimezza l'ombreggiatura "
            + "per-pixel del terreno. Se l'INTERNO del pianeta SPARISCE accendendolo, metti interiorCull=1 (Front).")]
     public bool useCullSplit = true;
-    public int interiorCull = 2;   // 2=Back, 1=Front
+    public int interiorCull = 1;   // 1=Front (verificato: l'interno è Front-facing; con 2/Back le geometrie si ribaltano)
 
     [Tooltip("DEBUG/test: nasci su questo corpo invece che sul pianeta-casa (es. \"terra-test3\"). Vuoto = pianeta-casa.")]
     public string spawnOnBody = "terra-test3";
