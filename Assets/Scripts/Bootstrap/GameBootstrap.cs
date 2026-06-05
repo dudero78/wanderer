@@ -26,11 +26,6 @@ public class GameBootstrap : MonoBehaviour
            + "ripiega da solo sul path per-nodo. Parità confermata (max diff 0) → ON di default.")]
     public bool useBatchFill = true;
 
-    [Tooltip("OVERDRAW: disegna l'interno con Cull Back (metà fragment) + skirt con Cull Off, in 2 draw. Da PROVARE: "
-           + "se accendendolo l'interno SPARISCE, il verso del cull è invertito → metti interiorCull=1.")]
-    public bool useCullSplit = true;   // ON di default (testato: interno Cull Back, skirt Cull Off → metà overdraw)
-    public int interiorCull = 2;   // 2=Back, 1=Front (se l'interno sparisce con useCullSplit ON)
-
     [Tooltip("GEOMORPH: transizioni LOD lisce nel vertex shader. SPEGNILO per A/B se vedi artefatti di geometria "
            + "(blob 'sciolti' / spuntoni) sui crateri densi a bassa quota.")]
     public bool useGeomorph = true;
@@ -63,8 +58,6 @@ public class GameBootstrap : MonoBehaviour
         // --- COMPOSIZIONE della scena, ogni pezzo ISOLATO nel suo file (niente "minestrone" qui): sistema solare →
         //     spawn del giocatore → illuminazione → interfaccia. Aggiungere/cambiare un pezzo = nel suo Setup, non qui. ---
         GpuPlanetRenderer.UseBatchFill = useBatchFill;   // PRIMA della Build: la verifica gira nel Setup di ogni corpo
-        GpuPlanetRenderer.CullSplit = useCullSplit;      // overdraw: interno Cull Back + skirt Cull Off (toggle da provare)
-        GpuPlanetRenderer.InteriorCull = interiorCull;
         GpuPlanetRenderer.UseGeomorph = useGeomorph;     // A/B per isolare gli artefatti di geometria
         var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody);
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);

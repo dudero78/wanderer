@@ -41,11 +41,6 @@ public class GpuPlanetRenderer : MonoBehaviour
                                          // (verso cui voli) → il dettaglio è pronto PRIMA di arrivarci (niente "carica tardi")
     public static bool UseGeomorph = true;   // GEOMORPH CDLOD nel vertex shader: transizioni LOD lisce. Statico (da GameBootstrap), toggle A/B
     public float morphRange = 0.5f;      // ampiezza della banda di morph (frazione di splitDist): 0.1 stretta, 0.9 larga
-    // OVERDRAW: disegna l'interno con Cull Back (metà fragment) + le skirt con Cull Off, in 2 draw. STATICI
-    // (impostati da GameBootstrap, come UseBatchFill). InteriorCull 2=Back; se l'interno SPARISCE accendendolo,
-    // il verso è invertito → mettilo a 1 (Front). Default OFF = comportamento attuale invariato.
-    public static bool CullSplit;
-    public static int InteriorCull = 2;
 
     /// <summary>DIAGNOSI: 0 = resa normale · 1 = posizione radiale (fragment banale) · 2 = normale di mondo.</summary>
     public int debugMode = 0;
@@ -54,7 +49,6 @@ public class GpuPlanetRenderer : MonoBehaviour
     int vertsPerSlab;  // n*n + 4*nodeRes (interno + skirt)
     int skirtStart;    // n*n
     int indexCountPerSlab;
-    int interiorIndexCount;   // indici dei tris INTERNI (primi nodeRes²·6): il resto dell'index buffer è skirt
     float radius;
 
     ComputeShader cs;
@@ -77,9 +71,6 @@ public class GpuPlanetRenderer : MonoBehaviour
     GraphicsBuffer splitDistOfInstance;                   // geomorph: splitDist (worldSize·lodFactor) per istanza, parallelo a slabOfInstance
     GraphicsBuffer argsBuf;
     GraphicsBuffer.IndirectDrawIndexedArgs[] argsData = new GraphicsBuffer.IndirectDrawIndexedArgs[1];
-    GraphicsBuffer argsSkirtBuf;   // secondo draw (solo skirt) quando cullSplit è ON
-    GraphicsBuffer.IndirectDrawIndexedArgs[] argsSkirtData = new GraphicsBuffer.IndirectDrawIndexedArgs[1];
-    MaterialPropertyBlock mpbInterior, mpbSkirt;   // guidano _Cull per-draw (interno Back / skirt Off) senza duplicare il materiale
     GpuShapeBuffers shape;
     Material mat;
     Transform planetTf;
@@ -220,9 +211,6 @@ public class GpuPlanetRenderer : MonoBehaviour
         slabOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         splitDistOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         argsBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
-        argsSkirtBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
-        mpbInterior = new MaterialPropertyBlock();
-        mpbSkirt = new MaterialPropertyBlock();
 
         mat = new Material(sh);
         mat.SetBuffer("_VPos", posBuf);
@@ -715,37 +703,17 @@ public class GpuPlanetRenderer : MonoBehaviour
         splitDistOfInstance.SetData(splitScratch, 0, 0, visibleCount);   // geomorph: parallelo a slabOfInstance
 
         var worldBounds = new Bounds(planetCenter, Vector3.one * (radius * 5f));
-        if (CullSplit)
-        {
-            // DUE draw: INTERNO (Cull Back, primi interiorIndexCount indici → metà overdraw del fragment) + SKIRT
-            // (Cull Off, il resto dell'index buffer). Il _Cull per-draw lo guida un MaterialPropertyBlock, così il
-            // materiale (con tutti i suoi buffer/uniform) resta UNO solo.
-            argsData[0].indexCountPerInstance = (uint)interiorIndexCount;
-            argsData[0].instanceCount = (uint)visibleCount;
-            argsData[0].startIndex = 0;
-            argsBuf.SetData(argsData);
-            argsSkirtData[0].indexCountPerInstance = (uint)(indexCountPerSlab - interiorIndexCount);
-            argsSkirtData[0].instanceCount = (uint)visibleCount;
-            argsSkirtData[0].startIndex = (uint)interiorIndexCount;
-            argsSkirtBuf.SetData(argsSkirtData);
-
-            mpbInterior.SetInt("_Cull", InteriorCull);
-            mpbSkirt.SetInt("_Cull", 0);
-            var rpI = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false, matProps = mpbInterior };
-            var rpS = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false, matProps = mpbSkirt };
-            Graphics.RenderPrimitivesIndexedIndirect(rpI, MeshTopology.Triangles, idxBuf, argsBuf, 1);
-            Graphics.RenderPrimitivesIndexedIndirect(rpS, MeshTopology.Triangles, idxBuf, argsSkirtBuf, 1);
-        }
-        else
-        {
-            // UN draw, tutto l'index buffer, Cull Off (default _Cull=0 del materiale) → comportamento attuale invariato
-            argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
-            argsData[0].instanceCount = (uint)visibleCount;
-            argsData[0].startIndex = 0;
-            argsBuf.SetData(argsData);
-            var rp = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
-            Graphics.RenderPrimitivesIndexedIndirect(rp, MeshTopology.Triangles, idxBuf, argsBuf, 1);
-        }
+        // UN draw, tutto l'index buffer, Cull Off. (Il cull-split interno-Back/skirt-Off via MaterialPropertyBlock è
+        // stato RIMOSSO: verificato con interiorCull=1 che il MPB NON guida lo stato fisso Cull in built-in → era un
+        // no-op. La superficie interna ha verso coerente, ma le skirt vogliono Cull Off → serve un Cull diverso per i
+        // due, impossibile in un draw col MPB. L'overdraw si dimezzerà con un depth pre-pass o il quadtree 2:1, quando
+        // la GPU sarà davvero carica — niente trucco a due materiali da mantenere.)
+        argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
+        argsData[0].instanceCount = (uint)visibleCount;
+        argsData[0].startIndex = 0;
+        argsBuf.SetData(argsData);
+        var rp = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
+        Graphics.RenderPrimitivesIndexedIndirect(rp, MeshTopology.Triangles, idxBuf, argsBuf, 1);
 
         // diagnosi: logga SOLO i frame "pesanti" (il mio lavoro CPU ≥ 4 ms) con quante patch ha generato.
         // Se vedi spesso fills alti o ms alti = è il LOD (CPU). Se i frame scattano ma qui i ms sono bassi = è la GPU.
@@ -774,7 +742,6 @@ public class GpuPlanetRenderer : MonoBehaviour
                 idx.Add(i00); idx.Add(i01); idx.Add(i11);
                 idx.Add(i00); idx.Add(i11); idx.Add(i10);
             }
-        interiorIndexCount = idx.Count;   // tutto ciò che precede le skirt = i tris INTERNI (per il draw separato con Cull Back)
         // skirt: collega ogni vertice di bordo al suo vertice di skirt abbassato
         for (int k = 0; k < per; k++)
         {
@@ -881,7 +848,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         ReturnMySlabs();   // streaming-safe: rendi le fette di questo corpo PRIMA di mollare il riferimento al pool
         ReleasePool();   // i 6 buffer geometria sono CONDIVISI e refcountati: liberati solo quando muore l'ultimo corpo
         jobsBuf?.Release();
-        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); argsBuf?.Release(); argsSkirtBuf?.Release();
+        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); argsBuf?.Release();
         shape?.Dispose();
         if (mat != null) Destroy(mat);
         if (cs != null) Destroy(cs);   // l'istanza propria del compute
