@@ -437,7 +437,7 @@ public class PlanetEditor : MonoBehaviour
                 if (Button("Acido", "Preset: acido verde, liquido e torbido (vedi poco il fondo).", ui))
                     ApplySeaPreset(p, new Color(0.32f, 0.72f, 0.10f), 1.2f, true, true, 7f, ref colorDirty);
                 if (Button("Trasparente", "Preset: acqua quasi invisibile, vedi il fondo (liquida + limpidissima).", ui))
-                    ApplySeaPreset(p, new Color(0.80f, 0.90f, 0.95f), 0.3f, true, true, 45f, ref colorDirty);
+                    ApplySeaPreset(p, new Color(0.35f, 0.55f, 0.68f), 0.5f, true, true, 50f, ref colorDirty);
                 GUILayout.EndHorizontal();
 
                 p.seaSaturation = Slider("Saturazione mare", "Intensità del colore dell'acqua, indipendente dalla saturazione globale.", p.seaSaturation, 0f, 2f, ui, ref colorDirty);

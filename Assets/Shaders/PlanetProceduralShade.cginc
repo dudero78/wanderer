@@ -131,19 +131,21 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     if (seaMask > 0.0 && (_SeaLiquid > 0.5 || _SeaClear > 0.5))
     {
         float seaLuma = dot(_SeaColor.rgb, float3(0.2126, 0.7152, 0.0722));
-        float3 shallowCol = lerp(_SeaColor.rgb, saturate(_SeaColor.rgb * 1.7 + 0.22), 0.6);   // bassofondo più chiaro (stessa tinta)
+        float3 shallowCol = lerp(_SeaColor.rgb, saturate(_SeaColor.rgb * 1.4 + 0.12), 0.5);   // bassofondo più chiaro (stessa tinta, gentile)
         float3 deepCol = _SeaColor.rgb * 0.5;                                                 // profondo più scuro
         float dN = saturate(depth / 34.0);
         float3 waterCol = lerp(shallowCol, deepCol, dN);
         waterCol = lerp(float3(seaLuma, seaLuma, seaLuma), waterCol, _SeaSat);     // saturazione propria del mare
 
-        // TRASPARENZA: il fondo emerge in acqua bassa, TINTO dal colore dell'acqua (×colore → colore scuro/saturo
-        // nasconde di più). pow(.,0.6) = più limpido alle profondità medie. Soglia di profondità = _SeaClarity.
+        // TRASPARENZA: il fondo emerge in acqua bassa, visto ATTRAVERSO l'acqua → MOLTIPLICATO per la TRASMISSIONE
+        // del colore (l'acqua ASSORBE, non amplifica): colore CHIARO ⇒ trasmette ~tutto (fondo limpido, niente
+        // bianco); colore SCURO/saturo ⇒ trasmette poco (fondo scuro/tinto = meno visibile). cap a 1.1 = niente
+        // sovra-esposizione. pow(.,0.6) = più limpido alle profondità medie. Soglia di profondità = _SeaClarity.
         float seaTrans = 0.0;
         if (_SeaClear > 0.5)
         {
             seaTrans = pow(exp(-max(depth, 0.0) / max(_SeaClarity, 0.05)), 0.6);
-            float3 bedThroughWater = alb * (_SeaColor.rgb * 2.2);                  // fondo visto ATTRAVERSO l'acqua colorata
+            float3 bedThroughWater = alb * min(_SeaColor.rgb * 1.6, 1.1);
             waterCol = lerp(waterCol, bedThroughWater, seaTrans);
         }
 
