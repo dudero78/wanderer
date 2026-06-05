@@ -90,13 +90,13 @@ public class RenderScaler : MonoBehaviour
         SnapScale();
     }
 
-    // ISTERESI sul cambio di scala: la RenderTexture si rialloca SOLO a salti di 0.1 (non 0.05) e con banda morta →
-    // durante un volo veloce (carico GPU che oscilla) NON si rialloca di continuo, niente micro-stutter da realloc della
-    // RT (new RenderTexture + Create è il costo nascosto). Cambia scala solo a salto pieno, non oscilla fra due livelli.
+    // Scala a gradini di 0.05: la RenderTexture si rialloca solo al cambio di gradino (di rado, perché dynScale è
+    // smussato) e il recupero della nitidezza dopo un calo è PRONTO (niente isteresi larga che lo rallenta → era ciò
+    // che faceva "caricare" il terreno sfocato all'orizzonte più a lungo). Se mai il realloc stutterasse davvero in
+    // volo, la cura giusta è la risoluzione dinamica a VIEWPORT (render in un sotto-rettangolo, niente realloc).
     void SnapScale()
     {
-        float target = Mathf.Round(dynScale / 0.1f) * 0.1f;
-        if (Mathf.Abs(target - scale) >= 0.099f) scale = target;
+        scale = Mathf.Round(dynScale / 0.05f) * 0.05f;
     }
 
     void Ensure()
