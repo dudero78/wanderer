@@ -80,7 +80,12 @@ public class GpuPlanetRenderer : MonoBehaviour
     // dei corpi lontani (eviction LRU): per loro è solo un refill al ritorno.
     Stack<int> freeSlabs;
     Dictionary<long, int> cacheSlab;
-    Dictionary<long, int> cacheClock;
+    // LRU O(1): la cache si sfratta dal FRONTE (regione meno recente) in tempo costante, invece di scansionare
+    // tutto il dizionario (era O(n), proprio nel churn a cambio-quota). lru = ordine d'inserimento (release),
+    // lruNode = handle per la rimozione O(1) quando una regione torna viva.
+    LinkedList<long> lru;
+    Dictionary<long, LinkedListNode<long>> lruNode;
+    readonly Stack<Node[]> childPool = new Stack<Node[]>();   // riusa gli array figli (no new Node[4] a ogni split → GC giù nel churn)
     int bodyId;   // identità del corpo nel pool condiviso: entra nella chiave di cache → due corpi non collidono
 
     // ---- POOL CONDIVISO (statico, refcountato): i 6 buffer geometria + free-list + cache, UNO per tutti i corpi.
@@ -89,8 +94,8 @@ public class GpuPlanetRenderer : MonoBehaviour
     static GraphicsBuffer sPos, sNrm, sBedNrm, sDepth, sField, sSurf;
     static readonly Stack<int> sFreeSlabs = new Stack<int>();
     static readonly Dictionary<long, int> sCacheSlab = new Dictionary<long, int>();
-    static readonly Dictionary<long, int> sCacheClock = new Dictionary<long, int>();
-    static int sClock;
+    static readonly LinkedList<long> sLru = new LinkedList<long>();
+    static readonly Dictionary<long, LinkedListNode<long>> sLruNode = new Dictionary<long, LinkedListNode<long>>();
     static int sRefCount;
     static int sPoolVerts, sPoolSlabs;   // dimensioni con cui il pool è stato allocato (tutti i corpi le condividono)
     static int sNextBodyId;
@@ -327,7 +332,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     }
 
     /// <summary>Alloca il pool CONDIVISO la prima volta (refcount), o lo riusa, e ne fa alias i campi per-corpo
-    /// (posBuf…surfBuf, freeSlabs/cacheSlab/cacheClock). Assegna un bodyId univoco per la chiave di cache.</summary>
+    /// (posBuf…surfBuf, freeSlabs/cacheSlab/lru). Assegna un bodyId univoco per la chiave di cache.</summary>
     void AcquirePool()
     {
         if (sRefCount > 0 && vertsPerSlab != sPoolVerts)
@@ -343,14 +348,14 @@ public class GpuPlanetRenderer : MonoBehaviour
             sSurf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
             sFreeSlabs.Clear();
             for (int i = maxSlabs - 1; i >= 0; i--) sFreeSlabs.Push(i);
-            sCacheSlab.Clear(); sCacheClock.Clear(); sClock = 0;
+            sCacheSlab.Clear(); sLru.Clear(); sLruNode.Clear();
             sPoolVerts = vertsPerSlab; sPoolSlabs = maxSlabs;
             long poolBytes = (long)maxSlabs * vertsPerSlab * 48L;   // pos+nrm+bedNrm (3 float) + depth+field+surf (1) = 48 byte/vertice
             Debug.Log($"[GpuPlanet] pool VRAM CONDIVISO ~{poolBytes / (1024 * 1024)} MB (nodeRes={nodeRes}, maxSlabs={maxSlabs}, vertsPerSlab={vertsPerSlab}) — UNO per tutti i corpi");
         }
         sRefCount++;
         posBuf = sPos; nrmBuf = sNrm; bedNrmBuf = sBedNrm; depthBuf = sDepth; fieldBuf = sField; surfBuf = sSurf;
-        freeSlabs = sFreeSlabs; cacheSlab = sCacheSlab; cacheClock = sCacheClock;
+        freeSlabs = sFreeSlabs; cacheSlab = sCacheSlab; lru = sLru; lruNode = sLruNode;
         bodyId = sNextBodyId++;
     }
 
@@ -364,19 +369,19 @@ public class GpuPlanetRenderer : MonoBehaviour
         {
             sPos?.Release(); sNrm?.Release(); sBedNrm?.Release(); sDepth?.Release(); sField?.Release(); sSurf?.Release();
             sPos = sNrm = sBedNrm = sDepth = sField = sSurf = null;
-            sFreeSlabs.Clear(); sCacheSlab.Clear(); sCacheClock.Clear(); sClock = 0; sNextBodyId = 0;
+            sFreeSlabs.Clear(); sCacheSlab.Clear(); sLru.Clear(); sLruNode.Clear(); sNextBodyId = 0;
         }
     }
 
     int AllocSlab()
     {
         if (freeSlabs.Count > 0) return freeSlabs.Pop();
-        // pool pieno: sfratta la regione MENO usata di recente dalla cache
-        if (cacheSlab.Count > 0)
+        // pool pieno: sfratta in O(1) la regione meno recente = il FRONTE della lista LRU (niente più scansione del dizionario)
+        if (lru.Count > 0)
         {
-            long evKey = 0; int min = int.MaxValue;
-            foreach (var kv in cacheClock) if (kv.Value < min) { min = kv.Value; evKey = kv.Key; }
-            int s = cacheSlab[evKey]; cacheSlab.Remove(evKey); cacheClock.Remove(evKey);
+            long evKey = lru.First.Value;
+            lru.RemoveFirst(); lruNode.Remove(evKey);
+            int s = cacheSlab[evKey]; cacheSlab.Remove(evKey);
             return s;
         }
         return -1;
@@ -387,7 +392,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     void AcquireSlab(Node nd)
     {
         long key = Key(nd);
-        if (cacheSlab.TryGetValue(key, out int s)) { cacheSlab.Remove(key); cacheClock.Remove(key); nd.slab = s; return; }
+        if (cacheSlab.TryGetValue(key, out int s)) { cacheSlab.Remove(key); lru.Remove(lruNode[key]); lruNode.Remove(key); nd.slab = s; return; }
         nd.slab = AllocSlab();
         FillSlab(nd);
     }
@@ -398,7 +403,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         if (nd.slab < 0) return;
         long key = Key(nd);
         if (cacheSlab.ContainsKey(key)) freeSlabs.Push(nd.slab);   // duplicato improbabile: libera
-        else { cacheSlab[key] = nd.slab; cacheClock[key] = ++sClock; }
+        else { cacheSlab[key] = nd.slab; lruNode[key] = lru.AddLast(key); }   // in coda = più recente
         nd.slab = -1;
     }
 
@@ -518,7 +523,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         if (freeSlabs.Count + cacheSlab.Count < 4) return false;   // niente fette disponibili → resta foglia
         ReleaseSlab(nd);                          // il nodo diventa interno: la sua fetta va in cache
         float h = nd.size * 0.5f;
-        nd.children = new Node[4];
+        nd.children = childPool.Count > 0 ? childPool.Pop() : new Node[4];   // dal pool → niente GC del Node[4] a ogni split
         for (int i = 0; i < 4; i++)               // niente array temporanei (GC): u/v dei 4 quadranti a mano
         {
             float cuX = (i == 1 || i == 3) ? nd.u0 + h : nd.u0;
@@ -535,6 +540,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         if (nd.children != null)
         {
             for (int i = 0; i < 4; i++) DisposeSubtree(nd.children[i]);
+            childPool.Push(nd.children);   // riusa l'array figli
             nd.children = null;
         }
         ReleaseSlab(nd);     // in cache (riuso), non buttata
@@ -544,6 +550,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     void Merge(Node nd)
     {
         for (int i = 0; i < 4; i++) DisposeSubtree(nd.children[i]);
+        childPool.Push(nd.children);   // riusa l'array figli
         nd.children = null;
         AcquireSlab(nd);   // riusa la fetta della regione se è in cache, altrimenti riempi
     }
@@ -790,8 +797,36 @@ public class GpuPlanetRenderer : MonoBehaviour
         mat.SetFloat("_TorchCosInner", Mathf.Cos(half * 0.85f));
     }
 
+    /// <summary>STREAMING-SAFE: rende le fette di QUESTO corpo (vive nell'albero + in cache) alla free-list
+    /// condivisa, così distruggere un SINGOLO corpo a metà sessione (teletrasporto/streaming futuro) non lascia
+    /// fette "prese" nel pool condiviso finché non muoiono tutti. Se è l'ultimo, ReleasePool azzera comunque.</summary>
+    void ReturnMySlabs()
+    {
+        if (cacheSlab == null) return;   // pool mai acquisito (Setup fallito): niente da rendere
+        if (roots != null) for (int f = 0; f < 6; f++) FreeSubtreeSlabs(roots[f]);
+        // voci di cache di QUESTO corpo: il bodyId sta nei bit alti della chiave (>> 40)
+        if (cacheSlab.Count > 0)
+        {
+            var mine = new List<long>();
+            foreach (var kv in cacheSlab) if ((kv.Key >> 40) == bodyId) mine.Add(kv.Key);
+            foreach (var k in mine)
+            {
+                sFreeSlabs.Push(cacheSlab[k]); cacheSlab.Remove(k);
+                if (lruNode.TryGetValue(k, out var node)) { lru.Remove(node); lruNode.Remove(k); }
+            }
+        }
+    }
+
+    void FreeSubtreeSlabs(Node nd)
+    {
+        if (nd == null) return;
+        if (nd.children != null) for (int i = 0; i < 4; i++) FreeSubtreeSlabs(nd.children[i]);
+        if (nd.slab >= 0) { sFreeSlabs.Push(nd.slab); nd.slab = -1; }
+    }
+
     void OnDestroy()
     {
+        ReturnMySlabs();   // streaming-safe: rendi le fette di questo corpo PRIMA di mollare il riferimento al pool
         ReleasePool();   // i 6 buffer geometria sono CONDIVISI e refcountati: liberati solo quando muore l'ultimo corpo
         jobsBuf?.Release();
         idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); argsBuf?.Release();
