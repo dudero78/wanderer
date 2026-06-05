@@ -12,6 +12,11 @@ batch fill, geomorph GPU, VRAM, **AUDIT #2**, spuntone, overdraw). Dettaglio tec
 > (genera l'HLSL dal C#, chiude il rischio "fluttua/sprofonda"). RIMANDATI con motivo: colore per-vertice (+120MB
 > VRAM, riprendere col PBR), gating `_HAS_SEA` (zero risparmio se la scena ha un mare). Molti commit locali non pushati.
 >
+> ### 🔧 Fix recente (da verificare a freddo)
+> **Cratere dominante di Valentina2 = disco-piatto/schegge → RISOLTO** (clamp altezza `max(h, base·0.2)` in HLSL+C#:
+> il cratere scava più profondo del raggio → h≤0 = geometria degenere → ora fondo-ciotola positivo). **Verifica** che
+> sia una conca pulita; il `0.2` è tarabile; a tendere ridurre la profondità di quel cratere nella **ricetta**.
+>
 > ### ✅ RISOLTI — i 3 bug editor di prima (storico, non più PARTI DA QUI)
 > (1) mare-non-allaga → **maschera "sotto il pelo = acqua"** (gestisce crateri-dopo-mare); (2) trasparenza "al
 > contrario" → **modello trasparenza ripensato** (tinta separata dalla luminosità); (3) bake fa sparire il pianeta →

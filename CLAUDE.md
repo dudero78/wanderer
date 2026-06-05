@@ -525,6 +525,12 @@ vicino all'origine di Unity → la precisione non degrada mai.
   Il vertice ha lunghezza ~giusta ma DIREZIONE sbagliata → una rete sola-magnitudine non lo vede. Cura: rete
   **direzione-aware** (`_DirOfInstance` = direzione-centro del nodo per istanza; il vertex collassa chi devia in
   direzione oltre l'estensione angolare, sull'àncora valida data dalla CPU). Fix vero più robusto = region-stamp.
+- **Un cratere più profondo del RAGGIO → `SampleHeight` torna h≤0 → geometria DEGENERE (auto-intersecante).** Capita
+  coi crateri scavati DOPO un mare (Valentina2): scavano sotto il pelo e oltre il centro. Una guardia `(h>0)?h:base`
+  lo schiaccia sul raggio base = **disco piatto + schegge radiali** nel cratere. Cura: clamp a un **fondo-ciotola
+  positivo** (`max(h, base·0.2)`), NaN/Inf→base. **VA MESSO IN ENTRAMBE le implementazioni dell'altezza** (HLSL
+  `SampleHeightD` + C# `PlanetTerrain.SampleHeight`) o walker e resa divergono (esempio vivo del rischio #17 dell'audit:
+  fonte altezza duplicata a mano). La causa a monte è una RICETTA che scava oltre il raggio (l'engine ora lo regge).
 - **Colore dalla ricetta.** `PlanetBaker.BuildMaterial` DEVE impostare `_SoilMean/_MariaColor/_MariaScale/_MariaStr`
   da `terrain.Recipe`, o un corpo marziano esce grigio (lo shader resta sul default lunare). L'editor li spingeva a
   mano; in gioco serve qui.
