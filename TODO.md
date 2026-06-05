@@ -190,7 +190,9 @@ GPU↔CPU fa da rete. Componenti nuovi: `GpuPlanetRenderer.cs`, shader `Wanderer
   - ✅ **TAGLI FILL SICURI (4 giu, geometria invariata):** **normali a 2 campioni** (differenza-in-avanti, riusa il
     centro → fill GPU ~dimezzato), **property-ID cachati** (niente hash-stringa per chiamata CPU), `_NN`/`_NSkirtStart`
     una volta sola. **`lodFactor` 4→3** (R3): `visibili` ~1023→~700 (era al tetto del pool 1024) → meno disegno + meno fill.
-  - 🟡 **BATCH dei fill (1 dispatch) — RIFATTO col banco di verifica (R1), da provare in gioco.** Era stato annullato
+  - 🟡 **BATCH dei fill (1 dispatch) — RIFATTO, PARITÀ CONFERMATA (5 giu): `[batch-fill] PARITÀ OK max diff 0.00000 m`
+    su tutti i corpi** → il batch è bit-esatto col per-nodo, attivo. Resta da misurare in gioco se taglia il churn CPU
+    (R5: confermare con GPU Frametime che il lag non era attesa-GPU). Era stato annullato
     (corruzione di geometria, bug d'indicizzazione non trovato). Ora i kernel batch (`CSNodeSlabBatch/SkirtBatch`)
     sono identici ai per-nodo ma con assi/uv/slabOff/skirtDrop letti da `_Jobs[nodo]` (nodo = asse z/y del dispatch);
     tutto float4. È **OPT-IN** (`GameBootstrap.useBatchFill`, default OFF) e si attiva SOLO se `VerifyBatchFill()`
