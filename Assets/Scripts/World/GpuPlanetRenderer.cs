@@ -595,6 +595,9 @@ public class GpuPlanetRenderer : MonoBehaviour
         AcquireSlab(nd);   // riusa la fetta della regione se è in cache, altrimenti riempi
     }
 
+    // DECISIONE del LOD (split/merge per distanza + horizon culling). NON raccoglie più le foglie visibili: la raccolta
+    // (CollectVisible) avviene DOPO la passata di BILANCIAMENTO 2:1 (BalanceTree), che può forzare altri split. Separare
+    // le tre fasi (decidi → bilancia → raccogli) è ciò che permette il 2:1 (un vicino può stare in un altro sotto-albero).
     void UpdateLod(Node nd)
     {
         Vector3 centerWorld = lodM.MultiplyPoint3x4(nd.centerLocal);
@@ -612,25 +615,88 @@ public class GpuPlanetRenderer : MonoBehaviour
 
         if (nd.children != null)
         {
-            if (dist > splitDist * mergeHysteresis)
-            {
-                Merge(nd);
-                AddVisible(nd);
-            }
-            else
-            {
-                for (int i = 0; i < 4; i++) UpdateLod(nd.children[i]);
-            }
+            if (dist > splitDist * mergeHysteresis) Merge(nd);
+            else for (int i = 0; i < 4; i++) UpdateLod(nd.children[i]);
         }
-        else
+        else if (nd.depth < maxDepth && dist < splitDist && splitsThisFrame < splitBudget && Split(nd))
         {
-            if (nd.depth < maxDepth && dist < splitDist && splitsThisFrame < splitBudget && Split(nd))
-            {
-                splitsThisFrame++;
-                for (int i = 0; i < 4; i++) UpdateLod(nd.children[i]);
-            }
-            else AddVisible(nd);
+            splitsThisFrame++;
+            for (int i = 0; i < 4; i++) UpdateLod(nd.children[i]);
         }
+    }
+
+    // ---- 2:1 BILANCIAMENTO: forza i vicini di ogni foglia a differire di ≤1 livello. Così il geomorph (che morfa 1
+    // livello) chiude da solo le cuciture ai confini di LOD → niente più skirt (= niente spuntoni sulle pareti ripide).
+    // I vicini si trovano PER DIREZIONE: un punto appena oltre il bordo del nodo → DirToFaceParam → la faccia/cella
+    // giusta, gestendo da solo anche le cuciture fra le 6 facce del cubo (niente tabelle di adiacenza a mano). Le
+    // suddivisioni forzate possono propagarsi (un D-3 va spaccato due volte) → si itera fino a stabilità o al budget.
+    void BalanceTree()
+    {
+        bool changed = true;
+        for (int guard = 0; changed && guard < 8 && splitsThisFrame < splitBudget; guard++)
+        {
+            changed = false;
+            for (int f = 0; f < 6; f++) changed |= BalanceNode(roots[f]);
+        }
+    }
+
+    bool BalanceNode(Node nd)
+    {
+        if (nd.children != null)
+        {
+            bool ch = false;
+            for (int i = 0; i < 4; i++) ch |= BalanceNode(nd.children[i]);
+            return ch;
+        }
+        // foglia OCCLUSA: saltala (non si disegna → la sua cucitura non si vede; non sprecare fette sul lato nascosto)
+        if (nd.depth >= 2 && BeyondHorizon(nd, lodM.MultiplyPoint3x4(nd.centerLocal))) return false;
+        bool changed = false;
+        for (int e = 0; e < 4 && splitsThisFrame < splitBudget; e++)
+        {
+            Node nb = LeafAt(EdgeNeighborDir(nd, e));   // foglia vicina oltre il lato e
+            if (nb != null && nb.depth <= nd.depth - 2 && nb.depth < maxDepth && Split(nb))
+            {
+                splitsThisFrame++;   // il vicino era ≥2 livelli più grosso → spaccalo di un livello
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    // direzione di un punto appena OLTRE il lato e del nodo (0=−u,1=+u,2=−v,3=+v): cade nella cella vicina, anche
+    // sull'altra faccia del cubo (ParamToDir non clampa → il punto-cubo esce dalla faccia, normalize lo porta sulla sfera).
+    Vector3 EdgeNeighborDir(Node nd, int e)
+    {
+        float eps = nd.size * 0.25f;
+        float u = nd.u0 + nd.size * 0.5f, v = nd.v0 + nd.size * 0.5f;
+        if (e == 0) u = nd.u0 - eps;
+        else if (e == 1) u = nd.u0 + nd.size + eps;
+        else if (e == 2) v = nd.v0 - eps;
+        else v = nd.v0 + nd.size + eps;
+        return PlanetMeshBuilder.ParamToDir(nd.up, nd.axisA, nd.axisB, u, v);
+    }
+
+    // foglia del quadtree che contiene una direzione (discesa dalla radice della faccia). Stessa disposizione dei
+    // quadranti di Split (right = i&1, top = i&2). Usata dal bilanciamento per leggere il livello del vicino.
+    Node LeafAt(Vector3 dir)
+    {
+        PlanetMeshBuilder.DirToFaceParam(dir, out int face, out float tx, out float ty);
+        Node n = roots[face];
+        while (n != null && n.children != null)
+        {
+            bool right = tx >= n.u0 + n.size * 0.5f;
+            bool top = ty >= n.v0 + n.size * 0.5f;
+            n = n.children[(top ? 2 : 0) + (right ? 1 : 0)];
+        }
+        return n;
+    }
+
+    // RACCOLTA delle foglie visibili (dopo decidi+bilancia). Salta i rami occlusi all'orizzonte (come faceva UpdateLod).
+    void CollectVisible(Node nd)
+    {
+        if (nd.depth >= 2 && BeyondHorizon(nd, lodM.MultiplyPoint3x4(nd.centerLocal))) return;
+        if (nd.children != null) { for (int i = 0; i < 4; i++) CollectVisible(nd.children[i]); }
+        else AddVisible(nd);
     }
 
     void AddVisible(Node nd)
@@ -748,7 +814,9 @@ public class GpuPlanetRenderer : MonoBehaviour
         splitsThisFrame = 0;
         fillsThisFrame = 0;
         fillTicks = 0;
-        for (int f = 0; f < 6; f++) UpdateLod(roots[f]);
+        for (int f = 0; f < 6; f++) UpdateLod(roots[f]);   // 1) decidi split/merge per distanza (+ horizon)
+        BalanceTree();                                      // 2) 2:1: forza i vicini a ≤1 livello → geomorph chiude le cuciture
+        for (int f = 0; f < 6; f++) CollectVisible(roots[f]); // 3) raccogli le foglie visibili (orizzonte-aware)
         FlushFills();   // batch: i fill accumulati nella traversata partono ora, in un solo dispatch (no-op se per-nodo)
         double lodMs = sw.Elapsed.TotalMilliseconds;   // traversata + dispatch dei fill (logica LOD sulla CPU)
         if (visibleCount == 0) return;
