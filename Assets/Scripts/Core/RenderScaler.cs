@@ -81,13 +81,22 @@ public class RenderScaler : MonoBehaviour
         if (PerformanceGovernor.IdleCapped)
         {
             dynScale = Mathf.Clamp(dynScale, minScale, 1f);
-            scale = Mathf.Round(dynScale / 0.05f) * 0.05f;
+            SnapScale();
             return;
         }
         if (smoothDt > 1f / 57f) dynScale -= 0.8f * dt;   // affanno VERO (puntiamo a 60) → meno pixel, subito
         else dynScale += 0.12f * dt;                       // margine → più nitido, piano
         dynScale = Mathf.Clamp(dynScale, minScale, 1f);
-        scale = Mathf.Round(dynScale / 0.05f) * 0.05f;
+        SnapScale();
+    }
+
+    // ISTERESI sul cambio di scala: la RenderTexture si rialloca SOLO a salti di 0.1 (non 0.05) e con banda morta →
+    // durante un volo veloce (carico GPU che oscilla) NON si rialloca di continuo, niente micro-stutter da realloc della
+    // RT (new RenderTexture + Create è il costo nascosto). Cambia scala solo a salto pieno, non oscilla fra due livelli.
+    void SnapScale()
+    {
+        float target = Mathf.Round(dynScale / 0.1f) * 0.1f;
+        if (Mathf.Abs(target - scale) >= 0.099f) scale = target;
     }
 
     void Ensure()

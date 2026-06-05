@@ -28,7 +28,7 @@ public class GameBootstrap : MonoBehaviour
 
     [Tooltip("OVERDRAW: disegna l'interno con Cull Back (metà fragment) + skirt con Cull Off, in 2 draw. Da PROVARE: "
            + "se accendendolo l'interno SPARISCE, il verso del cull è invertito → metti interiorCull=1.")]
-    public bool useCullSplit = false;
+    public bool useCullSplit = true;   // ON di default (testato: interno Cull Back, skirt Cull Off → metà overdraw)
     public int interiorCull = 2;   // 2=Back, 1=Front (se l'interno sparisce con useCullSplit ON)
 
     [Tooltip("DEBUG/test: nasci su questo corpo invece che sul pianeta-casa (es. \"terra-test3\"). Vuoto = pianeta-casa.")]
