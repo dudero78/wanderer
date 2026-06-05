@@ -84,13 +84,13 @@ public static class SolarSystemSetup
         new OrbitBody {
             Name = "terra-test3", Radius = TerraTest3Radius, Gravity = 9.81, ParentName = "Baricentro", ProxyRes = 32,
             BakedDir = TerraTest3BakedDir, Apply = ApplyTerraTest3Recipe,
-            Orbit = new KeplerOrbit { SemiMajorAxis = 1500, Eccentricity = 0.0, Period = 320, Inclination = 0.0, MeanAnomalyAtEpoch = 0.0 },
+            Orbit = new KeplerOrbit { SemiMajorAxis = 1500, Eccentricity = 0.0, Period = 320, Inclination = 0.15, MeanAnomalyAtEpoch = 0.0 },   // = inclinazione del baricentro: il binario gira nel PIANO del suo moto attorno al sole (coerente in mappa)
         },
         // Gemello: RICETTA PROPRIA (Valentina2.json) → puoi editarlo a parte. Orbita opposta sul baricentro (M0 = π).
         new OrbitBody {
             Name = "Valentina2", Radius = Valentina2Radius, Gravity = 9.81, ParentName = "Baricentro", ProxyRes = 32,
             BakedDir = Valentina2BakedDir, Apply = ApplyValentina2Recipe,
-            Orbit = new KeplerOrbit { SemiMajorAxis = 1500, Eccentricity = 0.0, Period = 320, Inclination = 0.0, MeanAnomalyAtEpoch = 3.14159265 },
+            Orbit = new KeplerOrbit { SemiMajorAxis = 1500, Eccentricity = 0.0, Period = 320, Inclination = 0.15, MeanAnomalyAtEpoch = 3.14159265 },   // stessa inclinazione del gemello/baricentro → sempre opposti (M0=π), coplanari col moto comune
         },
         new OrbitBody {
             Name = "Luna7", Radius = Luna7Radius, Gravity = 3.0, ParentName = "terra-test3", ProxyRes = 24,
