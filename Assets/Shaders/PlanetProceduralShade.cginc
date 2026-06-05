@@ -64,7 +64,7 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     // sui corpi che affiorano. (Il pelo geometricamente È piatto dove allagato; la rampa è inevitabile a mesh
     // singola — la cura definitiva del tutto-piatto sarebbe un guscio d'acqua separato. Stringere basta per ora.)
     float seaSurf = seaSurfField;
-    float seaMask = (_SeaOn > 0.5) ? (1.0 - smoothstep(0.4, 1.6, abs(h - seaSurf))) : 0.0;
+    float seaMask = (_SeaOn > 0.5) ? (1.0 - smoothstep(0.15, 0.75, abs(h - seaSurf))) : 0.0;
 
     // suolo: colore base × variazione MACRO a bassa frequenza (campo dunale) — procedurale, niente texture
     float macroV = fbm(sdir * _MacroScale);
