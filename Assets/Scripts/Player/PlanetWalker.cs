@@ -195,7 +195,11 @@ public class PlanetWalker : MonoBehaviour
         // alla superficie: alto in volo i bump (decine di m) sono irrilevanti a km di quota, e la pipeline
         // crateri (hash 3D + fBm) girerebbe a 60Hz per niente. Sopra soglia → raggio nominale.
         float surface = (float)planet.Radius;
-        if (r < planet.Radius + 600.0 && planet.TryGetComponent<PlanetTerrain>(out var terr))
+        // soglia "vicino alla superficie" SCALATA col raggio (non un 600 m assoluto): su un asteroide da 80 m, 600 m
+        // erano 7× il raggio → campionava il rilievo molto più lontano del necessario; su un gigante futuro sarebbe
+        // troppo poco. Mezzo raggio (min 60 m) copre il rilievo (l'ampiezza scala col raggio in ScaledTo).
+        double sampleBand = System.Math.Max(60.0, planet.Radius * 0.5);
+        if (r < planet.Radius + sampleBand && planet.TryGetComponent<PlanetTerrain>(out var terr))
         {
             float s = terr.SampleHeight(up);
             if (!float.IsNaN(s) && !float.IsInfinity(s)) surface = s;

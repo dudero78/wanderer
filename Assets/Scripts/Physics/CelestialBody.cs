@@ -27,7 +27,14 @@ public class CelestialBody : MonoBehaviour
     public void UpdatePosition(double time)
     {
         if (Orbit != null && Parent != null)
+        {
+            // aggiorna PRIMA il genitore (ricorsivo) → la posizione del figlio non dipende più dall'ordine
+            // dell'array Bodies: riordinarlo o aggiungere una luna-di-luna prima del suo genitore non introduce
+            // più un lag di un frame. Idempotente (stesso 'time'), si ferma alla stella (Orbit==null), niente
+            // cicli (la gerarchia è un albero). Costo trascurabile (pochi corpi, Kepler analitico).
+            Parent.UpdatePosition(time);
             UniversePosition = Parent.UniversePosition + Orbit.GetRelativePosition(time);
+        }
     }
 
     /// <summary>
