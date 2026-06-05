@@ -10,6 +10,9 @@ using UnityEngine;
 public class PlanetWalker : MonoBehaviour
 {
     public float moveSpeed = 8f;
+    public bool wallStop = true;        // collisione laterale: ferma la marcia in salita ripida (niente attraversare pareti/dirupi)
+    public float wallSlope = 1.2f;      // pendenza oltre cui sei bloccato in salita (tan: 1.0≈45°, 1.2≈50°). wallStop=false = off
+    public float wallProbe = 1.5f;      // distanza (m) avanti del campione di pendenza
     public float jumpSpeed = 7f;
     public float mouseSensitivity = 2.2f;
     public Transform cameraPivot;
@@ -413,6 +416,30 @@ public class PlanetWalker : MonoBehaviour
             // ===== CAMMINATA A PIEDI =====
             Vector3 wish = fwd * v + right * h;
             if (wish.sqrMagnitude > 1f) wish = wish.normalized;
+
+            // WALL-STOP: il vincolo radiale ferma lo SPROFONDAMENTO ma non il moto LATERALE → senza questo si
+            // attraversano pareti/dirupi che salgono di fianco (proprio le feature calpestabili dei crateri).
+            // Campiono la PENDENZA orizzontale del terreno (gradiente di SampleHeight sui due assi tangenti) e tolgo
+            // da 'wish' la sola componente IN SALITA quando supera la soglia → non ti arrampichi sul muro, ci scivoli
+            // lungo. 4 campioni extra solo camminando vicino al suolo; il walker resta analitico (NaN → niente blocco).
+            if (wallStop && wish.sqrMagnitude > 1e-4f && planet.TryGetComponent<PlanetTerrain>(out var terrW))
+            {
+                Vector3 tA = Vector3.Cross(up, Mathf.Abs(up.y) < 0.99f ? Vector3.up : Vector3.right).normalized;
+                Vector3 tB = Vector3.Cross(up, tA);
+                float e = wallProbe;
+                float sPa = terrW.SampleHeight((up * surface + tA * e).normalized);
+                float sMa = terrW.SampleHeight((up * surface - tA * e).normalized);
+                float sPb = terrW.SampleHeight((up * surface + tB * e).normalized);
+                float sMb = terrW.SampleHeight((up * surface - tB * e).normalized);
+                Vector3 uphill = tA * ((sPa - sMa) / (2f * e)) + tB * ((sPb - sMb) / (2f * e));   // pendenza orizzontale
+                float slope = uphill.magnitude;
+                if (slope > wallSlope)
+                {
+                    Vector3 uh = uphill / slope;
+                    float into = Vector3.Dot(wish, uh);
+                    if (into > 0f) wish -= uh * into;   // scivola lungo il muro: via la sola componente che sale
+                }
+            }
 
             Vector3 vUp = Vector3.Project(rb.linearVelocity, up);
 
