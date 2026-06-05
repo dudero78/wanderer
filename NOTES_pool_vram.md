@@ -1,84 +1,55 @@
-# Note — fix VRAM del pool GPU (#2) e altri pezzi da fare alla tastiera
+# Note — VRAM del pool GPU (A/B fatti) e guardia NaN (C fatto)
 
-Queste sono le cose che **non ho spedito alla cieca** mentre dormivi, perché il loro modo di rompersi è
-"pianeti invisibili o corrotti" e non potresti diagnosticarlo da solo. Sono surgically descritte qui: con te
-alla tastiera (così vedi subito se i pianeti si disegnano ancora) è lavoro corto.
+A, B e C sono **implementati e committati**. Qui resta cosa VERIFICARE quando fai girare il gioco, e i dial che
+puoi muovere. Il numero da guardare è il log all'avvio: `[GpuPlanet] pool VRAM CONDIVISO ~X MB ...`.
 
-Riferimento numeri, dal codice reale (`GpuPlanetRenderer.Setup`):
-- VRAM del pool per corpo = `maxSlabs × vertsPerSlab × 48 byte`, con `vertsPerSlab = (nodeRes+1)² + 4·nodeRes`.
-- In gioco `gpuSurfaceRes = 256` ma `Setup` lo **clampa a 128** (`Mathf.Clamp(res, 4, 128)`), quindi `nodeRes = 128`,
-  `maxSlabs = 1024` → **~843 MB/corpo × 6 corpi ≈ 5 GB**, allocati TUTTI alla costruzione della scena.
-- Ho aggiunto un log all'avvio: `[GpuPlanet <nome>] pool VRAM ~X MB (...)`. **Usa quel numero come metro**: qualunque
-  cosa cambi qui sotto, riapri e leggi quanto scende.
-
-L'osservazione chiave che rende tutto semplice: **un solo corpo è "attivo" (si suddivide in profondità) per volta.**
-I corpi lontani restano alle radici (~6 fette ciascuno). Eppure oggi ogni corpo pre-alloca un pool intero da 843 MB.
+Promemoria numeri (da `GpuPlanetRenderer`): VRAM del pool = `maxSlabs × vertsPerSlab × 48 byte`, con
+`vertsPerSlab = (nodeRes+1)² + 4·nodeRes`. L'osservazione chiave: **un solo corpo è "attivo" (si suddivide in
+profondità) per volta**; gli altri stanno alle radici. Quindi un pool basta per tutti.
 
 ---
 
-## A) Fix vero: POOL CONDIVISO fra i corpi (5 GB → ~850 MB) — consigliato
+## A) Pool condiviso fra i corpi — FATTO (commit 96af374)
 
-Un solo pool serve il working-set del corpo attivo (~700 fette, vedi i log `visibili=`) + le poche radici degli altri
-(~6 × 5 = 30). Totale ~730 < 1024 → **un pool unico basta per tutti e sei**.
+I 6 buffer geometria + la free-list + la cache LRU sono ora **statici e refcountati**: UNO per tutti i corpi
+invece di uno ciascuno. Da `~843 MB × 6 ≈ 5 GB` a **~843 MB totali** (poi ridotti da B). I campi `posBuf…surfBuf`
+restano come alias dei buffer condivisi, quindi il resto del codice è invariato. La chiave di cache include
+`bodyId` così due corpi non collidono; `AcquirePool`/`ReleasePool` fanno il refcount.
 
-Passi (in `GpuPlanetRenderer.cs`):
-1. Sposta in una classe statica condivisa `SlabPool` (refcount): i 6 buffer geometria (`posBuf, nrmBuf, bedNrmBuf,
-   depthBuf, fieldBuf, surfBuf`), `jobsBuf`, e le strutture di allocazione (`freeSlabs`, `cacheSlab`, `cacheClock`,
-   `clock`). `idxBuf`, `slabOfInstance`, `argsBuf`, `roots`, `nodePool`, `visibleScratch`, `mat`, `cs` restano **per-corpo**.
-2. `SlabPool.Acquire(maxSlabs, vertsPerSlab)`: alloca i buffer la PRIMA volta, incrementa un refcount; `SlabPool.Release()`
-   decrementa e libera solo a refcount 0. Sostituisci le `new GraphicsBuffer(...)` del pool in `Setup` e i `Release()`
-   in `OnDestroy` con queste.
-3. Ogni corpo continua a fare `cs.SetBuffer(k, "_VPos", SlabPool.posBuf)` ecc. (il `cs` resta per-corpo, così niente
-   clobber di uniform) e `mat.SetBuffer("_VPos", SlabPool.posBuf)` ecc.
-4. **Chiave di cache per-corpo**: `Key(nd)` oggi non include l'identità del corpo → con un pool condiviso due corpi
-   collidono. Aggiungi un `int bodyId` (assegnato in `Setup`, es. un contatore statico) e mettilo nei bit alti della
-   chiave. (Controlla che `cacheSlab`/`cacheClock` siano ora condivisi → la collisione è reale senza questo.)
-5. `VerifyBatchFill` e `VerifyParityRuntime` continuano a funzionare: ogni corpo pesca fette distinte dalla free-list
-   condivisa, quindi i root di corpi diversi non si sovrascrivono.
+**Da verificare (con te alla tastiera):**
+- All'avvio il log `[GpuPlanet] pool VRAM CONDIVISO ~… MB` deve comparire **una volta sola** (il primo corpo
+  alloca, gli altri riusano), non sei volte.
+- **Tutti e 6 i corpi si disegnano.** Vola fra due asciutti e i due col mare (terra-test3 / Valentina2): niente
+  forme sbagliate o lampeggi (= niente collisione di chiave nel pool condiviso).
+- Avvicinandoti a un corpo il dettaglio si infittisce come prima; allontanandoti e andando su un altro, il nuovo
+  prende dettaglio (il pool "presta" le fette al corpo attivo).
 
-Test (con te presente): avvia, **tutti e 6 i corpi si disegnano**? Vola fra due corpi col mare (terra-test3/Valentina2)
-e due asciutti: niente lampeggi/forme sbagliate (= niente collisione di chiave). Il log VRAM ora deve stampare ~843 MB
-**una volta** (il primo corpo alloca, gli altri riusano). Distruggi/ricrea la scena: nessun crash (refcount giusto).
+## B) Tetto di nodeRes 128 → 96 — FATTO (commit 96af374)
 
-Insidia: stato statico mutabile condiviso fra istanze è un piede di porco — assicurati che `Release` a refcount 0
-azzeri anche le `Dictionary`/`Stack` statiche, o un secondo avvio nello stesso processo (editor) parte sporco.
+`gpuSurfaceRes=256` veniva clampato a 128; ora il clamp è a **96**. La VRAM del pool cala di ~1.8× per fetta
+(con A: ~843 → ~460 MB totali) con un calo di dettaglio modesto (il quadtree si suddivide comunque per distanza).
 
----
+**È un DIAL** (una riga in `GpuPlanetRenderer.Setup`, `Mathf.Clamp(res, 4, 96)`):
+- **128** = dettaglio pieno, più VRAM (com'era prima);
+- **96** = scelta attuale, compromesso;
+- **64** = ~4× meno VRAM, più grossolano vicino ai piedi.
+La direzione artistica (quanto fine vuoi il terreno calpestabile) è TUA: se 96 ti sembra meno nitido del dovuto,
+rimettilo a 128; se la VRAM è ancora alta e il dettaglio regge, scendi a 64. Guarda il log per misurare l'effetto.
 
-## B) Leva rapida e parziale: abbassare `nodeRes` (la tua chiamata, cambia il DETTAGLIO)
+## C) Guardia NaN nel compute — FATTO (commit 95898f2)
 
-`vertsPerSlab ∝ nodeRes²`. Portare `gpuSurfaceRes` da 256 (=128 dopo il clamp) a **96 o 64** taglia la VRAM di
-~1.8× / ~4× **per corpo** (843 → ~470 / ~210 MB) **senza** la chirurgia del pool condiviso. NB: è anche un campo
-serializzato in `Game.unity`, quindi cambialo nell'inspector del `GameBootstrap` (o ri-crea la scena), non basta
-il sorgente.
+I 4 `normalize(cross(...))` delle normali (superficie + fondo, kernel per-nodo e batch) ora hanno il fallback
+radiale se la cella è degenere (`|cross|² ~ 0` → usa `dir`), così non producono NaN (shading nero). Cambia
+l'output solo nel caso degenere.
 
-Costo: ogni nodo-foglia diventa più grossolano → il dettaglio più fine cala, a meno di alzare `maxDepth` 6→7 (il
-quadtree si suddivide un livello in più vicino alla camera, recuperando dettaglio con qualche nodo in più). **Questo
-tocca il LOOK**, che è dominio tuo (liscio vs dettagliato): non l'ho deciso io. È la via veloce se vuoi un taglio
-subito; A) è la via "giusta" che non tocca la resa. Si possono anche combinare.
+**Da verificare:** i pianeti si illuminano come prima (nessuna macchia nera nuova). NB: il compute compila i
+kernel al primo dispatch in Play — se ci fosse un refuso HLSL lo vedresti nella Console al primo avvio (la modifica
+è banale, ma è l'unico pezzo non verificato a compilazione perché Unity era in background).
 
 ---
 
-## C) Guardia NaN nel compute (preventiva) — `PlanetHeight.compute`
+## Se vuoi spingere oltre la VRAM (opzionale, non fatto)
 
-Quattro `normalize(cross(...))` (righe ~30, 40, 105, 115): se due campioni vicini coincidono (cella degenere) il
-`cross` è zero e `normalize` dà **NaN** → shading nero/sporco in quel punto. Oggi non si vede (gli step sono > 0),
-è difesa preventiva. Fix per ciascuno:
-
-```hlsl
-float3 cr = cross(pYp - p, pXp - p);
-float3 nrm = (dot(cr, cr) > 1e-20) ? normalize(cr) : dir;   // fallback radiale se degenere
-```
-
-(idem per la normale del fondo `bn`, fallback a `dir`). È un'edit di shader: la lascio a te perché un refuso HLSL
-non compila → pianeta invisibile, e qui non posso compilare per verificare. Test: i pianeti si illuminano come prima.
-
----
-
-## Stato di stanotte (già fatto e sicuro, in `git diff`)
-
-- `PlanetRecipeUniforms.cs` (nuovo) + 4 siti unificati: colore in un posto solo. Comportamento **invariato**.
-- `OnDestroy` che libera le Mesh in `PlanetQuadtree` e `SingleMeshPlanet` (leak chiusi).
-- `VerifyParityRuntime()` in `GpuPlanetRenderer`: gate CPU↔GPU all'avvio (LogError se la mesh GPU diverge da
-  `SampleHeight` oltre 0.5 m). Non bloccante.
-- Log della VRAM del pool all'avvio (il metro per A/B).
+I buffer `bedNrm/depth/surf` servono SOLO ai corpi col mare, ma il compute li scrive sempre → per saltarli sui
+corpi asciutti servirebbe guardare le scritture E le letture nel vertex su `_HasSea` (rischio lettura fuori-bounds
+su Metal). Vale ~40% sui corpi asciutti, ma è un'altra sessione con te presente: non l'ho toccato.
