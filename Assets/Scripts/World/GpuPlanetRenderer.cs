@@ -32,9 +32,9 @@ public class GpuPlanetRenderer : MonoBehaviour
     public float skirtFactor = 0.5f;   // profondità skirt = worldSize·questo. Tenerlo BASSO: lo skirt è un muretto al
                                        // confine di LOD, e più è profondo più si vede come lamella scura. Il fix vero
                                        // delle cuciture è il GEOMORPH (Tappa 2b), non skirt più profondi.
-    public int maxSlabs = 2048;  // fette nel pool CONDIVISO fra i corpi (free + cache + visibili). Pre-allocate.
-                                 // 2048 (~940 MB) dà respiro allo streaming all'orizzonte in viaggio (col pool
-                                 // condiviso, 1024 si esaurivano → tessere "nere"); resta 5× sotto i 5 GB originali.
+    public int maxSlabs = 1024;  // fette nel pool CONDIVISO fra i corpi (free + cache + visibili). Pre-allocate.
+                                 // (~459 MB). Il "nero all'orizzonte" NON era esaurimento del pool ma l'horizon
+                                 // culling che mangiava i picchi → risolto in BeyondHorizon, qui resta il valore VRAM-ottimo.
     public int splitBudget = 8;  // quante tessere nuove al MASSIMO preparare per fotogramma (×4 fill): spalmando il
                                  // lavoro su più fotogrammi si evita l'ondata che fa scattare. Il LOD predittivo copre il "ritardo"
     public float lookaheadTime = 0.7f;   // LOD PREDITTIVO: valuta lo split dalla posizione DOVE SARAI fra ~tot secondi
