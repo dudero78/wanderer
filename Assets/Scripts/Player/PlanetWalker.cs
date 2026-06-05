@@ -563,7 +563,7 @@ public class PlanetWalker : MonoBehaviour
         var s = SolarSystem.Instance;
         var refb = s != null ? s.Reference : null;
         if (refb == null || target == null) return pv;
-        Vector3 tvs = (target.UniverseVelocityAt(s.SimTime) - refb.UniverseVelocityAt(s.SimTime)).ToVector3() * (float)s.TimeScale;
+        Vector3 tvs = (target.UniverseVelocity - refb.UniverseVelocity).ToVector3() * (float)s.TimeScale;   // cache per-Step
         return pv - tvs;
     }
 

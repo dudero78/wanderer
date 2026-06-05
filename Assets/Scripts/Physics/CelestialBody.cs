@@ -20,6 +20,7 @@ public class CelestialBody : MonoBehaviour
     public bool Massless;
 
     public Vector3d UniversePosition;
+    public Vector3d UniverseVelocity;   // cache: aggiornata UNA volta per Step da SolarSystem; i consumatori la leggono (no ricalcolo per-frame)
 
     /// <summary>Parametro gravitazionale standard μ = g·r².</summary>
     public double Mu => SurfaceGravity * Radius * Radius;

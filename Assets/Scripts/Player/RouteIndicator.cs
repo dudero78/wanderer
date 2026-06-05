@@ -306,7 +306,7 @@ public class RouteIndicator : MonoBehaviour
         Vector3 pv = walker != null ? walker.Velocity : Vector3.zero;
         var refb = solar.Reference;
         if (refb == null) return pv;
-        Vector3 tvs = (target.UniverseVelocityAt(solar.SimTime) - refb.UniverseVelocityAt(solar.SimTime)).ToVector3() * (float)solar.TimeScale;
+        Vector3 tvs = (target.UniverseVelocity - refb.UniverseVelocity).ToVector3() * (float)solar.TimeScale;   // cache per-Step
         return pv - tvs;
     }
 

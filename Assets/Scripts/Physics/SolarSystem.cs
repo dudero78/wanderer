@@ -63,6 +63,15 @@ public class SolarSystem : MonoBehaviour
             if (b != null && b.Orbit != null) b.UpdatePosition(SimTime);
         }
 
+        // 1b. CACHE della velocità-universo: la calcoliamo UNA volta per Step (ognuna = 2 solve Kepler + ricorsione)
+        //     e i consumatori (walker, indicatore di rotta, lo switch d'ancora qui sotto) la LEGGONO invece di
+        //     ricalcolarla ogni frame per ciascuno. Tutti usano SimTime → un solo valore valido per il frame.
+        for (int i = 0; i < Bodies.Count; i++)
+        {
+            var b = Bodies[i];
+            if (b != null) b.UniverseVelocity = b.UniverseVelocityAt(SimTime);
+        }
+
         // 2. ancora l'origine al corpo PIÙ VICINO al giocatore: così il corpo verso cui voli è FERMO
         //    e raggiungibile, mentre quello che lasci orbita via. Quando il corpo più vicino CAMBIA,
         //    trasli giocatore + oggetti sciolti per restare nello stesso punto-universo: è un cambio di
@@ -101,7 +110,7 @@ public class SolarSystem : MonoBehaviour
                     Vector3 shift = (FloatingOrigin.SceneOrigin - target.UniversePosition).ToVector3();
                     if (currentAnchor != null && PlayerBody != null)
                     {
-                        Vector3d dv = currentAnchor.UniverseVelocityAt(SimTime) - target.UniverseVelocityAt(SimTime);
+                        Vector3d dv = currentAnchor.UniverseVelocity - target.UniverseVelocity;
                         PlayerBody.linearVelocity += dv.ToVector3() * (float)TimeScale;
                     }
                     ShiftLoose(shift);
