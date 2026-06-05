@@ -680,6 +680,13 @@ public class GpuPlanetRenderer : MonoBehaviour
         if (cam == null) { var c = Camera.main; if (c == null) return; cam = c.transform; }
 
         Matrix4x4 m = planetTf.localToWorldMatrix;
+        // EARLY-OUT sub-pixel: un corpo così lontano da occupare meno di ~1 pixel NON fa nulla (niente refresh uniform
+        // su 2 materiali, niente traversata, niente draw, niente SetData). Converte il costo per-frame da O(corpi) a
+        // O(corpi VICINI) — il termine che cresce con tanti corpi / più sistemi solari. In mappa lo mostra il proxy.
+        // Raggio angolare ≈ radius/dist; sotto ~0.0006 rad è sotto al pixel (a FOV/risoluzione tipici). Niente isteresi:
+        // alla soglia il corpo è già invisibile, un eventuale flip è impercettibile.
+        Vector3 bodyCenter = m.MultiplyPoint3x4(Vector3.zero);
+        if (radius < Vector3.Distance(cam.position, bodyCenter) * 0.0006f) return;
         // per-frame su ENTRAMBI i materiali (interno e skirt sono ombreggiati uguale). mat porta il _Cull dell'interno
         // (Back se cullSplit, altrimenti Off = comportamento a draw singolo). matSkirt resta Cull Off (impostato nel Setup).
         mat.SetMatrix("_ObjectToWorld", m);
