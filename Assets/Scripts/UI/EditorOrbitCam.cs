@@ -14,6 +14,10 @@ public class EditorOrbitCam : MonoBehaviour
     public float pitch = 15f;
     public float rotSpeed = 6f;
     public float zoomSpeed = 2.2f;
+    // = raggio EFFETTIVO da inquadrare / raggio normale. L'editor lo alza quando il MARE gonfia il pianeta oltre le
+    // vette (sommergendo tutto, il pelo è una palla che cresce): la camera si allontana in proporzione → il pianeta
+    // resta della STESSA dimensione a schermo invece di "zoomare". 1 = nessuna correzione.
+    public float frameScale = 1f;
 
     void LateUpdate()
     {
@@ -28,7 +32,7 @@ public class EditorOrbitCam : MonoBehaviour
             distance = Mathf.Clamp(distance * (1f - scroll * zoomSpeed), minDistance, maxDistance);
 
         Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
-        transform.position = rot * (Vector3.back * distance);
+        transform.position = rot * (Vector3.back * distance * Mathf.Max(1f, frameScale));
         transform.rotation = Quaternion.LookRotation(-transform.position, Vector3.up);
     }
 }

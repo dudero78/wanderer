@@ -154,6 +154,19 @@ public class PlanetEditor : MonoBehaviour
     {
         if (recipe == null) return;
         if (Input.GetKeyDown(KeyCode.G)) ToggleGpuPreview();
+
+        // INQUADRATURA: se il mare sommerge TUTTO il pianeta, il pelo è una palla di raggio baseRadius+seaLevel che
+        // CRESCE col livello → la camera si allontana in proporzione, così il pianeta resta della stessa dimensione a
+        // schermo (non "zooma"). Sotto le vette, frameScale=1 (inquadratura normale).
+        if (orbitCam == null) orbitCam = FindAnyObjectByType<EditorOrbitCam>();
+        if (orbitCam != null)
+        {
+            float baseFrame = recipe.baseRadius + recipe.amplitude;   // raggio "normale" da inquadrare (vette incluse)
+            var sea = recipe.LastSea();
+            float seaTop = sea != null ? recipe.baseRadius + sea.seaLevel + Mathf.Max(0f, sea.seaRoughness) : 0f;
+            orbitCam.frameScale = Mathf.Max(baseFrame, seaTop) / Mathf.Max(1f, baseFrame);
+        }
+
         if (autoRes && gpu != null && gpu.Ready)   // risoluzione legata allo zoom (con isteresi)
         {
             if (orbitCam == null) orbitCam = FindAnyObjectByType<EditorOrbitCam>();
@@ -682,9 +695,19 @@ public class PlanetEditor : MonoBehaviour
 
     void Save()
     {
+        var json = JsonUtility.ToJson(recipe, true);
         var path = Path.Combine(Dir, Sanitize(recipe.name) + ".json");
-        File.WriteAllText(path, JsonUtility.ToJson(recipe, true));
+        File.WriteAllText(path, json);
         Debug.Log("Ricetta salvata: " + path);
+#if UNITY_EDITOR
+        // ANCHE in Assets/Resources/Planets → è da lì che il GIOCO legge la ricetta (la superficie GPU usa la
+        // RICETTA, non il bake → non serve ribakare per vedere i cambi di forma/colore in gioco).
+        var resDir = Path.Combine(Application.dataPath, "Resources", "Planets");
+        Directory.CreateDirectory(resDir);
+        File.WriteAllText(Path.Combine(resDir, Sanitize(recipe.name) + ".json"), json);
+        UnityEditor.AssetDatabase.Refresh();
+        Debug.Log("Ricetta salvata anche nel progetto (Resources/Planets) → il gioco la userà.");
+#endif
     }
     void Load()
     {
