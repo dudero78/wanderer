@@ -501,7 +501,9 @@ float SampleHeightD(float3 unitDir, out float waterDepth, out float seaSurf)
         else if (type == 1) { float s = SeaSurface(_Seas[idx], unitDir); seaSurf = s; waterDepth = max(0.0, s - h); h = max(h, s); }
         else                h += TectonicApply(_Tectonics[idx], unitDir);
     }
-    return h;
+    // guardia alla FONTE: un'altezza NaN/Inf/degenere (un bug in un processo) non deve entrare in _VPos come
+    // posizione spazzatura. "(h>0)" è falso per NaN → fallback al raggio base. No-op sui valori validi (h≫0) → parità intatta.
+    return (h > 0.0) ? h : _BaseRadius;
 }
 
 float SampleHeight(float3 unitDir) { float wd, ss; return SampleHeightD(unitDir, wd, ss); }
