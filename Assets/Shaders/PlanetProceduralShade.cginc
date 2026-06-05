@@ -26,12 +26,21 @@ float _TorchRange, _TorchCosInner, _TorchCosOuter;
 // 0 = calcolalo qui per-pixel (editor: massima qualità, non è perf-critico). Default 0 se non impostato.
 float _PerVertexFields;
 
-// modella il rumore centrato 'c' secondo 'forma' (= SeaTerrainLayer.Shape / PlanetBaked.SeaShape)
-float SeaShape(float c, float forma)
+// INCRESPATURA dell'acqua: perturba la normale del pelo con due ottave di rumore SCORREVOLE (gradiente
+// ANALITICO da noised → niente differenze finite). È ciò che dà identità di SUPERFICIE all'acqua: spezza il
+// glint del sole in scintille e toglie il look "dipinto" (un pelo perfettamente liscio riflette il sole come
+// un'unica macchia enorme). Tutto in spazio MONDO (worldP/Nw coerenti): sotto la floating origin il dominio
+// può "saltare" a un ri-ancoraggio, ma è impercettibile perché l'acqua è già in animazione. ampiezza/scala/
+// velocità costanti (acqua stilizzata, GPU-first; si potranno esporre come manopole della ricetta).
+float3 WaterRippleNormal(float3 worldP, float3 Nw, float strength)
 {
-    float ridged = 1.0 - 2.0 * abs(c);
-    float billow = 2.0 * abs(c) - 1.0;
-    return (forma < 0.0) ? lerp(ridged, c, forma + 1.0) : lerp(c, billow, forma);
+    if (strength <= 0.0) return Nw;
+    float tt = _Time.y;   // secondi
+    float4 n1 = noised(worldP * 0.35 + float3(0.6, 0.0, 0.37) * tt);   // onda fine, scorre in una direzione
+    float4 n2 = noised(worldP * 0.13 + float3(-0.27, 0.0, 0.5) * tt);  // onda larga, scorre nell'altra
+    float3 grad = n1.yzw * 0.6 + n2.yzw * 1.0;          // gradiente combinato (mondo)
+    float3 slope = grad - dot(grad, Nw) * Nw;           // componente TANGENTE (la pendenza del pelo)
+    return normalize(Nw - slope * strength);
 }
 
 // Pobj   = posizione in spazio OGGETTO (pianeta centrato all'origine): i campi di colore sono radiali da qui.
@@ -79,36 +88,14 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     float region = smoothstep(0.42, 0.64, fbm(sdir * _MariaScale));
     alb = lerp(alb, alb * _MariaColor.rgb, low * region * _MariaStr);
 
-    // MARE. Tinta dell'acqua (saturazione propria). Se TRASPARENTE l'acqua bassa lascia vedere il fondo
-    // (l'albedo del suolo, tinto d'acqua) e si scurisce verso il colore profondo con la profondità
-    // (Beer-Lambert: exp(−depth/limpidezza)); profonda → opaca. La profondità arriva per-vertice dal compute.
-    float seaLuma = dot(_SeaColor.rgb, float3(0.2126, 0.7152, 0.0722));
-    float3 seaCol = lerp(float3(seaLuma, seaLuma, seaLuma), _SeaColor.rgb, _SeaSat);
-    float3 waterAlb = seaCol;
-    float seaTrans = 0.0;   // quanto si vede il fondo (1 = secca, 0 = fondale opaco); 0 se non trasparente
-    if (_SeaClear > 0.5 && _SeaLiquid > 0.5)
-    {
-        seaTrans = exp(-max(depth, 0.0) / max(_SeaClarity, 0.05));
-        float3 waterTint = _SeaColor.rgb / max(seaLuma, 0.04);             // tinta a luminosità neutra (non scurisce)
-        float3 bedSeen = alb * lerp(float3(1.0, 1.0, 1.0), waterTint, 0.6);
-        waterAlb = lerp(seaCol, bedSeen, seaTrans);
-    }
-    alb = lerp(alb, waterAlb, seaMask);
-
-    // saturazione finale
+    // saturazione finale del SUOLO (l'acqua ha la sua, sotto)
     float luma = dot(alb, float3(0.2126, 0.7152, 0.0722));
     alb = lerp(float3(luma, luma, luma), alb, _Saturation);
 
-    // luce: normale geometrica del vertice (il pelo). Sul mare NON va appiattita: con la rugosità il pelo
-    // È geometria ondulata e la normale la cattura (come PlanetBaked).
+    // ===== LUCE DEL SUOLO (terra asciutta) =====
     float3 nrm = normalize(nrmW);
-    // RILIEVO DEL FONDALE: dove guardo il fondo in trasparenza (seaTrans·seaMask) illumino con la normale
-    // del FONDO sommerso; acqua profonda/terra → torna alla normale del pelo.
-    float3 shadeN = nrm;
-    if (seaTrans > 0.0)
-        shadeN = normalize(lerp(nrm, normalize(bnrmW), seaTrans * seaMask));
-    float ndl = saturate(dot(shadeN, _SunDir));
-    float3 col = alb * (ndl * _SunColor + _Ambient);
+    float ndlLand = saturate(dot(nrm, _SunDir));
+    float3 col = alb * (ndlLand * _SunColor + _Ambient);
 
     // TORCIA: spot manuale (diffuso). Attenuazione con la distanza + cono morbido. Spenta/assente → _TorchColor=0.
     float3 toL = _TorchPos - worldP;
@@ -119,16 +106,55 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     float ndlT = saturate(dot(nrm, L));
     col += alb * (_TorchColor * (ndlT * att * cone));
 
-    // MARE LIQUIDO: aspetto d'ACQUA. Glint speculare del sole + schiarita di Fresnel ai bordi radenti.
-    if (_SeaLiquid > 0.5 && seaMask > 0.0)
+    // ===== ACQUA =====
+    // Resa come SUPERFICIE, non come tinta sul terreno. Tre cue che la fanno leggere come acqua:
+    //  1) COLORE per PROFONDITÀ: bassofondo turchese chiaro → profondo blu scuro (indipendente dal fondo).
+    //  2) INCRESPATURA animata (WaterRippleNormal): spezza il glint e dà microstruttura → niente "macchia" enorme.
+    //  3) RIFLESSO: glint stretto del sole + Fresnel verso un cielo chiaro ai bordi radenti.
+    // TRASPARENZA: solo in acqua BASSA (Beer-Lambert sulla profondità) si vede il fondo, illuminato dalla sua
+    // normale (rilievo del fondale). L'acqua PROFONDA è opaca e piatta → non segue più i dossi sommersi.
+    if (seaMask > 0.0)
     {
-        float3 V = normalize(_WorldSpaceCameraPos - worldP);
-        float3 H = normalize(_SunDir + V);
-        // larghezza del riflesso = quanto è mossa l'acqua: liscia → glint quasi puntiforme; mossa → scia larga
-        float gloss = lerp(2200.0, 90.0, saturate(_SeaRough / 12.0));
-        float spec = pow(saturate(dot(nrm, H)), gloss);
-        float fres = pow(1.0 - saturate(dot(nrm, V)), 5.0) * ndl;
-        col += (_SunColor * spec * 1.1 + _SeaColor.rgb * fres * 0.3) * seaMask;
+        float seaLuma = dot(_SeaColor.rgb, float3(0.2126, 0.7152, 0.0722));
+        float3 deepCol = _SeaColor.rgb * 0.45;
+        float3 shallowCol = lerp(_SeaColor.rgb, float3(0.42, 0.78, 0.85), 0.55);   // turchese di bassofondo
+        float dN = saturate(depth / 26.0);
+        float3 waterCol = lerp(shallowCol, deepCol, dN);
+        waterCol = lerp(float3(seaLuma, seaLuma, seaLuma), waterCol, _SeaSat);     // saturazione propria del mare
+
+        // trasparenza: il fondo (alb del suolo, tinto d'acqua) emerge in acqua bassa
+        float seaTrans = 0.0;
+        if (_SeaClear > 0.5)
+        {
+            seaTrans = exp(-max(depth, 0.0) / max(_SeaClarity, 0.05));
+            float3 waterTint = _SeaColor.rgb / max(seaLuma, 0.04);                 // tinta a luminosità neutra
+            float3 bedSeen = alb * lerp(float3(1.0, 1.0, 1.0), waterTint, 0.7);
+            waterCol = lerp(waterCol, bedSeen, seaTrans);
+        }
+
+        // normale: pelo increspato; dove si vede il fondo in trasparenza, sfuma verso la normale del FONDO
+        float3 rN = WaterRippleNormal(worldP, nrm, _SeaLiquid > 0.5 ? 0.22 : 0.0);
+        float3 shadeN = (seaTrans > 0.0) ? normalize(lerp(rN, normalize(bnrmW), seaTrans * 0.85)) : rN;
+        float ndl = saturate(dot(shadeN, _SunDir));
+        float3 wcol = waterCol * (ndl * _SunColor + _Ambient);
+
+        // riflesso d'acqua (solo se "liquido")
+        if (_SeaLiquid > 0.5)
+        {
+            float3 V = normalize(_WorldSpaceCameraPos - worldP);
+            float3 H = normalize(_SunDir + V);
+            float spec = pow(saturate(dot(rN, H)), 600.0);                 // glint stretto (le increspature lo spezzano)
+            float fres = pow(1.0 - saturate(dot(rN, V)), 5.0);            // riflesso radente
+            float3 skyCol = lerp(_SunColor, float3(0.55, 0.72, 1.0), 0.6) * (_Ambient + 0.6);
+            wcol += _SunColor * (spec * 1.4 * saturate(ndlLand + 0.05));   // sole sull'acqua
+            wcol = lerp(wcol, skyCol, fres * 0.45 * saturate(ndlLand + 0.25));   // cielo riflesso ai bordi
+        }
+
+        // BATTIGIA: linea chiara dove l'acqua è bassissima (depth ~0) → riva netta, schiuma
+        float foam = (1.0 - smoothstep(0.0, 1.4, depth));
+        wcol = lerp(wcol, wcol * 0.5 + float3(0.85, 0.9, 0.95) * 0.5, foam * 0.45);
+
+        col = lerp(col, wcol, seaMask);
     }
     return col;
 }
