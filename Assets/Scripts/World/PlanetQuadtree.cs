@@ -191,10 +191,10 @@ public class PlanetQuadtree : MonoBehaviour
         lastCamPos = camPos;
         hasLastCam = true;
 
-        // 1) decisione di LOD: split/merge, visibilità. Gli split accodano i figli alla buildQueue.
+        // (1) decisione di LOD: split/merge, visibilità. Gli split accodano i figli alla buildQueue.
         for (int f = 0; f < 6; f++) roots[f].UpdateLod(evalPos);
 
-        // 2) avvia le build dei nodi in coda, fino al tetto di concorrenza.
+        // (2) avvia le build dei nodi in coda, fino al tetto di concorrenza.
         while (inFlight < maxConcurrentBuilds && buildQueue.Count > 0)
         {
             var n = buildQueue.Dequeue();
@@ -203,7 +203,7 @@ public class PlanetQuadtree : MonoBehaviour
             n.StartBuildAsync();
         }
 
-        // 3) finalizza (upload mesh) i nodi col calcolo finito, fino al budget per frame.
+        // (3) finalizza (upload mesh) i nodi col calcolo finito, fino al budget per frame.
         int done = 0;
         while (done < finalizeBudgetPerFrame && finalizeQueue.TryDequeue(out var n))
         {
