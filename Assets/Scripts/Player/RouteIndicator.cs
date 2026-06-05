@@ -184,18 +184,19 @@ public class RouteIndicator : MonoBehaviour
             // instabile. Tratteggio su entrambi. Deriva laterale ~0 mentre ti avvicini = allineato (verde).
             if (!mapActive && airborne && relSpeed > SyncSpeed)
             {
-                float pxPerMS = 6f * ui;        // pixel di offset per m/s di deriva laterale
                 float ringEdge = ring * 0.5f;
                 float maxLeash = Mathf.Clamp(ring * 1.3f, 130f * ui, 320f * ui);
-
+                // SATURAZIONE MORBIDA (per asse): sensibile vicino allo zero ma arriva al bordo (maxLeash) solo a
+                // deriva ALTA → il marker non schizza al minimo drift, ci arriva GRADUALMENTE. driftRef = m/s "di
+                // scala": più alto, più lentamente raggiunge il massimo. (Era lineare a 6 px/(m/s): saturava a ~33 m/s.)
+                const float driftRef = 110f;
                 Vector3 toT = (tp - camPos).normalized;
                 float closing = Vector3.Dot(relVel, toT);          // + = ti avvicini
                 Vector3 latVel = relVel - toT * closing;           // deriva laterale (perpendicolare alla rotta)
                 float lateral = latVel.magnitude;
-                Vector2 off = new Vector2(Vector3.Dot(latVel, view.transform.right),
-                                        -Vector3.Dot(latVel, view.transform.up)) * pxPerMS;
-                off.x = Mathf.Clamp(off.x, -maxLeash, maxLeash);   // clamp PER ASSE: deriva H e V leggibili separate
-                off.y = Mathf.Clamp(off.y, -maxLeash, maxLeash);
+                float dx = Vector3.Dot(latVel, view.transform.right) / driftRef;
+                float dy = -Vector3.Dot(latVel, view.transform.up) / driftRef;
+                Vector2 off = new Vector2(dx / Mathf.Sqrt(1f + dx * dx), dy / Mathf.Sqrt(1f + dy * dy)) * maxLeash;
 
                 bool aligned = lateral < 2f && closing > 0.5f;     // poca deriva E ti avvicini
                 Color pc = aligned ? Green : Blue;
