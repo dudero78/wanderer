@@ -127,6 +127,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     Matrix4x4 lodM;
     Vector3 lodCamLook, lodCenter, lodCamDir;
     float lodThetaHorizon;
+    float lodPeakAngle;       // height-aware: angolo con cui i PICCHI del terreno spuntano oltre l'orizzonte geometrico
     bool lodHorizonValid;     // false se la camera è troppo bassa (sotto il raggio) → niente culling all'orizzonte
     int splitsThisFrame;
     int fillsThisFrame;   // diagnosi: quante fette riempite (dispatch) in questo frame
@@ -623,18 +624,19 @@ public class GpuPlanetRenderer : MonoBehaviour
     /// <summary>Il nodo è oltre l'orizzonte (occluso dalla curvatura)? Test in ANGOLI: l'angolo del nodo dalla
     /// verticale-camera supera l'angolo dell'orizzonte + mezza estensione + margine. **ISTERESI** (stato per-nodo):
     /// serve di più per NASCONDERE che per RI-MOSTRARE → niente flip cancella/ricrea ai micro-cambi di quota (a
-    /// quota bassa l'orizzonte è sensibilissimo). Il margine alto fa anche da grossolano "le creste bucano
-    /// l'orizzonte" (un nodo appena oltre ha ancora picchi visibili) finché non arriva il fix height-aware vero.</summary>
+    /// quota bassa l'orizzonte è sensibilissimo). Le creste che bucano l'orizzonte sono gestite con precisione da
+    /// **lodPeakAngle** (acos(R/(R+maxH)) sommato alla soglia): senza, la curvatura tagliava i picchi → tessere NERE.</summary>
     bool BeyondHorizon(Node nd, Vector3 nodeWorld)
     {
         if (!lodHorizonValid) { nd.horizonHidden = false; return false; }   // camera troppo bassa: niente culling
         Vector3 nodeDir = (nodeWorld - lodCenter).normalized;
         float thetaNode = Mathf.Acos(Mathf.Clamp(Vector3.Dot(lodCamDir, nodeDir), -1f, 1f));
         float thetaR = (nd.worldSize * 0.5f) / radius;   // mezza estensione angolare del nodo
-        float baseT = lodThetaHorizon + thetaR;          // angolo orizzonte calcolato UNA volta per frame (non per nodo)
-        // isteresi: se già nascosto resta nascosto finché non rientra ben dentro (marginLow); se visibile si
-        // nasconde solo quando è ben oltre (marginHigh). Banda morta = niente oscillazione.
-        float margin = nd.horizonHidden ? 0.04f : 0.14f;
+        float baseT = lodThetaHorizon + thetaR + lodPeakAngle;   // orizzonte + estensione nodo + spunto dei picchi (height-aware)
+        // isteresi anti-flicker: ora che i PICCHI sono gestiti da lodPeakAngle, qui basta una banda morta PICCOLA
+        // (se già nascosto rientra a 0.02, se visibile si nasconde a 0.05) → niente oscillazione ai micro-cambi di
+        // quota, senza il vecchio margine grosso che sovra-disegnava (e gonfiava il set visibile).
+        float margin = nd.horizonHidden ? 0.02f : 0.05f;
         nd.horizonHidden = thetaNode > baseT + margin;
         return nd.horizonHidden;
     }
@@ -692,6 +694,12 @@ public class GpuPlanetRenderer : MonoBehaviour
         {
             lodCamDir = camRel / camDist;
             lodThetaHorizon = Mathf.Acos(Mathf.Clamp(radius / camDist, 0f, 1f));
+            // HEIGHT-AWARE: i picchi (altezza maxH sopra il raggio) restano visibili oltre l'orizzonte SFERICO di
+            // acos(R/(R+maxH)). Su corpi piccoli è grande (R=500,maxH=25 → ~18°): senza, la curvatura "mangia" le
+            // creste ancora visibili a quota → tessere NERE all'orizzonte in viaggio. maxH stimato generoso (base +
+            // crateri/tettonica), limitato a [3%,10%] del raggio per non sovra-disegnare troppo. La GPU ha margine.
+            float maxH = Mathf.Clamp(terrain.Amplitude * 2.5f, radius * 0.03f, radius * 0.1f);
+            lodPeakAngle = Mathf.Acos(Mathf.Clamp(radius / (radius + maxH), 0f, 1f));
         }
 
         visibleCount = 0;
