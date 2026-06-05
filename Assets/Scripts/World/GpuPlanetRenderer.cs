@@ -75,6 +75,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     // POOL geometria: ALIAS dei buffer CONDIVISI statici (sPos…), assegnati in AcquirePool. Un solo pool serve
     // tutti i corpi (#2 sez. A): un corpo solo è "attivo" per volta, gli altri stanno alle radici → 1×~843 MB, non 6×.
     GraphicsBuffer posBuf, nrmBuf, bedNrmBuf, depthBuf, fieldBuf, surfBuf;
+    GraphicsBuffer slabRegion;   // alias del marchio di regione CONDIVISO (parallelo al pool: un marchio per fetta fisica)
     GraphicsBuffer idxBuf;                                // topologia di UNA fetta (interno + skirt), condivisa
     GraphicsBuffer slabOfInstance;                        // istanza visibile → indice di fetta
     GraphicsBuffer splitDistOfInstance;                   // geomorph: splitDist (worldSize·lodFactor) per istanza, parallelo a slabOfInstance
@@ -108,6 +109,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     // Risparmio: 1×~843 MB invece di 6× ≈ 5 GB allocati alla costruzione scena (#2 sez. A, NOTES_pool_vram.md).
     // Tutti i corpi devono avere lo STESSO vertsPerSlab (= stesso nodeRes), o le fette non sarebbero allineate.
     static GraphicsBuffer sPos, sNrm, sBedNrm, sDepth, sField, sSurf;
+    static GraphicsBuffer sSlabRegion;   // marchio di regione CONDIVISO (parallelo al pool): un float per fetta fisica
     static readonly Stack<int> sFreeSlabs = new Stack<int>();
     static readonly Dictionary<long, int> sCacheSlab = new Dictionary<long, int>();
     static readonly LinkedList<long> sLru = new LinkedList<long>();
@@ -213,6 +215,8 @@ public class GpuPlanetRenderer : MonoBehaviour
         }
         cs.SetBuffer(kSlabBatch, "_Jobs", jobsBuf);
         cs.SetBuffer(kSkirtBatch, "_Jobs", jobsBuf);
+        cs.SetBuffer(kSlab, "_SlabRegion", slabRegion);          // marchio di regione: lo scrive il fill dell'interno
+        cs.SetBuffer(kSlabBatch, "_SlabRegion", slabRegion);
         shape = GpuShapeBuffers.Build(cs, terrain, new[] { kSlab, kSkirt, kSlabBatch, kSkirtBatch });   // base+ricetta a tutti
         cs.SetInt("_NN", n);                 // costanti per i kernel dei fill (non più per-fill)
         cs.SetInt("_NSkirtStart", skirtStart);
@@ -226,6 +230,8 @@ public class GpuPlanetRenderer : MonoBehaviour
         slabOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         splitDistOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         dirOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 16);   // float4 (16B): evita la trappola Metal float3
+        // REGION-STAMP (anti fetta-fantasma): il marchio per fetta (slabRegion, CONDIVISO via AcquirePool) è scritto dal
+        // kernel di fill INSIEME alla geometria → se la fetta tiene una regione vecchia (churn), il marchio lo svela.
         argsBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
         argsSkirtBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
 
@@ -239,6 +245,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         mat.SetBuffer("_SlabOfInstance", slabOfInstance);
         mat.SetBuffer("_SplitDistOfInstance", splitDistOfInstance);
         mat.SetBuffer("_DirOfInstance", dirOfInstance);
+        mat.SetBuffer("_SlabRegion", slabRegion);
         mat.SetInt("_VertsPerSlab", vertsPerSlab);
         mat.SetFloat("_PerVertexFields", 1f);   // in gioco: usa baseN per-vertice (fragment più economico)
         mat.SetInt("_NN", n);                                  // geomorph: vertici per lato → (i,j) dal vid + lettura vicini
@@ -282,7 +289,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         m.SetBuffer("_VPos", posBuf); m.SetBuffer("_VNrm", nrmBuf); m.SetBuffer("_VBedNrm", bedNrmBuf);
         m.SetBuffer("_VDepth", depthBuf); m.SetBuffer("_VField", fieldBuf); m.SetBuffer("_VSurf", surfBuf);
         m.SetBuffer("_SlabOfInstance", slabOfInstance); m.SetBuffer("_SplitDistOfInstance", splitDistOfInstance);
-        m.SetBuffer("_DirOfInstance", dirOfInstance);
+        m.SetBuffer("_DirOfInstance", dirOfInstance); m.SetBuffer("_SlabRegion", slabRegion);
     }
 
     /// <summary>GATE DI PARITÀ a runtime (#9): all'avvio del corpo confronta la geometria che il renderer ha
@@ -371,6 +378,17 @@ public class GpuPlanetRenderer : MonoBehaviour
         return (long)nd.face | ((long)nd.depth << 3) | (ix << 8) | (iy << 32) | ((long)bodyId << 40);
     }
 
+    // id REGIONE compatto e collision-free, ≤ 2^23 (= esatto in FLOAT, così il vertex shader lo confronta senza errore):
+    // bodyId | face | depth | ix | iy. Lo scrive il fill nella fetta (slabRegion) e lo porta l'istanza (dir.w); se non
+    // combaciano, la fetta tiene la geometria di una regione VECCHIA (churn) → il vertice si collassa. ≤7 corpi in 2^23.
+    float RegionId(Node nd)
+    {
+        int N = 1 << nd.depth;
+        int ix = Mathf.RoundToInt(nd.u0 * N);
+        int iy = Mathf.RoundToInt(nd.v0 * N);
+        return bodyId * 1048576 + ((nd.face * 8 + nd.depth) * 128 + ix) * 128 + iy;
+    }
+
     /// <summary>Alloca il pool CONDIVISO la prima volta (refcount), o lo riusa, e ne fa alias i campi per-corpo
     /// (posBuf…surfBuf, freeSlabs/cacheSlab/lru). Assegna un bodyId univoco per la chiave di cache.</summary>
     void AcquirePool()
@@ -386,6 +404,7 @@ public class GpuPlanetRenderer : MonoBehaviour
             sDepth = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
             sField = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
             sSurf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
+            sSlabRegion = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);   // marchio di regione per fetta
             sFreeSlabs.Clear();
             for (int i = maxSlabs - 1; i >= 0; i--) sFreeSlabs.Push(i);
             sCacheSlab.Clear(); sLru.Clear(); sLruNode.Clear();
@@ -395,6 +414,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         }
         sRefCount++;
         posBuf = sPos; nrmBuf = sNrm; bedNrmBuf = sBedNrm; depthBuf = sDepth; fieldBuf = sField; surfBuf = sSurf;
+        slabRegion = sSlabRegion;
         freeSlabs = sFreeSlabs; cacheSlab = sCacheSlab; lru = sLru; lruNode = sLruNode;
         bodyId = sNextBodyId++;
     }
@@ -407,7 +427,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         sRefCount--;
         if (sRefCount == 0)
         {
-            sPos?.Release(); sNrm?.Release(); sBedNrm?.Release(); sDepth?.Release(); sField?.Release(); sSurf?.Release();
+            sPos?.Release(); sNrm?.Release(); sBedNrm?.Release(); sDepth?.Release(); sField?.Release(); sSurf?.Release(); sSlabRegion?.Release();
             sPos = sNrm = sBedNrm = sDepth = sField = sSurf = null;
             sFreeSlabs.Clear(); sCacheSlab.Clear(); sLru.Clear(); sLruNode.Clear(); sNextBodyId = 0;
         }
@@ -466,7 +486,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     {
         faceUp = nd.up, axisA = nd.axisA, axisB = nd.axisB,
         uv = new Vector4(nd.u0, nd.v0, nd.size / nodeRes, nd.slab * vertsPerSlab),
-        misc = new Vector4(SkirtDrop(nd), 0f, 0f, 0f),
+        misc = new Vector4(SkirtDrop(nd), 0f, nd.slab, RegionId(nd)),   // misc.z = indice fetta, misc.w = id regione (region-stamp)
     };
 
     /// <summary>Fill PER-NODO immediato (2 dispatch, uniform per-nodo). Path classico, sicuro.</summary>
@@ -482,6 +502,8 @@ public class GpuPlanetRenderer : MonoBehaviour
         cs.SetFloat(ID_Step, nd.size / nodeRes);
         cs.SetInt(ID_NSlabOff, nd.slab * vertsPerSlab);
         cs.SetFloat(ID_NSkirtDrop, SkirtDrop(nd));
+        cs.SetInt("_SlabIndex", nd.slab);             // region-stamp (path per-nodo): il fill marchia questa fetta
+        cs.SetFloat("_SlabRegionId", RegionId(nd));
         int g = (n + 7) / 8;
         cs.Dispatch(kSlab, g, g, 1);
         cs.Dispatch(kSkirt, (4 * nodeRes + 63) / 64, 1, 1);
@@ -705,7 +727,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         {
             splitScratch[visibleCount] = nd.worldSize * lodFactor;   // geomorph: distanza di split del nodo (per istanza)
             Vector3 cd = nd.centerLocal.normalized;                  // anti-spuntone: direzione-centro del nodo (spazio oggetto)
-            dirScratch[visibleCount] = new Vector4(cd.x, cd.y, cd.z, 0f);
+            dirScratch[visibleCount] = new Vector4(cd.x, cd.y, cd.z, RegionId(nd));   // .w = id regione attesa (region-stamp)
             visibleScratch[visibleCount] = (uint)nd.slab;
             visibleCount++;
         }

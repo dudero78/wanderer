@@ -8,6 +8,7 @@
 void CSNodeSlab(uint3 id : SV_DispatchThreadID)
 {
     if ((int)id.x >= _NN || (int)id.y >= _NN) return;
+    if (id.x == 0 && id.y == 0) _SlabRegion[_SlabIndex] = _SlabRegionId;   // region-stamp: marchia la fetta col fill
     float tx = _U0 + (int)id.x * _Step;
     float ty = _V0 + (int)id.y * _Step;
     float3 dir = ParamToDir(tx, ty);
@@ -86,6 +87,7 @@ void CSNodeSlabBatch(uint3 id : SV_DispatchThreadID)
 {
     if ((int)id.x >= _NN || (int)id.y >= _NN) return;
     NodeJobGPU j = _Jobs[id.z];
+    if (id.x == 0 && id.y == 0) _SlabRegion[(int)j.misc.z] = j.misc.w;   // region-stamp: marchia la fetta col fill
     float3 up = j.faceUp.xyz, ax = j.axisA.xyz, bx = j.axisB.xyz;
     float u0 = j.uv.x, v0 = j.uv.y, step = j.uv.z;
     int slabOff = (int)j.uv.w;

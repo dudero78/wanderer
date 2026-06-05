@@ -103,11 +103,17 @@ int   _NN;            // vertici per lato del nodo (nodeRes+1)
 int   _NSlabOff;      // offset (in vertici) del primo vertice della fetta nel pool condiviso
 int   _NSkirtStart;   // offset dello skirt DENTRO la fetta (= _NN*_NN)
 float _NSkirtDrop;    // abbassamento radiale dello skirt (nasconde le crepe ai confini di LOD)
+// REGION-STAMP: il fill scrive l'id REGIONE nella fetta (insieme alla geometria) → il vertex shader smaschera una fetta
+// che tiene ancora la geometria di una regione vecchia (churn). _SlabRegion[indice fetta] = id; per-nodo da uniform,
+// batch da job.misc (z = indice fetta, w = id). float per la fetta = id esatto (≤ 2^23).
+RWStructuredBuffer<float> _SlabRegion;
+int   _SlabIndex;      // indice della fetta da marchiare (path per-nodo)
+float _SlabRegionId;   // id regione da scrivere (path per-nodo)
 
 // ---- LOD BATCH (un SOLO dispatch per molti nodi): invece di settare gli uniform e fare 1 dispatch PER NODO
 // (~centinaia di chiamate API/frame nel churn), i parametri per-nodo stanno in un buffer e si dispatcha una
 // volta sola con il NODO sull'asse z (slab) o y (skirt). Tutto float4 per evitare il disallineamento dei float3
-// su Metal. uv = (u0,v0,step,slabOff); misc.x = skirtDrop. _NN/_NSkirtStart/ricetta restano uniform globali.
+// su Metal. uv = (u0,v0,step,slabOff); misc.x = skirtDrop, misc.z = indice fetta, misc.w = id regione (region-stamp).
 struct NodeJobGPU { float4 faceUp; float4 axisA; float4 axisB; float4 uv; float4 misc; };
 StructuredBuffer<NodeJobGPU> _Jobs;
 

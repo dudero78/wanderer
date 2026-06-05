@@ -84,7 +84,8 @@ Shader "Wanderer/PlanetSurfaceGPU"
 
             // --- GEOMORPH (CDLOD): transizione LISCIA fra livelli di LOD, niente pop né cuciture/lamelle nere.
             StructuredBuffer<float> _SplitDistOfInstance;  // distanza di split per istanza (= worldSize·lodFactor del nodo)
-            StructuredBuffer<float4> _DirOfInstance;        // anti-spuntone: direzione-centro del nodo per istanza (w inusato)
+            StructuredBuffer<float4> _DirOfInstance;        // anti-spuntone: direzione-centro del nodo per istanza (w = id regione attesa)
+            StructuredBuffer<float>  _SlabRegion;           // region-stamp: id regione DAVVERO nella fetta (scritto dal fill)
             uint _NN;                            // vertici per lato del nodo (nodeRes+1): per ricavare (i,j) dal vid e leggere i vicini
             float _MorphRange;                   // ampiezza della banda di morph (frazione di splitDist)
             float _UseGeomorph;                  // 1 = geomorph attivo, 0 = solo skirt (confronto A/B)
@@ -175,7 +176,12 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 float3 vdir = (plen > 1e-4) ? (p / plen) : expectedDir;
                 float nodeAng = (_SplitDistOfInstance[iid] / 3.0) / max(_BaseRadius, 1.0);   // ≈ worldSize/raggio (lodFactor=3)
                 float maxAng = clamp(nodeAng * 2.5, 0.02, 1.6);                              // estensione del nodo + margine
-                if (!(plen < _BaseRadius * 1.3) || dot(vdir, expectedDir) < cos(maxAng))
+                // REGION-STAMP: la fetta tiene DAVVERO la regione attesa? L'id scritto dal fill (_SlabRegion) deve
+                // combaciare con quello dell'istanza (dir.w). Se no, è una fetta-fantasma (churn evict→refill non ancora
+                // applicato) → collasso TUTTI i suoi vertici → la geometria vecchia sparisce, niente lama in cielo. Id
+                // interi ≤ 2^23 = esatti in float, ma confronto con margine 0.5 per sicurezza.
+                bool stale = abs(_SlabRegion[_SlabOfInstance[iid]] - _DirOfInstance[iid].w) > 0.5;
+                if (stale || !(plen < _BaseRadius * 1.3) || dot(vdir, expectedDir) < cos(maxAng))
                     p = expectedDir * _BaseRadius;
 
                 float3 world = mul(_ObjectToWorld, float4(p, 1.0)).xyz;
