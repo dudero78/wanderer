@@ -399,7 +399,7 @@ public class PlanetEditor : MonoBehaviour
             {
                 // range del livello adattato al corpo (l'ampiezza del terreno): prima era ±250 fissi → con corpi
                 // piccoli ogni millimetro cambiava tutto. Ora la corsa è proporzionata → regolazione fine.
-                float seaRange = Mathf.Max(recipe.amplitude * 2f, 60f);
+                float seaRange = Mathf.Clamp(recipe.amplitude * 2f, 60f, 190f);   // tetto 190 m → slider del livello più graduale
                 float prevLevel = p.seaLevel;
                 p.seaLevel = Slider("Livello (m)", "Quota del pelo dell'acqua: negativo riempie solo i bacini, positivo sommerge sempre di più.", p.seaLevel, -seaRange, seaRange, ui, ref geomDirty);
                 if (p.seaLevel != prevLevel) colorDirty = true;   // anche lo shader segue il pelo
