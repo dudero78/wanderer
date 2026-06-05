@@ -236,6 +236,9 @@ public class MapMode : MonoBehaviour
             focusFollows = false;
             Vector3 move = mapCam.transform.right * px + mapCam.transform.up * py;
             focusPos += move * (mapDist * MapPanRate * Time.deltaTime);
+            // tieni il focus DENTRO il sistema → non ci si perde nel vuoto (da cui sembrava "bloccato")
+            Vector3 c = SystemCenter();
+            focusPos = c + Vector3.ClampMagnitude(focusPos - c, SystemRadius() * 1.5f);
         }
         else if (focusFollows)
             focusPos = Vector3.Lerp(focusPos, FocusTarget(), 1f - Mathf.Exp(-Time.deltaTime * 6f));
@@ -256,8 +259,10 @@ public class MapMode : MonoBehaviour
         float sc = Mathf.Clamp(Input.mouseScrollDelta.y, -3f, 3f);
         if (Mathf.Abs(sc) > 0.001f)
         {
-            float minD = Mathf.Max((float)(selected != null ? selected.Radius : 0.0) * 2.5f, SystemRadius() * 0.03f);
-            mapDist = Mathf.Clamp(mapDist * Mathf.Pow(0.82f, sc), minD, SystemRadius() * 5f);
+            // min: vicino al corpo selezionato (per ispezionarlo da presso) o una frazione del sistema; max: cappato
+            // (oltre il sistema sparisce nel vuoto). Il far clip è dinamico → niente corpi che scompaiono in zoom-out.
+            float minD = selected != null ? (float)selected.Radius * 1.6f : SystemRadius() * 0.04f;
+            mapDist = Mathf.Clamp(mapDist * Mathf.Pow(0.82f, sc), minD, SystemRadius() * 3f);
         }
     }
 
@@ -271,7 +276,8 @@ public class MapMode : MonoBehaviour
             return;
         }
 
-        if (state == State.On && (Input.GetKeyDown(toggleKey) || Input.GetKeyDown(KeyCode.Escape)))
+        // uscita: da On E da Entering (così non resti "intrappolato" se premi M durante l'animazione d'entrata)
+        if ((state == State.On || state == State.Entering) && (Input.GetKeyDown(toggleKey) || Input.GetKeyDown(KeyCode.Escape)))
             ExitMap();
 
         if (state == State.Entering || state == State.Exiting)
@@ -295,7 +301,15 @@ public class MapMode : MonoBehaviour
             mapCam.transform.SetPositionAndRotation(ovPos, ovRot);
         }
 
-        if (state != State.Off) UpdateVisuals();   // NON dopo FinishExit (lasciava le orbite a schermo)
+        if (state != State.Off)
+        {
+            // PIANI DI CLIP dinamici: in zoom-out i corpi (fino a ~SystemRadius dal focus) superavano il far clip
+            // fisso (500k) → sparivano. Qui il far segue lo zoom; il near sale con la distanza (precisione di profondità).
+            float sysR = SystemRadius();
+            mapCam.farClipPlane = mapDist + sysR * 4f;
+            mapCam.nearClipPlane = Mathf.Clamp(mapDist * 0.001f, 0.5f, sysR);
+            UpdateVisuals();
+        }
     }
 
     void EnterMap()
@@ -374,6 +388,7 @@ public class MapMode : MonoBehaviour
         }
         if (trail != null)
         {
+            trail.widthMultiplier = Mathf.Max(0.2f, mapDist * 0.0016f);   // ∝ zoom, come le orbite (era fissa = nastro verde enorme)
             int n = trailPts.Count;
             trail.positionCount = n;
             for (int i = 0; i < n; i++) trail.SetPosition(i, (trailPts[i] - FloatingOrigin.SceneOrigin).ToVector3());
@@ -388,22 +403,21 @@ public class MapMode : MonoBehaviour
             float screen = Vector3.Distance(camPos, b.transform.position) * markerScreenSize;
             if (proxies.TryGetValue(b, out var px))
             {
-                // corpo reale: il proxy mostra la superficie, il marker resta SOLO bersaglio di click (invisibile).
-                // Dimensione apparente PROPORZIONALE al raggio reale ma COMPRESSA (esponente < 1): una luna piccola
-                // si vede più piccola del suo pianeta, ma non come un punto. Riferimento = i pianeti grandi (700 m).
-                // GlobalShrink = tutto un filo più piccolo (così il binario terra/Valentina2 non è un blob unico).
+                // DUE regimi, presi col max: (1) da LONTANO una dimensione-schermo COSTANTE ma proporzionale-compressa
+                // al raggio (lune più piccole dei pianeti, ma sempre visibili/cliccabili); (2) da VICINO il raggio
+                // REALE → zoomando il corpo CRESCE alla sua taglia vera (lo ispezioni). RefRadius = i pianeti grandi.
                 const float RefRadius = 700f, SizePow = 0.8f, GlobalShrink = 0.82f;
-                float R = screen * Mathf.Pow((float)b.Radius / RefRadius, SizePow) * GlobalShrink;
-                if (b == selected) R *= 1.2f;
+                float constScreen = screen * Mathf.Pow((float)b.Radius / RefRadius, SizePow) * GlobalShrink;
+                float R = Mathf.Max(constScreen, (float)b.Radius);
+                if (b == selected) R *= 1.15f;
                 px.position = b.transform.position;
                 px.localScale = Vector3.one * (R / Mathf.Max(1f, (float)b.Radius));   // mesh a raggio reale → scala a R
                 mk.transform.localScale = Vector3.one * (R * 2f);   // sfera-collider (raggio 0.5) → copre il proxy
             }
             else
             {
-                // la stella: disco stilizzato, NON in scala (un sole vero è 100× un pianeta → dominerebbe). Fisso,
-                // solo un filo più piccolo di prima per stare in tono col resto.
-                float sz = screen * 1.4f;
+                // la stella: disco stilizzato. Da lontano dimensione-schermo, da vicino il raggio reale (cresce zoomando).
+                float sz = Mathf.Max(screen * 1.4f, (float)b.Radius);
                 if (b == selected) sz *= 1.5f;
                 mk.transform.localScale = Vector3.one * sz;
             }
@@ -416,10 +430,10 @@ public class MapMode : MonoBehaviour
             if (b == null || b.Orbit == null || b.Parent == null) { lr.enabled = false; continue; }
             lr.enabled = true;
             Vector3 parentScene = b.Parent.transform.position;
-            // SPESSORE ∝ distanza camera → larghezza ~COSTANTE a schermo. Con larghezza-mondo fissa, zoomando le
-            // orbite piccole (il binario) diventavano bande enormi. (Il LineRenderer non sa fare lo screen-space del
-            // vert come Wanderer/OrbitLine: approssimo con la distanza dal centro dell'orbita, basta per la mappa.)
-            lr.widthMultiplier = Mathf.Max(0.5f, Vector3.Distance(camPos, parentScene) * 0.0025f);
+            // SPESSORE ∝ ZOOM (mapDist) → larghezza ~costante a schermo a ogni zoom. Usare la distanza dal GENITORE
+            // sbagliava: l'orbita del baricentro (genitore = stella lontana) restava un nastro enorme anche zoomata.
+            // (Il LineRenderer non sa lo screen-space per-vertice di Wanderer/OrbitLine: mapDist basta per la mappa.)
+            lr.widthMultiplier = Mathf.Max(0.3f, mapDist * 0.0022f);
             int n = lr.positionCount;
             for (int k = 0; k < n; k++)
             {
