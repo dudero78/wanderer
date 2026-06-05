@@ -98,18 +98,18 @@
             "riftBalance": 0.550000011920929,
             "seaLevel": 3.931203842163086,
             "seaColor": {
-                "r": 0.0,
-                "g": 0.367878794670105,
-                "b": 0.663939356803894,
+                "r": 0.3199999928474426,
+                "g": 0.7200000286102295,
+                "b": 0.10000000149011612,
                 "a": 1.0
             },
-            "seaSaturation": 1.0,
+            "seaSaturation": 1.2000000476837159,
             "seaRoughness": 16.969697952270509,
             "seaRoughScale": 3.060606002807617,
             "seaForma": -0.01515151560306549,
             "liquid": true,
             "seaClear": true,
-            "seaClarity": 8.0
+            "seaClarity": 7.0
         },
         {
             "type": 0,

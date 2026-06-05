@@ -1,7 +1,53 @@
 # Wanderer — TODO
 
-Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **4 giugno 2026** (sessione B1 — resa GPU in gioco).
-Dettaglio tecnico nel `CLAUDE.md`.
+Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **5 giugno 2026** (sessione: acqua-superficie, mappa,
+batch fill, presets). Dettaglio tecnico nel `CLAUDE.md`.
+
+> ## 🔴 PARTI DA QUI — 3 BUG APERTI nell'EDITOR (sessione 5 giu, da riprendere a freddo)
+> Tutti e tre nell'**editor di pianeti** (scena "Apri editor pianeti"), su Valentina2 (mare + tettonica + crateri):
+>
+> **(1) Il livello del mare NON allaga come dovrebbe.** Alzando "Livello (m)" al MAX (259 = amplitude·2) il pianeta
+> resta una luna craterizzata per lo più ASCIUTTA con acqua solo nelle conche — NON la palla d'acqua attesa (a
+> seaSurf = baseRadius+seaLevel = 759, ben sopra le vette ~710, dovrebbe sommergere TUTTO). Dario: "prima funzionava,
+> non riaprivo l'editor da tempo". SOSPETTO PRINCIPALE: **ordine dei processi** — la pipeline è TETTONICA → MARE →
+> **CRATERI** (crateri DOPO il mare): i crateri scavano/sollevano sul pelo allagato → rim che bucano l'acqua
+> ovunque → sembra non allagato. (Verificare: con MARE come ultimo processo allaga? oppure seaLevel non arriva alla
+> geometria?) NON è la camera (correzione frameScale già tolta). Da instrumentare: log del seaRadius reale + % allagata.
+>
+> **(2) Trasparenza dell'acqua "al contrario" nell'editor, e troppo poco effetto in gioco.** Nell'editor alzando
+> "limpidezza" l'acqua sembra diventare MENO trasparente (il codice fa il contrario: limpidezza alta = `seaTrans`
+> alto = più fondo). In gioco poca differenza tra min e max. **OBIETTIVO di Dario:** a limpidezza MAX si devono
+> vedere PERFETTAMENTE tutti i fondali, anche i FONDI (oggi l'acqua profonda non mostra il fondo — Beer-Lambert
+> `exp(-depth/clarity)` → a fondo profondo nessun fondo a nessuna limpidezza). Ripensare il modello: a clarity max
+> il fondo deve trasparire anche in profondità. Shader: `PlanetProceduralShade.cginc`, blocco ACQUA.
+>
+> **(3) Bakeando un pianeta dall'editor, il pianeta SPARISCE.** Ogni "Bake" da editor → la superficie sparisce.
+> Da indagare (il bake-runtime tocca i FaceMaterials/RT? conflitto con l'anteprima GPU? l'hook di bake iniettato?).
+>
+> Il resto della sessione (sotto, "FATTO 5 giu") è a posto. La grafica del terreno: prossimo = **GEOMORPH (Tappa 2b)**.
+
+## FATTO 5 giugno (sessione acqua/mappa/batch)
+- ✅ **Committato tutto il lavoro 4-5 giu non committato** (split compute, PlayerSpawn/LightingSetup/UiSetup, B1
+  Tappa 2 LOD, EnsureIncludedShaders, HUD fps/picco).
+- ✅ **ACQUA come SUPERFICIE** (in gioco + editor, shader condiviso `PlanetProceduralShade.cginc`): pelo per-vertice
+  (`_VSurf` → maschera ESATTA, niente più "dipinto"); **increspatura animata** (`WaterRippleNormal`, gradiente
+  analitico da `noised`, **dominio in spazio OGGETTO** = flusso costante non legato al moto del corpo); **colore
+  dagli slider R/G/B** (acqua/acido/qualunque), bassofondo chiaro→profondo scuro; **trasparenza** = trasmissione
+  `alb·min(colore·1.6, 1.1)` (assorbe, non sbianca; scuro/saturo = meno fondo); **mare SOLIDO** (maria/lava, non
+  liquido né clear) = tinta piatta; **liquido** = glint+Fresnel+battigia; **clear sganciato da liquido** (ghiaccio).
+- ✅ **Preset mare nell'editor**: Acqua/Ghiaccio/Acido/Trasparente (colore+flag). seaClarity fino a 150 m.
+- ✅ **BINARIO** terra-test3/Valentina2 su **baricentro** (`CelestialBody.Massless`, vedi [[wanderer-fisica-orbite]]);
+  Valentina2 ha **ricetta propria** (Valentina2.json) → editabile a parte.
+- ✅ **MAPPA**: proxy **proporzionali** al raggio (compresso) e più piccoli; **camera orbitale** (DESTRO ruota,
+  WASD pan, rotella zoom, focus sul corpo selezionato); orbite+scia a spessore COSTANTE a schermo (∝ zoom); far/near
+  clip dinamici (niente sparizioni in zoom-out); **superficie GPU sospesa in mappa** (`GpuPlanetRenderer.SuppressDraw`
+  — risolto il bug "taglie incoerenti").
+- ✅ **BATCH FILL del LOD** (1 dispatch per molti nodi, `CSNodeSlabBatch/Skirt` + `_Jobs`): PARITÀ multi-job
+  confermata (max diff 0), **ON di default**, auto-fallback al per-nodo se diverge. Warning uint skirt risolti.
+- ✅ **Anti-aliasing della normale a distanza** (`fwidth` → sfuma verso la sfera liscia): niente più corpi "sgranati".
+- ✅ **HUD**: marker di drift a saturazione morbida + ease-in; **mirino** al centro schermo.
+- ✅ **Editor Salva** scrive ANCHE in `Resources/Planets/` (in editor) → il gioco vede gli edit (la superficie GPU usa
+  la RICETTA, non il bake; **ribakare NON serve** per forma/colore in gioco).
 
 > **PARTI DA QUI:** **B1 GIRA** (resa GPU in gioco: quadtree CDLOD su GPU + 1 draw indirect + colore procedurale +
 > LOD + walker analitico). Artefatti spariti, fermo/crociera 60 fps. **Load RISOLTO** (era la compilazione del

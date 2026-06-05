@@ -15,6 +15,23 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 
 ## Stato attuale (vedi git log per il dettaglio)
 
+> **AGGIORNAMENTO 5 giu 2026 (delta sulle sezioni sotto, che possono essere datate):**
+> - **Resa GPU in gioco (B1) GIRA**: quadtree CDLOD su GPU + 1 draw indirect + colore procedurale + **BATCH FILL**
+>   (`CSNodeSlabBatch/Skirt` + buffer `_Jobs`, parità multi-job 0, ON di default con auto-fallback) + **AA della normale
+>   a distanza** (`fwidth`). `GpuPlanetRenderer`/`PlanetSurfaceGPU`. Walker analitico intatto.
+> - **ACQUA = SUPERFICIE** (shader condiviso `PlanetProceduralShade.cginc`): il pelo arriva **per-vertice** (`_VSurf`,
+>   maschera ESATTA — NON si ricostruisce più dal rumore nel fragment); **increspatura animata** (`WaterRippleNormal`,
+>   dominio in spazio OGGETTO); **colore dagli slider R/G/B**; trasparenza = trasmissione `alb·min(colore·1.6,1.1)`;
+>   mare SOLIDO (maria) vs LIQUIDO (glint/Fresnel/battigia) vs **CLEAR sganciato da liquido** (ghiaccio). Preset
+>   Acqua/Ghiaccio/Acido/Trasparente nell'editor.
+> - **CORPI**: binario **terra-test3 / Valentina2** su un **baricentro** (`CelestialBody.Massless`); lista =
+>   Pianeta + Cetra + Luna6 + terra-test3 + Valentina2(r700, ricetta propria) + Luna7.
+> - **MAPPA**: proxy proporzionali, **camera orbitale** (destro=ruota, WASD=pan, rotella=zoom), superficie GPU sospesa
+>   in mappa (`GpuPlanetRenderer.SuppressDraw`).
+> - **Editor Salva** scrive ANCHE in `Resources/Planets/` → il gioco usa la **ricetta**, non il bake (ribakare non serve).
+> - **🔴 3 BUG APERTI nell'editor** (vedi `TODO.md` §PARTI DA QUI): livello mare non allaga in palla d'acqua · trasparenza
+>   "al contrario" · bake da editor fa sparire il pianeta. **PROSSIMO grafica: GEOMORPH (Tappa 2b)** = fix cuciture LOD.
+
 Funziona: floating origin + doppia precisione, orbita Kepleriana, **gravità radiale**,
 **volo col jetpack** (tuta da raccogliere), **torcia** (F), ciclo giorno/notte.
 
