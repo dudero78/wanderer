@@ -94,6 +94,17 @@ public class GpuPlanetRenderer : MonoBehaviour
     int fillsThisFrame;   // diagnosi: quante fette riempite (dispatch) in questo frame
     long fillTicks;       // diagnosi: tempo CPU speso nelle chiamate dei fill (SetX+Dispatch), per separarlo dalla traversata
 
+    // --- BATCH FILL (opt-in): accumula i fill del frame e li manda in UN dispatch invece di uno per nodo (taglia le
+    // chiamate API). Si attiva solo se la VERIFICA di parità (batch↔per-nodo, vedi VerifyBatchFill) è verde; altrimenti
+    // resta il path per-nodo (sicuro). R1: il batch corruppe la geometria una volta → ora è dietro al banco di verifica.
+    public static bool UseBatchFill;   // acceso da GameBootstrap PRIMA del Setup (la verifica gira nel Setup)
+    bool batchReady;             // true = verifica passata → uso il path batch
+    int kSlabBatch, kSkirtBatch;
+    GraphicsBuffer jobsBuf;      // parametri per-nodo del frame
+    NodeJob[] jobScratch;        // CPU side, riempito durante la traversata, caricato una volta al flush
+    int jobCount;
+    struct NodeJob { public Vector4 faceUp, axisA, axisB, uv, misc; }   // = NodeJobGPU (uv: u0,v0,step,slabOff; misc.x: skirtDrop)
+
     public bool Ready { get; private set; }
 
     /// <summary>Un nodo del quadtree: leggero (niente GameObject/Mesh). slab ≥ 0 solo sulle FOGLIE.</summary>
@@ -132,6 +143,8 @@ public class GpuPlanetRenderer : MonoBehaviour
         }
         kSlab = cs.FindKernel("CSNodeSlab");
         kSkirt = cs.FindKernel("CSNodeSkirt");
+        kSlabBatch = cs.FindKernel("CSNodeSlabBatch");
+        kSkirtBatch = cs.FindKernel("CSNodeSkirtBatch");
 
         int totalVerts = maxSlabs * vertsPerSlab;
         posBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
@@ -140,7 +153,10 @@ public class GpuPlanetRenderer : MonoBehaviour
         depthBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
         fieldBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);   // baseN per-vertice
         surfBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);    // pelo del mare per-vertice
-        foreach (int k in new[] { kSlab, kSkirt })
+        jobsBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 5 * 16); // NodeJob = 5×float4
+        jobScratch = new NodeJob[maxSlabs];
+        // i 4 kernel (per-nodo + batch) scrivono lo STESSO pool; i batch leggono anche _Jobs
+        foreach (int k in new[] { kSlab, kSkirt, kSlabBatch, kSkirtBatch })
         {
             cs.SetBuffer(k, "_VPos", posBuf);
             cs.SetBuffer(k, "_VNrm", nrmBuf);
@@ -149,7 +165,9 @@ public class GpuPlanetRenderer : MonoBehaviour
             cs.SetBuffer(k, "_VField", fieldBuf);
             cs.SetBuffer(k, "_VSurf", surfBuf);
         }
-        shape = GpuShapeBuffers.Build(cs, terrain, new[] { kSlab, kSkirt });   // base+ricetta, parità col walker
+        cs.SetBuffer(kSlabBatch, "_Jobs", jobsBuf);
+        cs.SetBuffer(kSkirtBatch, "_Jobs", jobsBuf);
+        shape = GpuShapeBuffers.Build(cs, terrain, new[] { kSlab, kSkirt, kSlabBatch, kSkirtBatch });   // base+ricetta a tutti
         cs.SetInt("_NN", n);                 // costanti per i kernel dei fill (non più per-fill)
         cs.SetInt("_NSkirtStart", skirtStart);
 
@@ -177,12 +195,20 @@ public class GpuPlanetRenderer : MonoBehaviour
         radius = terrain.Recipe != null ? terrain.Recipe.baseRadius : terrain.BaseRadius;
         cs.SetInt("_HasSea", terrain.Recipe != null && terrain.Recipe.LastSea() != null ? 1 : 0);
 
-        // 6 facce-radice, ciascuna con la sua fetta riempita
+        // 6 facce-radice, ciascuna con la sua fetta riempita (per-nodo: batchReady è ancora false → fill noto-corretto)
         roots = new Node[6];
         for (int f = 0; f < 6; f++)
         {
             roots[f] = MakeNode(f, 0f, 0f, 1f, 0);
-            AcquireSlab(roots[f]);   // cache vuota all'avvio → alloca e riempie
+            AcquireSlab(roots[f]);   // cache vuota all'avvio → alloca e riempie (per-nodo)
+        }
+
+        // BATCH FILL: lo accendo solo se la verifica di parità (batch↔per-nodo, sui 6 root) è verde. Altrimenti
+        // resto sul per-nodo (sicuro). Vedi R1: il batch corruppe la geometria una volta → niente fede cieca.
+        if (UseBatchFill)
+        {
+            batchReady = VerifyBatchFill();
+            if (!batchReady) Debug.LogWarning($"{terrain.name}: batch fill NON attivato (parità fallita) → resto sul per-nodo.");
         }
 
         ApplyColor();
@@ -261,11 +287,27 @@ public class GpuPlanetRenderer : MonoBehaviour
         nd.slab = -1;
     }
 
-    /// <summary>Riempie la fetta del nodo sulla GPU (griglia interna + skirt), un dispatch per nodo. Niente readback.</summary>
+    /// <summary>Riempie la fetta del nodo. In batch: ACCODA il job (un solo dispatch al FlushFills di fine frame).
+    /// Altrimenti: dispatch per-nodo immediato (path sicuro, default).</summary>
     void FillSlab(Node nd)
     {
         if (nd.slab < 0) return;
         fillsThisFrame++;
+        if (batchReady && jobCount < jobScratch.Length) { jobScratch[jobCount++] = MakeJob(nd); return; }
+        FillSlabImmediate(nd);
+    }
+
+    NodeJob MakeJob(Node nd) => new NodeJob
+    {
+        faceUp = nd.up, axisA = nd.axisA, axisB = nd.axisB,
+        uv = new Vector4(nd.u0, nd.v0, nd.size / nodeRes, nd.slab * vertsPerSlab),
+        misc = new Vector4(Mathf.Clamp(nd.worldSize * skirtFactor, 1f, nd.worldSize), 0f, 0f, 0f),
+    };
+
+    /// <summary>Fill PER-NODO immediato (2 dispatch, uniform per-nodo). Path classico, sicuro.</summary>
+    void FillSlabImmediate(Node nd)
+    {
+        if (nd.slab < 0) return;
         long t0 = System.Diagnostics.Stopwatch.GetTimestamp();   // diagnosi: misura il costo CPU delle chiamate del fill
         cs.SetVector(ID_FaceUp, nd.up);
         cs.SetVector(ID_AxisA, nd.axisA);
@@ -279,6 +321,50 @@ public class GpuPlanetRenderer : MonoBehaviour
         cs.Dispatch(kSlab, g, g, 1);
         cs.Dispatch(kSkirt, (4 * nodeRes + 63) / 64, 1, 1);
         fillTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+    }
+
+    /// <summary>Manda in UN dispatch (slab + skirt) tutti i job accumulati nel frame. Il nodo è sull'asse z (slab) /
+    /// y (skirt) del dispatch → ogni gruppo legge i suoi parametri da _Jobs[nodo]. Niente per-nodo SetX/Dispatch.</summary>
+    void FlushFills()
+    {
+        if (!batchReady || jobCount == 0) return;
+        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        jobsBuf.SetData(jobScratch, 0, 0, jobCount);
+        int g = (n + 7) / 8;
+        cs.Dispatch(kSlabBatch, g, g, jobCount);
+        cs.Dispatch(kSkirtBatch, (4 * nodeRes + 63) / 64, jobCount, 1);
+        fillTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        jobCount = 0;
+    }
+
+    /// <summary>BANCO DI VERIFICA (R1): riempie i 6 root col path PER-NODO e col path BATCH e confronta i vertici
+    /// (readback). Se combaciano sub-cm → il batch è corretto e si può usare. Inchioda il bug d'indicizzazione che
+    /// l'altra volta corruppe la geometria. Costa qualche readback sincrono, ma è UNA volta sola all'avvio.</summary>
+    bool VerifyBatchFill()
+    {
+        int vfloats = vertsPerSlab * 3;
+        var a = new float[vfloats];
+        var b = new float[vfloats];
+        float maxDiff = 0f; long compared = 0;
+        int g = (n + 7) / 8;
+        foreach (var r in roots)
+        {
+            if (r.slab < 0) continue;
+            int baseF = r.slab * vfloats;                    // indice float di inizio fetta nel pool
+            FillSlabImmediate(r);                            // A = per-nodo (noto-corretto)
+            posBuf.GetData(a, 0, baseF, vfloats);
+            jobScratch[0] = MakeJob(r);                      // B = batch (1 job)
+            jobsBuf.SetData(jobScratch, 0, 0, 1);
+            cs.Dispatch(kSlabBatch, g, g, 1);
+            cs.Dispatch(kSkirtBatch, (4 * nodeRes + 63) / 64, 1, 1);
+            posBuf.GetData(b, 0, baseF, vfloats);
+            for (int i = 0; i < vfloats; i++) { float d = Mathf.Abs(a[i] - b[i]); if (d > maxDiff) maxDiff = d; compared++; }
+            FillSlabImmediate(r);                            // ripristina il per-nodo
+        }
+        jobCount = 0;
+        bool ok = maxDiff < 0.01f;                           // sub-cm = identici (a meno del round-off)
+        Debug.Log($"[batch-fill] verifica {terrain.name}: {(ok ? "PARITÀ OK" : "DIVERGE!")} — {compared} float su {roots.Length} fette, max diff {maxDiff:F5} m");
+        return ok;
     }
 
     bool Split(Node nd)
@@ -436,6 +522,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         fillsThisFrame = 0;
         fillTicks = 0;
         for (int f = 0; f < 6; f++) UpdateLod(roots[f]);
+        FlushFills();   // batch: i fill accumulati nella traversata partono ora, in un solo dispatch (no-op se per-nodo)
         double lodMs = sw.Elapsed.TotalMilliseconds;   // traversata + dispatch dei fill (logica LOD sulla CPU)
         if (visibleCount == 0) return;
 
@@ -571,7 +658,7 @@ public class GpuPlanetRenderer : MonoBehaviour
 
     void OnDestroy()
     {
-        posBuf?.Release(); nrmBuf?.Release(); bedNrmBuf?.Release(); depthBuf?.Release(); fieldBuf?.Release(); surfBuf?.Release();
+        posBuf?.Release(); nrmBuf?.Release(); bedNrmBuf?.Release(); depthBuf?.Release(); fieldBuf?.Release(); surfBuf?.Release(); jobsBuf?.Release();
         idxBuf?.Release(); slabOfInstance?.Release(); argsBuf?.Release();
         shape?.Dispose();
         if (mat != null) Destroy(mat);

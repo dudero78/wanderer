@@ -21,6 +21,10 @@ public class GameBootstrap : MonoBehaviour
     public bool useQuadtree = true;
     [Tooltip("Solo se useQuadtree=OFF: risoluzione della mesh singola per faccia (build su thread).")]
     public int singleMeshRes = 320;
+    [Tooltip("Sperimentale (B1/R1): riempi le fette del LOD in UN dispatch invece che uno per nodo (meno chiamate "
+           + "API). Si attiva solo se la VERIFICA di parità batch↔per-nodo all'avvio è verde (log [batch-fill]); "
+           + "altrimenti resta il path per-nodo. Default OFF.")]
+    public bool useBatchFill = false;
 
     [Tooltip("DEBUG/test: nasci su questo corpo invece che sul pianeta-casa (es. \"terra-test3\"). Vuoto = pianeta-casa.")]
     public string spawnOnBody = "terra-test3";
@@ -49,6 +53,7 @@ public class GameBootstrap : MonoBehaviour
 
         // --- COMPOSIZIONE della scena, ogni pezzo ISOLATO nel suo file (niente "minestrone" qui): sistema solare →
         //     spawn del giocatore → illuminazione → interfaccia. Aggiungere/cambiare un pezzo = nel suo Setup, non qui. ---
+        GpuPlanetRenderer.UseBatchFill = useBatchFill;   // PRIMA della Build: la verifica gira nel Setup di ogni corpo
         var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody);
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);
         LightingSetup.Setup(gameObject, solar, sys.StarTransform, sys.HomePlanetGo.transform);

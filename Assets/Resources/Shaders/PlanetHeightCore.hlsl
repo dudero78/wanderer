@@ -104,6 +104,13 @@ int   _NSlabOff;      // offset (in vertici) del primo vertice della fetta nel p
 int   _NSkirtStart;   // offset dello skirt DENTRO la fetta (= _NN*_NN)
 float _NSkirtDrop;    // abbassamento radiale dello skirt (nasconde le crepe ai confini di LOD)
 
+// ---- LOD BATCH (un SOLO dispatch per molti nodi): invece di settare gli uniform e fare 1 dispatch PER NODO
+// (~centinaia di chiamate API/frame nel churn), i parametri per-nodo stanno in un buffer e si dispatcha una
+// volta sola con il NODO sull'asse z (slab) o y (skirt). Tutto float4 per evitare il disallineamento dei float3
+// su Metal. uv = (u0,v0,step,slabOff); misc.x = skirtDrop. _NN/_NSkirtStart/ricetta restano uniform globali.
+struct NodeJobGPU { float4 faceUp; float4 axisA; float4 axisB; float4 uv; float4 misc; };
+StructuredBuffer<NodeJobGPU> _Jobs;
+
 // =================================================================================================
 // Noise3D (gradient noise di Perlin + fBm) — fedele a Noise3D.cs
 // =================================================================================================
@@ -523,6 +530,13 @@ float3 ParamToDir(float tx, float ty)
 {
     float3 pointOnCube = _FaceUp + (tx - 0.5) * 2.0 * _AxisA + (ty - 0.5) * 2.0 * _AxisB;
     return normalize(pointOnCube);
+}
+
+// Variante con gli assi della faccia ESPLICITI (per i kernel batch, che leggono gli assi dal job invece che dagli
+// uniform globali). Stessa formula → parità per costruzione con ParamToDir quando gli assi coincidono.
+float3 ParamToDirA(float tx, float ty, float3 up, float3 a, float3 b)
+{
+    return normalize(up + (tx - 0.5) * 2.0 * a + (ty - 0.5) * 2.0 * b);
 }
 
 // =================================================================================================

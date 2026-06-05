@@ -1,5 +1,7 @@
 #pragma kernel CSNodeSlab
 #pragma kernel CSNodeSkirt
+#pragma kernel CSNodeSlabBatch
+#pragma kernel CSNodeSkirtBatch
 #include "PlanetHeightCore.hlsl"
 
 [numthreads(8, 8, 1)]
@@ -68,4 +70,84 @@ void CSNodeSkirt(uint3 id : SV_DispatchThreadID)
     _VDepth[vi] = 0.0;
     _VSurf[vi] = surf;     // pelo continuo col bordo interno; lo skirt è abbassato (sp sotto il pelo) → la maschera lo legge asciutto
     _VField[vi] = Fbm(dir * _Frequency, 2, _Lacunarity, _Gain, _Seed);   // baseN per-vertice (come l'interno)
+}
+
+// =================================================================================================
+// VARIANTI BATCH: identiche alle due sopra ma con i parametri per-nodo letti da _Jobs[NODO] invece che dagli
+// uniform globali. Il NODO è l'asse z (slab) / y (skirt) del dispatch → UN solo dispatch riempie molti nodi.
+// _NN/_NSkirtStart e la ricetta (SampleHeightD/BedHeight/Fbm) restano globali (uguali per tutti i nodi del corpo).
+// =================================================================================================
+
+[numthreads(8, 8, 1)]
+void CSNodeSlabBatch(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _NN || (int)id.y >= _NN) return;
+    NodeJobGPU j = _Jobs[id.z];
+    float3 up = j.faceUp.xyz, ax = j.axisA.xyz, bx = j.axisB.xyz;
+    float u0 = j.uv.x, v0 = j.uv.y, step = j.uv.z;
+    int slabOff = (int)j.uv.w;
+
+    float tx = u0 + (int)id.x * step;
+    float ty = v0 + (int)id.y * step;
+    float3 dir = ParamToDirA(tx, ty, up, ax, bx);
+    float depth, surf;
+    float3 p = dir * SampleHeightD(dir, depth, surf);
+    int vi = slabOff + (int)id.x + (int)id.y * _NN;
+    int o = vi * 3;
+    _VPos[o] = p.x; _VPos[o + 1] = p.y; _VPos[o + 2] = p.z;
+    _VDepth[vi] = depth;
+    _VSurf[vi] = surf;
+    _VField[vi] = Fbm(dir * _Frequency, 2, _Lacunarity, _Gain, _Seed);
+
+    float3 pXp = ParamToDirA(tx + step, ty, up, ax, bx); pXp *= SampleHeight(pXp);
+    float3 pYp = ParamToDirA(tx, ty + step, up, ax, bx); pYp *= SampleHeight(pYp);
+    float3 nrm = normalize(cross(pYp - p, pXp - p));
+    if (dot(nrm, dir) < 0.0) nrm = -nrm;
+    _VNrm[o] = nrm.x; _VNrm[o + 1] = nrm.y; _VNrm[o + 2] = nrm.z;
+
+    float3 bn = nrm;
+    if (_HasSea != 0)
+    {
+        float3 bC = dir * BedHeight(dir);
+        float3 bXp = ParamToDirA(tx + step, ty, up, ax, bx); bXp *= BedHeight(bXp);
+        float3 bYp = ParamToDirA(tx, ty + step, up, ax, bx); bYp *= BedHeight(bYp);
+        bn = normalize(cross(bYp - bC, bXp - bC));
+        if (dot(bn, dir) < 0.0) bn = -bn;
+    }
+    _VBedNrm[o] = bn.x; _VBedNrm[o + 1] = bn.y; _VBedNrm[o + 2] = bn.z;
+}
+
+[numthreads(64, 1, 1)]
+void CSNodeSkirtBatch(uint3 id : SV_DispatchThreadID)
+{
+    int res = _NN - 1;
+    int per = 4 * res;
+    if ((int)id.x >= per) return;
+    NodeJobGPU jb = _Jobs[id.y];
+    float3 up = jb.faceUp.xyz, ax = jb.axisA.xyz, bx = jb.axisB.xyz;
+    float u0 = jb.uv.x, v0 = jb.uv.y, step = jb.uv.z;
+    int slabOff = (int)jb.uv.w;
+    float drop = jb.misc.x;
+
+    int k = (int)id.x;
+    int e = k / res, t = k % res;
+    int i, jj;
+    if (e == 0)      { i = t;       jj = 0; }
+    else if (e == 1) { i = res;     jj = t; }
+    else if (e == 2) { i = res - t; jj = res; }
+    else             { i = 0;       jj = res - t; }
+    float tx = u0 + i * step;
+    float ty = v0 + jj * step;
+    float3 dir = ParamToDirA(tx, ty, up, ax, bx);
+    float depth, surf;
+    float3 p = dir * SampleHeightD(dir, depth, surf);
+    float3 sp = p - dir * drop;
+    int vi = slabOff + _NSkirtStart + k;
+    int o = vi * 3;
+    _VPos[o] = sp.x; _VPos[o + 1] = sp.y; _VPos[o + 2] = sp.z;
+    _VNrm[o] = dir.x; _VNrm[o + 1] = dir.y; _VNrm[o + 2] = dir.z;
+    _VBedNrm[o] = dir.x; _VBedNrm[o + 1] = dir.y; _VBedNrm[o + 2] = dir.z;
+    _VDepth[vi] = 0.0;
+    _VSurf[vi] = surf;
+    _VField[vi] = Fbm(dir * _Frequency, 2, _Lacunarity, _Gain, _Seed);
 }
