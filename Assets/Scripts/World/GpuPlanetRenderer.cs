@@ -39,8 +39,11 @@ public class GpuPlanetRenderer : MonoBehaviour
                                          // (verso cui voli) → il dettaglio è pronto PRIMA di arrivarci (niente "carica tardi")
     public bool useGeomorph = true;      // GEOMORPH CDLOD nel vertex shader: transizioni LOD lisce (niente pop/lamelle nere). Toggle A/B
     public float morphRange = 0.5f;      // ampiezza della banda di morph (frazione di splitDist): 0.1 stretta, 0.9 larga
-    public bool cullSplit = false;       // OVERDRAW: disegna l'interno con Cull Back (metà fragment) + le skirt con Cull Off, in 2 draw. Toggle (default OFF = comportamento attuale)
-    public int interiorCull = 2;         // verso del cull dell'interno: 2 = Back. Se l'interno SPARISCE accendendo cullSplit, il verso è invertito → metti 1 (Front)
+    // OVERDRAW: disegna l'interno con Cull Back (metà fragment) + le skirt con Cull Off, in 2 draw. STATICI
+    // (impostati da GameBootstrap, come UseBatchFill). InteriorCull 2=Back; se l'interno SPARISCE accendendolo,
+    // il verso è invertito → mettilo a 1 (Front). Default OFF = comportamento attuale invariato.
+    public static bool CullSplit;
+    public static int InteriorCull = 2;
 
     /// <summary>DIAGNOSI: 0 = resa normale · 1 = posizione radiale (fragment banale) · 2 = normale di mondo.</summary>
     public int debugMode = 0;
@@ -697,7 +700,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         splitDistOfInstance.SetData(splitScratch, 0, 0, visibleCount);   // geomorph: parallelo a slabOfInstance
 
         var worldBounds = new Bounds(planetCenter, Vector3.one * (radius * 5f));
-        if (cullSplit)
+        if (CullSplit)
         {
             // DUE draw: INTERNO (Cull Back, primi interiorIndexCount indici → metà overdraw del fragment) + SKIRT
             // (Cull Off, il resto dell'index buffer). Il _Cull per-draw lo guida un MaterialPropertyBlock, così il
@@ -711,7 +714,7 @@ public class GpuPlanetRenderer : MonoBehaviour
             argsSkirtData[0].startIndex = (uint)interiorIndexCount;
             argsSkirtBuf.SetData(argsSkirtData);
 
-            mpbInterior.SetInt("_Cull", interiorCull);
+            mpbInterior.SetInt("_Cull", InteriorCull);
             mpbSkirt.SetInt("_Cull", 0);
             var rpI = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false, matProps = mpbInterior };
             var rpS = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false, matProps = mpbSkirt };
