@@ -51,6 +51,15 @@ public class MapMode : MonoBehaviour
     readonly List<CelestialBody> orbitBody = new List<CelestialBody>();
     CelestialBody selected;
 
+    // Camera ORBITALE della mappa: yaw/pitch (trascina col sinistro), distanza (rotella), attorno a un FOCUS
+    // (il corpo selezionato, o il centro del sistema). focusPos insegue il focus con smoothing → niente salti
+    // alla selezione. Un click SENZA trascinamento = selezione (la soglia 'dragged' li distingue).
+    float mapYaw, mapPitch, mapDist;
+    Vector3 focusPos;
+    bool dragging, dragged;
+    Vector3 mouseDownPx, lastMousePx;
+    const float MapPitchDefault = 33.5f, MapRotSpeed = 0.25f;
+
     public CelestialBody Selected => selected;
     public bool Active => state != State.Off;
     public Camera ViewCamera => mapCam;   // la camera della mappa (per il reticolo di rotta in modalità mappa)
@@ -198,14 +207,52 @@ public class MapMode : MonoBehaviour
         return r;
     }
 
+    /// <summary>Distanza di inquadratura iniziale: l'intero sistema entra in campo (come il vecchio overview).</summary>
+    float DefaultDist() => SystemRadius() / Mathf.Tan(mapCam.fieldOfView * 0.5f * Mathf.Deg2Rad) * 1.25f;
+
+    /// <summary>Punto attorno a cui orbita la camera: il corpo selezionato (così zoomi/ruoti su di lui) o il
+    /// centro del sistema se niente è selezionato.</summary>
+    Vector3 FocusTarget() => selected != null ? selected.transform.position : SystemCenter();
+
+    /// <summary>Vista della camera dai parametri orbitali (yaw/pitch/distanza attorno a focusPos). Default
+    /// (yaw 0, pitch 33.5°) = lo stesso angolo dall'alto/dietro del vecchio overview → l'entrata resta fluida.</summary>
     void ComputeOverview(out Vector3 pos, out Quaternion rot)
     {
-        Vector3 center = SystemCenter();
-        float radius = SystemRadius();
-        float dist = radius / Mathf.Tan(mapCam.fieldOfView * 0.5f * Mathf.Deg2Rad) * 1.25f;
-        Vector3 dir = (Vector3.up * 0.55f + Vector3.back * 0.83f).normalized;   // angolo prospettico (dall'alto/dietro)
-        pos = center + dir * dist;
-        rot = Quaternion.LookRotation(center - pos, Vector3.up);
+        Vector3 c = focusPos;
+        Vector3 dir = Quaternion.Euler(mapPitch, mapYaw, 0f) * Vector3.back;   // pitch=33.5,yaw=0 → (0,0.55,-0.83)
+        pos = c + dir * mapDist;
+        rot = Quaternion.LookRotation(c - pos, Vector3.up);
+    }
+
+    /// <summary>Zoom (rotella) + rotazione (trascina col sinistro) + selezione (click senza trascinare).</summary>
+    void HandleMapInput()
+    {
+        // FOCUS: insegue il corpo selezionato (o il centro), con smoothing esponenziale → la selezione PANna dolce
+        focusPos = Vector3.Lerp(focusPos, FocusTarget(), 1f - Mathf.Exp(-Time.deltaTime * 6f));
+
+        // ROTAZIONE col tasto SINISTRO trascinato
+        if (Input.GetMouseButtonDown(0)) { dragging = true; dragged = false; mouseDownPx = Input.mousePosition; lastMousePx = Input.mousePosition; }
+        if (dragging && Input.GetMouseButton(0))
+        {
+            Vector2 cur = Input.mousePosition;
+            Vector2 d = cur - (Vector2)lastMousePx; lastMousePx = Input.mousePosition;
+            mapYaw += d.x * MapRotSpeed;
+            mapPitch = Mathf.Clamp(mapPitch + d.y * MapRotSpeed, 8f, 88f);   // niente ribaltamenti ai poli
+            if ((cur - (Vector2)mouseDownPx).magnitude > 6f) dragged = true;  // oltre 6 px = trascinamento, non un click
+        }
+        if (Input.GetMouseButtonUp(0))
+        {
+            if (dragging && !dragged) SelectAtCursor();   // click pulito → seleziona
+            dragging = false;
+        }
+
+        // ZOOM con la rotella, verso/da il focus. Limiti: vicino al raggio del corpo (non ci entri dentro) … molto largo.
+        float sc = Mathf.Clamp(Input.mouseScrollDelta.y, -3f, 3f);
+        if (Mathf.Abs(sc) > 0.001f)
+        {
+            float minD = Mathf.Max((float)(selected != null ? selected.Radius : 0.0) * 2.5f, SystemRadius() * 0.03f);
+            mapDist = Mathf.Clamp(mapDist * Mathf.Pow(0.82f, sc), minD, SystemRadius() * 5f);
+        }
     }
 
     void Update()
@@ -237,9 +284,9 @@ public class MapMode : MonoBehaviour
         }
         else if (state == State.On)
         {
+            HandleMapInput();   // zoom + rotazione + selezione (aggiorna anche focusPos)
             ComputeOverview(out var ovPos, out var ovRot);
             mapCam.transform.SetPositionAndRotation(ovPos, ovRot);
-            HandleClick();
         }
 
         if (state != State.Off) UpdateVisuals();   // NON dopo FinishExit (lasciava le orbite a schermo)
@@ -258,6 +305,9 @@ public class MapMode : MonoBehaviour
         Cursor.visible = true;
         if (walker != null) walker.ControlsActive = false;
         ShowVisuals(true);
+        // parametri orbitali iniziali = lo stesso overview di prima (intero sistema, dall'alto/dietro)
+        mapYaw = 0f; mapPitch = MapPitchDefault; mapDist = DefaultDist();
+        focusPos = SystemCenter(); dragging = false;
         state = State.Entering; t = 0f;
     }
 
@@ -279,9 +329,8 @@ public class MapMode : MonoBehaviour
         state = State.Off;
     }
 
-    void HandleClick()
+    void SelectAtCursor()
     {
-        if (!Input.GetMouseButtonDown(0)) return;
         var ray = mapCam.ScreenPointToRay(Input.mousePosition);
         if (Physics.Raycast(ray, out var hit, 1e7f) && markerBody.TryGetValue(hit.collider.gameObject, out var b))
         {
@@ -383,9 +432,9 @@ public class MapMode : MonoBehaviour
         float ui = Mathf.Max(1f, Screen.height / 1080f);   // scala col display (Retina/4K)
         if (mapStyle == null) mapStyle = new GUIStyle(GUI.skin.label) { normal = { textColor = Color.white } };
         mapStyle.fontSize = Mathf.RoundToInt(15f * ui);
-        GUI.Label(new Rect(20f * ui, Screen.height - 60f * ui, 700f * ui, 24f * ui),
-            selected != null ? "Selezionato: " + selected.gameObject.name + "   ·   M / Esc per uscire"
-                             : "Clicca un corpo per selezionarlo   ·   M / Esc per uscire", mapStyle);
+        GUI.Label(new Rect(20f * ui, Screen.height - 60f * ui, 1100f * ui, 24f * ui),
+            (selected != null ? "Selezionato: " + selected.gameObject.name : "Clicca un corpo per selezionarlo")
+            + "   ·   Trascina = ruota   ·   Rotella = zoom   ·   M / Esc per uscire", mapStyle);
 
         // etichetta "TU SEI QUI" ancorata al marker del giocatore (solo se davanti alla camera)
         if (playerMarker != null && mapCam != null)
