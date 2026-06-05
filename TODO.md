@@ -167,8 +167,9 @@ GPU↔CPU fa da rete. Componenti nuovi: `GpuPlanetRenderer.cs`, shader `Wanderer
     Awake) + **TORCIA** spot (pos/dir/cono/range per-frame; `_TorchColor=0` da spenta → costo nullo).
   - ⬜ **ECLISSI** ancora da portare nel path GPU: altra luce/ombra che `PlanetBaked` aveva e questo no.
   - ⬜ verificare la resa LIT vera (sole di giorno + torcia di notte).
-  - ⬜ **Mappa**: la superficie GPU si disegna in TUTTE le camere (anche la mappa → si vede al posto del proxy).
-    `RenderPrimitivesIndexedIndirect` non filtra per camera → filtrare (layer/camera) o disattivare in MapMode.
+  - ✅ **Mappa**: la superficie GPU entrava in TUTTE le camere (anche la mappa → la superficie reale del corpo
+    sopra i proxy → taglie incoerenti). Risolto con `GpuPlanetRenderer.SuppressDraw` (statico) che MapMode accende
+    in mappa: la camera del giocatore è spenta lì, quindi non c'è nulla da disegnare comunque.
   - ⬜ GPU Frametime alto già ora (10–35 ms @2× con fragment di DEBUG cheap) → conferma il fronte fragment/overdraw
     (Tappa 4); il fragment vero sarà più caro.
 - 🟡 **Tappa 2 — LOD (quadtree GPU) (SCRITTA, da testare).** Quadtree di nodi LEGGERI (niente GameObject) in

@@ -51,14 +51,13 @@ public class MapMode : MonoBehaviour
     readonly List<CelestialBody> orbitBody = new List<CelestialBody>();
     CelestialBody selected;
 
-    // Camera ORBITALE della mappa: yaw/pitch (trascina col sinistro), distanza (rotella), attorno a un FOCUS
-    // (il corpo selezionato, o il centro del sistema). focusPos insegue il focus con smoothing → niente salti
-    // alla selezione. Un click SENZA trascinamento = selezione (la soglia 'dragged' li distingue).
+    // Camera ORBITALE della mappa: yaw/pitch (trascina col DESTRO), distanza (rotella), attorno a un FOCUS.
+    // Il focus insegue il corpo SELEZIONATO (focusFollows, con smoothing) finché non PANni con WASD → si sgancia
+    // e roami libero; la selezione successiva lo ri-aggancia. Click sinistro = seleziona.
     float mapYaw, mapPitch, mapDist;
-    Vector3 focusPos;
-    bool dragging, dragged;
-    Vector3 mouseDownPx, lastMousePx;
-    const float MapPitchDefault = 33.5f, MapRotSpeed = 0.25f;
+    Vector3 focusPos, lastMousePx;
+    bool focusFollows;
+    const float MapPitchDefault = 33.5f, MapRotSpeed = 0.25f, MapPanRate = 0.7f;
 
     public CelestialBody Selected => selected;
     public bool Active => state != State.Off;
@@ -224,27 +223,34 @@ public class MapMode : MonoBehaviour
         rot = Quaternion.LookRotation(c - pos, Vector3.up);
     }
 
-    /// <summary>Zoom (rotella) + rotazione (trascina col sinistro) + selezione (click senza trascinare).</summary>
+    /// <summary>Pan (WASD) + rotazione (trascina col DESTRO, asse verticale invertito) + zoom (rotella) +
+    /// selezione (click sinistro).</summary>
     void HandleMapInput()
     {
-        // FOCUS: insegue il corpo selezionato (o il centro), con smoothing esponenziale → la selezione PANna dolce
-        focusPos = Vector3.Lerp(focusPos, FocusTarget(), 1f - Mathf.Exp(-Time.deltaTime * 6f));
+        // PAN col WASD: muove il focus nel PIANO dello schermo (destra/su della camera) → si sgancia dal corpo.
+        // Velocità ∝ distanza → pan coerente a ogni zoom. Senza WASD, il focus insegue il corpo selezionato.
+        float px = (Input.GetKey(KeyCode.D) ? 1f : 0f) - (Input.GetKey(KeyCode.A) ? 1f : 0f);
+        float py = (Input.GetKey(KeyCode.W) ? 1f : 0f) - (Input.GetKey(KeyCode.S) ? 1f : 0f);
+        if (px != 0f || py != 0f)
+        {
+            focusFollows = false;
+            Vector3 move = mapCam.transform.right * px + mapCam.transform.up * py;
+            focusPos += move * (mapDist * MapPanRate * Time.deltaTime);
+        }
+        else if (focusFollows)
+            focusPos = Vector3.Lerp(focusPos, FocusTarget(), 1f - Mathf.Exp(-Time.deltaTime * 6f));
 
-        // ROTAZIONE col tasto SINISTRO trascinato
-        if (Input.GetMouseButtonDown(0)) { dragging = true; dragged = false; mouseDownPx = Input.mousePosition; lastMousePx = Input.mousePosition; }
-        if (dragging && Input.GetMouseButton(0))
+        // ROTAZIONE col tasto DESTRO trascinato. Asse verticale INVERTITO (trascini su → guardi più di lato).
+        if (Input.GetMouseButtonDown(1)) lastMousePx = Input.mousePosition;
+        if (Input.GetMouseButton(1))
         {
-            Vector2 cur = Input.mousePosition;
-            Vector2 d = cur - (Vector2)lastMousePx; lastMousePx = Input.mousePosition;
+            Vector2 d = (Vector2)Input.mousePosition - (Vector2)lastMousePx; lastMousePx = Input.mousePosition;
             mapYaw += d.x * MapRotSpeed;
-            mapPitch = Mathf.Clamp(mapPitch + d.y * MapRotSpeed, 8f, 88f);   // niente ribaltamenti ai poli
-            if ((cur - (Vector2)mouseDownPx).magnitude > 6f) dragged = true;  // oltre 6 px = trascinamento, non un click
+            mapPitch = Mathf.Clamp(mapPitch - d.y * MapRotSpeed, 8f, 88f);   // invertito + niente ribaltamenti ai poli
         }
-        if (Input.GetMouseButtonUp(0))
-        {
-            if (dragging && !dragged) SelectAtCursor();   // click pulito → seleziona
-            dragging = false;
-        }
+
+        // SELEZIONE col tasto SINISTRO (la rotazione è sul destro → niente ambiguità click/trascinamento)
+        if (Input.GetMouseButtonDown(0)) SelectAtCursor();
 
         // ZOOM con la rotella, verso/da il focus. Limiti: vicino al raggio del corpo (non ci entri dentro) … molto largo.
         float sc = Mathf.Clamp(Input.mouseScrollDelta.y, -3f, 3f);
@@ -304,10 +310,11 @@ public class MapMode : MonoBehaviour
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
         if (walker != null) walker.ControlsActive = false;
+        GpuPlanetRenderer.SuppressDraw = true;   // la superficie GPU entrerebbe nella camera-mappa: in mappa solo i proxy
         ShowVisuals(true);
         // parametri orbitali iniziali = lo stesso overview di prima (intero sistema, dall'alto/dietro)
         mapYaw = 0f; mapPitch = MapPitchDefault; mapDist = DefaultDist();
-        focusPos = SystemCenter(); dragging = false;
+        focusPos = SystemCenter(); focusFollows = true;
         state = State.Entering; t = 0f;
     }
 
@@ -322,6 +329,7 @@ public class MapMode : MonoBehaviour
         mapCam.enabled = false;
         playerCam.enabled = true;
         if (playerScaler != null) playerScaler.enabled = true;   // ripristina il render scalato
+        GpuPlanetRenderer.SuppressDraw = false;   // torna a disegnare la superficie GPU nella camera del giocatore
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
         if (walker != null) walker.ControlsActive = true;
@@ -336,6 +344,7 @@ public class MapMode : MonoBehaviour
         {
             selected = b;
             solar.Destination = b;   // in volo l'origine si ancora a lei → ferma e centrata, il freno X la sincronizza
+            focusFollows = true;     // ri-aggancia la camera al corpo scelto (dopo un eventuale pan libero)
         }
     }
 
@@ -407,6 +416,10 @@ public class MapMode : MonoBehaviour
             if (b == null || b.Orbit == null || b.Parent == null) { lr.enabled = false; continue; }
             lr.enabled = true;
             Vector3 parentScene = b.Parent.transform.position;
+            // SPESSORE ∝ distanza camera → larghezza ~COSTANTE a schermo. Con larghezza-mondo fissa, zoomando le
+            // orbite piccole (il binario) diventavano bande enormi. (Il LineRenderer non sa fare lo screen-space del
+            // vert come Wanderer/OrbitLine: approssimo con la distanza dal centro dell'orbita, basta per la mappa.)
+            lr.widthMultiplier = Mathf.Max(0.5f, Vector3.Distance(camPos, parentScene) * 0.0025f);
             int n = lr.positionCount;
             for (int k = 0; k < n; k++)
             {
@@ -433,8 +446,8 @@ public class MapMode : MonoBehaviour
         if (mapStyle == null) mapStyle = new GUIStyle(GUI.skin.label) { normal = { textColor = Color.white } };
         mapStyle.fontSize = Mathf.RoundToInt(15f * ui);
         GUI.Label(new Rect(20f * ui, Screen.height - 60f * ui, 1100f * ui, 24f * ui),
-            (selected != null ? "Selezionato: " + selected.gameObject.name : "Clicca un corpo per selezionarlo")
-            + "   ·   Trascina = ruota   ·   Rotella = zoom   ·   M / Esc per uscire", mapStyle);
+            (selected != null ? "Selezionato: " + selected.gameObject.name : "Clic = seleziona")
+            + "   ·   Destro = ruota   ·   WASD = sposta   ·   Rotella = zoom   ·   M / Esc", mapStyle);
 
         // etichetta "TU SEI QUI" ancorata al marker del giocatore (solo se davanti alla camera)
         if (playerMarker != null && mapCam != null)

@@ -379,9 +379,16 @@ public class GpuPlanetRenderer : MonoBehaviour
         return nd.horizonHidden;
     }
 
+    /// <summary>Sospende il disegno di TUTTE le superfici GPU (lo accende MapMode in mappa). RenderPrimitivesIndexed‑
+    /// Indirect entra in OGNI camera attiva → senza questo la superficie reale del pianeta comparirebbe in mappa,
+    /// sopra/accanto ai proxy a dimensione-costante (sembravano di taglie diverse). In mappa la camera del giocatore
+    /// è spenta, quindi non c'è nulla da disegnare comunque.</summary>
+    public static bool SuppressDraw;
+
     void Update()
     {
         if (!Ready) return;
+        if (SuppressDraw) return;   // mappa aperta: niente disegno della superficie GPU
         // Dopo un domain reload in Play i GraphicsBuffer (non serializzabili) tornano null mentre Ready resta:
         // non disegnare finché non sono validi.
         if (mat == null || posBuf == null || !posBuf.IsValid() || idxBuf == null || !idxBuf.IsValid() || argsBuf == null) return;
