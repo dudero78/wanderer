@@ -125,7 +125,9 @@ public class PlanetTerrain : MonoBehaviour
         for (int i = 0; i < layers.Count; i++)
             h = layers[i].Apply(unitDir, h);
         // STESSA guardia dell'HLSL PlanetHeightCore.SampleHeightD (parità walker↔resa): un cratere più profondo del
-        // raggio (es. scavato DOPO il mare) darebbe h≤0 = geometria degenere → clamp a un fondo-ciotola positivo.
+        // raggio (es. scavato DOPO il mare) darebbe h≤0 = geometria degenere → clamp a 0.2·base. Clamp DURO di proposito:
+        // è un NO-OP esatto sopra il fondo. Un soft-floor (smooth-max) aggiunge un bias di ~0.5m → sfalsa la maschera
+        // del mare (il pelo seaSurf è catturato PRIMA del clamp) → il mare legge "asciutto".
         h = (h < 3f * BaseRadius) ? h : BaseRadius;   // NaN/Inf/assurdo → base
         return Mathf.Max(h, BaseRadius * 0.2f);
     }

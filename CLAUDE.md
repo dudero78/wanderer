@@ -531,6 +531,27 @@ vicino all'origine di Unity → la precisione non degrada mai.
   positivo** (`max(h, base·0.2)`), NaN/Inf→base. **VA MESSO IN ENTRAMBE le implementazioni dell'altezza** (HLSL
   `SampleHeightD` + C# `PlanetTerrain.SampleHeight`) o walker e resa divergono (esempio vivo del rischio #17 dell'audit:
   fonte altezza duplicata a mano). La causa a monte è una RICETTA che scava oltre il raggio (l'engine ora lo regge).
+- **Spuntoni neri nei crateri PROFONDI da LONTANO (Valentina2) = SKIRT (CONFERMATO col toggle `DrawSkirts=false`: spenti
+  gli skirt, spuntoni VIA).** Il segnale che ha smascherato la diagnosi sbagliata: **PEGGIORAVANO con PIÙ tassellatura** (il
+  LOD slope-aware li moltiplicava) → NON è sotto-tassellatura/aliasing (più triangoli li ridurrebbe) → è un artefatto che
+  **scala col NUMERO di nodi** = gli **skirt** ai confini di LOD. (Da vicino, LOD uniforme, niente confini in vista →
+  spariscono.) Perché spuntano: lo skirt è una tendina abbassata RADIALMENTE (`sp = p − dir·worldSize·0.5`); su una parete
+  di cratere RIPIDA la tendina radiale non si nasconde dietro il vicino (grossolano, a quota molto diversa) → **spunta fuori
+  a sega**, e più nodi = più tendine. Lo `skirtDrop` più profondo PEGGIORA (sporge di più), quindi NON è "skirt troppo
+  corto". **CURA VERA = quadtree 2:1 bilanciato (#14 roadmap): vicini ≤1 livello → il geomorph (che morfa 1 livello) chiude
+  i gap da solo → skirt RIMOSSI del tutto → niente spuntoni e niente fessure, + Cull Back unico (perf).** Il verde nei fondi
+  = **mare acido** di Valentina2, non un bug.
+  - **DUE TENTATIVI FALLITI (revertiti, NON ri-fare).** (1) **"mipmap geometrico" nelle posizioni della fetta** — attenuava
+    le feature sub-cella in `Accumulate` con un `detail(lodCell)`. Sbagliato perché (a) il **ternario `(lodCell>0)?…/lodCell…:1`
+    su Metal NON corto-circuita**: il path di parità passa `0.0` LETTERALE → `2.5*0.0=0` costant-foldato → divisione per zero
+    valutata → `detail` spazzatura → parità ROTTA + warning (regola: **mai una /0 in un ramo del `?:`**, guarda il denom con
+    `max(x,eps)`); (b) ERRORE DI FONDO: band-limitare nelle POSIZIONI della fetta viola "la fetta È la verità esatta" → il
+    test di parità (`VerifyParityRuntime` legge `posBuf` vs walker) diverge PER COSTRUZIONE a LOD grossolano. **Gli effetti
+    solo-visivi vanno nel vertex shader / nel LOD (come il geomorph), MAI cotti nelle posizioni della fetta.** (2) **LOD
+    slope-aware** (boost di `splitDist` sul rilievo) — premessa sbagliata (non era sotto-tassellatura): ha aggiunto nodi →
+    PIÙ skirt/confini → spuntoni PEGGIORI. (3) **soft-floor** (smooth-max al posto di `max(h,0.2·base)`) — un raccordo
+    morbido aggiunge un BIAS di ~0.5m ovunque → sfalsa la maschera del mare (il pelo `seaSurf` è catturato PRIMA del clamp)
+    → **il mare spariva**. Il clamp resta DURO (no-op esatto sopra il fondo).
 - **Colore dalla ricetta.** `PlanetBaker.BuildMaterial` DEVE impostare `_SoilMean/_MariaColor/_MariaScale/_MariaStr`
   da `terrain.Recipe`, o un corpo marziano esce grigio (lo shader resta sul default lunare). L'editor li spingeva a
   mano; in gioco serve qui.

@@ -36,7 +36,7 @@ public class GameBootstrap : MonoBehaviour
     public int interiorCull = 1;   // 1=Front (verificato: l'interno è Front-facing; con 2/Back le geometrie si ribaltano)
 
     [Tooltip("DEBUG/test: nasci su questo corpo invece che sul pianeta-casa (es. \"terra-test3\"). Vuoto = pianeta-casa.")]
-    public string spawnOnBody = "terra-test3";
+    public string spawnOnBody = "Valentina2";
 
     void Start()
     {

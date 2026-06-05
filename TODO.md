@@ -12,10 +12,12 @@ batch fill, geomorph GPU, VRAM, **AUDIT #2**, spuntone, overdraw). Dettaglio tec
 > (genera l'HLSL dal C#, chiude il rischio "fluttua/sprofonda"). RIMANDATI con motivo: colore per-vertice (+120MB
 > VRAM, riprendere col PBR), gating `_HAS_SEA` (zero risparmio se la scena ha un mare). Molti commit locali non pushati.
 >
-> ### 🔧 Fix recente (da verificare a freddo)
-> **Cratere dominante di Valentina2 = disco-piatto/schegge → RISOLTO** (clamp altezza `max(h, base·0.2)` in HLSL+C#:
-> il cratere scava più profondo del raggio → h≤0 = geometria degenere → ora fondo-ciotola positivo). **Verifica** che
-> sia una conca pulita; il `0.2` è tarabile; a tendere ridurre la profondità di quel cratere nella **ricetta**.
+> ### 🔴 APERTO — spuntoni nei crateri profondi da LONTANO (Valentina2)
+> Tutto REVERTITO al baseline (parità OK, mare OK, spuntoni come prima). Segnale decisivo: **PEGGIORANO con più
+> tassellatura** → NON è sotto-tassellatura → **skirt / cuciture ai confini di LOD** sulle pareti ripide. Probabile:
+> `skirtDrop` non tiene conto del salto di morph del bordo + albero non 2:1. **Cura vera = quadtree 2:1 bilanciato (#14).**
+> PRIMA di ricodare: diagnosticare coi toggle (`UseGeomorph` on/off, skirt off). 3 fix SBAGLIATI revertiti (mipmap-in-fetta
+> → rompe parità; LOD slope-aware → peggiora; soft-floor → sparisce il mare). Dettaglio in CLAUDE.md "🔴 APERTO — spuntoni".
 >
 > ### ✅ RISOLTI — i 3 bug editor di prima (storico, non più PARTI DA QUI)
 > (1) mare-non-allaga → **maschera "sotto il pelo = acqua"** (gestisce crateri-dopo-mare); (2) trasparenza "al

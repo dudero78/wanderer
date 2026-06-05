@@ -40,6 +40,9 @@ public class GpuPlanetRenderer : MonoBehaviour
     public float lookaheadTime = 0.7f;   // LOD PREDITTIVO: valuta lo split dalla posizione DOVE SARAI fra ~tot secondi
                                          // (verso cui voli) → il dettaglio è pronto PRIMA di arrivarci (niente "carica tardi")
     public static bool UseGeomorph = true;   // GEOMORPH CDLOD nel vertex shader: transizioni LOD lisce. Statico (da GameBootstrap), toggle A/B
+    // DIAGNOSI spuntoni: false = NON disegna gli SKIRT (i muretti ai confini di LOD). Se gli spuntoni nei crateri
+    // spariscono spegnendoli (lasciando magari fessure), sono gli skirt → cura = quadtree 2:1. Toggle A/B temporaneo.
+    public static bool DrawSkirts = false;
     public float morphRange = 0.5f;      // ampiezza della banda di morph (frazione di splitDist): 0.1 stretta, 0.9 larga
     // OVERDRAW: interno con Cull Back + skirt con Cull Off, in 2 draw (il _Cull lo guida il MATERIALE, deterministico).
     // STATICI (impostati da GameBootstrap). InteriorCull 2=Back; se l'INTERNO sparisce accendendolo, il verso è
@@ -769,14 +772,17 @@ public class GpuPlanetRenderer : MonoBehaviour
             argsSkirtData[0].startIndex = (uint)interiorIndexCount;
             argsSkirtBuf.SetData(argsSkirtData);
             var rpI = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
-            var rpS = new RenderParams(matSkirt) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
             Graphics.RenderPrimitivesIndexedIndirect(rpI, MeshTopology.Triangles, idxBuf, argsBuf, 1);
-            Graphics.RenderPrimitivesIndexedIndirect(rpS, MeshTopology.Triangles, idxBuf, argsSkirtBuf, 1);
+            if (DrawSkirts)   // DIAGNOSI: salta il draw degli skirt quando spento
+            {
+                var rpS = new RenderParams(matSkirt) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
+                Graphics.RenderPrimitivesIndexedIndirect(rpS, MeshTopology.Triangles, idxBuf, argsSkirtBuf, 1);
+            }
         }
         else
         {
-            // UN draw, tutto l'index buffer, Cull Off (mat._Cull=0)
-            argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
+            // UN draw, tutto l'index buffer, Cull Off (mat._Cull=0). DIAGNOSI: solo l'interno se gli skirt sono spenti.
+            argsData[0].indexCountPerInstance = (uint)(DrawSkirts ? indexCountPerSlab : interiorIndexCount);
             argsData[0].instanceCount = (uint)visibleCount;
             argsData[0].startIndex = 0;
             argsBuf.SetData(argsData);

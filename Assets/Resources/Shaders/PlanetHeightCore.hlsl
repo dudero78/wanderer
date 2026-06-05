@@ -504,8 +504,10 @@ float SampleHeightD(float3 unitDir, out float waterDepth, out float seaSurf)
     // guardia alla FONTE (deve combaciare col C# PlanetTerrain.SampleHeight per la parità walker):
     //  - NaN/Inf/assurdo-alto → raggio base ("h < 3·base" è FALSO per NaN/Inf → base).
     //  - h ≤ minimo → fondo-CIOTOLA positivo: un cratere più profondo del raggio (es. scavato DOPO il mare) darebbe
-    //    h≤0 = geometria degenere/auto-intersecante → schiacciarlo sul raggio base faceva il "disco piatto + schegge"
-    //    nel cratere dominante. Clampandolo a 0.2·base resta una conca profonda, niente degenere. No-op su h validi.
+    //    h≤0 = geometria degenere → clamp a 0.2·base. Clamp DURO di proposito: è un NO-OP esatto sopra il fondo. Un
+    //    soft-floor (smooth-max) aggiunge un BIAS di ~0.5m ovunque → sfalsa la maschera del mare (confronta |pos| col
+    //    pelo seaSurf catturato PRIMA del clamp) → il mare legge "asciutto". Gli spuntoni del cratere li chiude il LOD
+    //    slope-aware (più triangoli sul ripido), non l'arrotondamento del fondo.
     h = (h < 3.0 * _BaseRadius) ? h : _BaseRadius;
     return max(h, _BaseRadius * 0.2);
 }
