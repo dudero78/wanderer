@@ -450,7 +450,7 @@ public class PlanetEditor : MonoBehaviour
                 p.seaClear = Toggle("Trasparente", "Limpido: si vede il fondale sommerso, TINTO dal colore dell'acqua (più scuro/saturo = meno visibile). Indipendente da Liquido (vale anche per il ghiaccio).", p.seaClear, ui, geometry: false, changed: out bool clearChg);
                 if (clearChg) colorDirty = true;
                 if (p.seaClear)
-                    p.seaClarity = Slider("  limpidezza (m)", "Profondità a cui l'acqua diventa quasi opaca: bassa = torbida (vedi solo le secche), alta = cristallina (vedi anche il fondo profondo).", p.seaClarity, 1f, 60f, ui, ref colorDirty);
+                    p.seaClarity = Slider("  limpidezza (m)", "Quanto in PROFONDITÀ vedi il fondo: BASSA = torbida (solo le secche), ALTA = cristallina (anche il fondo profondo). Per più trasparenza ALZALA. Nota: anche un colore scuro/saturo nasconde il fondo.", p.seaClarity, 1f, 150f, ui, ref colorDirty);
             }
             GUILayout.Space(8f * ui);
         }
