@@ -154,9 +154,12 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
             // → il fondo emerge col SUO colore, MAI più scuro (basta lo "scurimento al contrario" col mare scuro/saturo).
             float clarityN = saturate(_SeaClarity / 150.0);                 // 0..1 sul range dello slider (150 = cristallina)
             float bl = exp(-max(depth, 0.0) / max(_SeaClarity, 0.05));      // assorbimento con la profondità (acqua torbida)
-            float crystal = smoothstep(0.7, 1.0, clarityN);                 // vicino al MAX: acqua cristallina
-            seaTrans = lerp(pow(bl, 0.6), 1.0, crystal);                    // → 1 a limpidezza max: tutti i fondali visibili
-            float3 transTint = lerp(min(_SeaColor.rgb * 1.6, 1.1), float3(1.0, 1.0, 1.0), crystal);
+            float crystal = smoothstep(0.45, 1.0, clarityN);                // metà-alta dello slider: via via cristallina
+            seaTrans = lerp(pow(bl, 0.6), 1.0, crystal);                    // → 1 a limpidezza max: fondo pieno a ogni profondità
+            // il fondo visto sott'acqua = albedo del fondo TINTO d'acqua (bluastro), MAI bianco: a limpidezza max vedi il
+            // fondo CHIARO ma sempre "sotto un velo d'acqua" (tinta blu + glint/ripple sopra), non terra asciutta grigia.
+            // (Era il bug: la tinta tendeva al bianco al massimo → alb×bianco = albedo nudo = grigio indistinguibile.)
+            float3 transTint = min(_SeaColor.rgb * 1.6, 1.1);
             float3 bedThroughWater = alb * transTint;
             waterCol = lerp(waterCol, bedThroughWater, seaTrans);
         }
