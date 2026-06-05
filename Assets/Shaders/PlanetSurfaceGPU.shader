@@ -84,6 +84,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
 
             // --- GEOMORPH (CDLOD): transizione LISCIA fra livelli di LOD, niente pop né cuciture/lamelle nere.
             StructuredBuffer<float> _SplitDistOfInstance;  // distanza di split per istanza (= worldSize·lodFactor del nodo)
+            StructuredBuffer<float4> _DirOfInstance;        // anti-spuntone: direzione-centro del nodo per istanza (w inusato)
             uint _NN;                            // vertici per lato del nodo (nodeRes+1): per ricavare (i,j) dal vid e leggere i vicini
             float _MorphRange;                   // ampiezza della banda di morph (frazione di splitDist)
             float _UseGeomorph;                  // 1 = geomorph attivo, 0 = solo skirt (confronto A/B)
@@ -162,13 +163,20 @@ Shader "Wanderer/PlanetSurfaceGPU"
                     }
                 }
 
-                // RETE DI SICUREZZA: nessun vertice spazzatura (LONTANO o NaN/Inf) diventa uno spuntone. La superficie
-                // sta a ~_BaseRadius, gli skirt scendono; niente di legittimo supera ~1.1× il raggio. La forma negata
-                // "!(plen < 1.3×)" è vera SIA oltre 1.3× SIA per i NaN (un NaN non è "< " di niente → la versione
-                // "plen > soglia" li lasciava passare, ecco perché lo spuntone tornava). Lo collasso sul vertice
-                // d'ANGOLO della fetta (posizione valida e vicina) → l'invalido sparisce in un triangolo degenere.
+                // RETE DI SICUREZZA anti-spuntone — LUNGHEZZA **e** DIREZIONE. Un vertice spazzatura è (a) LONTANO o
+                // NaN [la forma negata !(plen<1.3×) prende anche i NaN], OPPURE (b) punta in una DIREZIONE troppo
+                // diversa dal centro del nodo = la fetta tiene la geometria di un'ALTRA regione del pianeta (lunghezza
+                // giusta, posto sbagliato — ed è la causa vera trovata dall'audit: la sola magnitudine non la vedeva).
+                // In entrambi i casi collasso sull'ÀNCORA valida data dalla CPU (direzione-centro × raggio): la
+                // geometria invalida sparisce in un triangolo degenere vicino, mai uno spuntone in cielo. Gli skirt
+                // (direzione del bordo, lunghezza < raggio) e l'interno (direzione entro il nodo) passano indenni.
+                float3 expectedDir = _DirOfInstance[iid].xyz;
                 float plen = length(p);
-                if (!(plen < _BaseRadius * 1.3)) p = GeoLoadPos(_SlabOfInstance[iid] * _VertsPerSlab);
+                float3 vdir = (plen > 1e-4) ? (p / plen) : expectedDir;
+                float nodeAng = (_SplitDistOfInstance[iid] / 3.0) / max(_BaseRadius, 1.0);   // ≈ worldSize/raggio (lodFactor=3)
+                float maxAng = clamp(nodeAng * 2.5, 0.02, 1.6);                              // estensione del nodo + margine
+                if (!(plen < _BaseRadius * 1.3) || dot(vdir, expectedDir) < cos(maxAng))
+                    p = expectedDir * _BaseRadius;
 
                 float3 world = mul(_ObjectToWorld, float4(p, 1.0)).xyz;
                 o.pos  = UnityWorldToClipPos(world);

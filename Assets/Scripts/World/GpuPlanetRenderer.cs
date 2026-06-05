@@ -75,6 +75,8 @@ public class GpuPlanetRenderer : MonoBehaviour
     GraphicsBuffer idxBuf;                                // topologia di UNA fetta (interno + skirt), condivisa
     GraphicsBuffer slabOfInstance;                        // istanza visibile → indice di fetta
     GraphicsBuffer splitDistOfInstance;                   // geomorph: splitDist (worldSize·lodFactor) per istanza, parallelo a slabOfInstance
+    GraphicsBuffer dirOfInstance;                         // ANTI-SPUNTONE: direzione-centro del nodo per istanza (float4, w inusato). Il vertex collassa chi devia troppo in direzione = fetta di regione sbagliata
+    Vector4[] dirScratch;
     GraphicsBuffer argsBuf;
     GraphicsBuffer.IndirectDrawIndexedArgs[] argsData = new GraphicsBuffer.IndirectDrawIndexedArgs[1];
     GraphicsBuffer argsSkirtBuf;   // secondo draw (solo skirt, Cull Off) quando cullSplit è ON
@@ -216,9 +218,11 @@ public class GpuPlanetRenderer : MonoBehaviour
 
         visibleScratch = new uint[maxSlabs];   // la free-list è inizializzata UNA volta in AcquirePool (pool condiviso)
         splitScratch = new float[maxSlabs];
+        dirScratch = new Vector4[maxSlabs];
 
         slabOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         splitDistOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
+        dirOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 16);   // float4 (16B): evita la trappola Metal float3
         argsBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
         argsSkirtBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
 
@@ -231,6 +235,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         mat.SetBuffer("_VSurf", surfBuf);
         mat.SetBuffer("_SlabOfInstance", slabOfInstance);
         mat.SetBuffer("_SplitDistOfInstance", splitDistOfInstance);
+        mat.SetBuffer("_DirOfInstance", dirOfInstance);
         mat.SetInt("_VertsPerSlab", vertsPerSlab);
         mat.SetFloat("_PerVertexFields", 1f);   // in gioco: usa baseN per-vertice (fragment più economico)
         mat.SetInt("_NN", n);                                  // geomorph: vertici per lato → (i,j) dal vid + lettura vicini
@@ -274,6 +279,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         m.SetBuffer("_VPos", posBuf); m.SetBuffer("_VNrm", nrmBuf); m.SetBuffer("_VBedNrm", bedNrmBuf);
         m.SetBuffer("_VDepth", depthBuf); m.SetBuffer("_VField", fieldBuf); m.SetBuffer("_VSurf", surfBuf);
         m.SetBuffer("_SlabOfInstance", slabOfInstance); m.SetBuffer("_SplitDistOfInstance", splitDistOfInstance);
+        m.SetBuffer("_DirOfInstance", dirOfInstance);
     }
 
     /// <summary>GATE DI PARITÀ a runtime (#9): all'avvio del corpo confronta la geometria che il renderer ha
@@ -629,6 +635,8 @@ public class GpuPlanetRenderer : MonoBehaviour
         if (nd.slab >= 0 && visibleCount < visibleScratch.Length)
         {
             splitScratch[visibleCount] = nd.worldSize * lodFactor;   // geomorph: distanza di split del nodo (per istanza)
+            Vector3 cd = nd.centerLocal.normalized;                  // anti-spuntone: direzione-centro del nodo (spazio oggetto)
+            dirScratch[visibleCount] = new Vector4(cd.x, cd.y, cd.z, 0f);
             visibleScratch[visibleCount] = (uint)nd.slab;
             visibleCount++;
         }
@@ -737,6 +745,7 @@ public class GpuPlanetRenderer : MonoBehaviour
 
         slabOfInstance.SetData(visibleScratch, 0, 0, visibleCount);
         splitDistOfInstance.SetData(splitScratch, 0, 0, visibleCount);   // geomorph: parallelo a slabOfInstance
+        dirOfInstance.SetData(dirScratch, 0, 0, visibleCount);           // anti-spuntone: parallelo a slabOfInstance
 
         var worldBounds = new Bounds(planetCenter, Vector3.one * (radius * 5f));
         if (CullSplit && matSkirt != null)
@@ -902,7 +911,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         ReturnMySlabs();   // streaming-safe: rendi le fette di questo corpo PRIMA di mollare il riferimento al pool
         ReleasePool();   // i 6 buffer geometria sono CONDIVISI e refcountati: liberati solo quando muore l'ultimo corpo
         jobsBuf?.Release();
-        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); argsBuf?.Release(); argsSkirtBuf?.Release();
+        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); dirOfInstance?.Release(); argsBuf?.Release(); argsSkirtBuf?.Release();
         shape?.Dispose();
         if (mat != null) Destroy(mat);
         if (matSkirt != null) Destroy(matSkirt);
