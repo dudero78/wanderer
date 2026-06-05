@@ -158,12 +158,13 @@ Shader "Wanderer/PlanetSurfaceGPU"
                     }
                 }
 
-                // RETE DI SICUREZZA: nessun vertice può finire lontano dalla superficie (spuntoni "alti" da garbage o
-                // race dello streaming durante il volo veloce). La superficie sta a ~_BaseRadius, gli skirt SCENDONO
-                // (length < raggio), niente di legittimo supera ~1.1× il raggio. Oltre 1.3× è spazzatura → lo collasso
-                // sulla sfera base (sparisce nella superficie invece di schizzare in cielo). Non tocca nulla di valido.
+                // RETE DI SICUREZZA: nessun vertice spazzatura (LONTANO o NaN/Inf) diventa uno spuntone. La superficie
+                // sta a ~_BaseRadius, gli skirt scendono; niente di legittimo supera ~1.1× il raggio. La forma negata
+                // "!(plen < 1.3×)" è vera SIA oltre 1.3× SIA per i NaN (un NaN non è "< " di niente → la versione
+                // "plen > soglia" li lasciava passare, ecco perché lo spuntone tornava). Lo collasso sul vertice
+                // d'ANGOLO della fetta (posizione valida e vicina) → l'invalido sparisce in un triangolo degenere.
                 float plen = length(p);
-                if (plen > _BaseRadius * 1.3) p = (p / plen) * _BaseRadius;
+                if (!(plen < _BaseRadius * 1.3)) p = GeoLoadPos(_SlabOfInstance[iid] * _VertsPerSlab);
 
                 float3 world = mul(_ObjectToWorld, float4(p, 1.0)).xyz;
                 o.pos  = UnityWorldToClipPos(world);
