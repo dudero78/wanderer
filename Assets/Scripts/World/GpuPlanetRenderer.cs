@@ -37,6 +37,8 @@ public class GpuPlanetRenderer : MonoBehaviour
                                  // lavoro su più fotogrammi si evita l'ondata che fa scattare. Il LOD predittivo copre il "ritardo"
     public float lookaheadTime = 0.7f;   // LOD PREDITTIVO: valuta lo split dalla posizione DOVE SARAI fra ~tot secondi
                                          // (verso cui voli) → il dettaglio è pronto PRIMA di arrivarci (niente "carica tardi")
+    public bool useGeomorph = true;      // GEOMORPH CDLOD nel vertex shader: transizioni LOD lisce (niente pop/lamelle nere). Toggle A/B
+    public float morphRange = 0.5f;      // ampiezza della banda di morph (frazione di splitDist): 0.1 stretta, 0.9 larga
 
     /// <summary>DIAGNOSI: 0 = resa normale · 1 = posizione radiale (fragment banale) · 2 = normale di mondo.</summary>
     public int debugMode = 0;
@@ -64,6 +66,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     GraphicsBuffer posBuf, nrmBuf, bedNrmBuf, depthBuf, fieldBuf, surfBuf;
     GraphicsBuffer idxBuf;                                // topologia di UNA fetta (interno + skirt), condivisa
     GraphicsBuffer slabOfInstance;                        // istanza visibile → indice di fetta
+    GraphicsBuffer splitDistOfInstance;                   // geomorph: splitDist (worldSize·lodFactor) per istanza, parallelo a slabOfInstance
     GraphicsBuffer argsBuf;
     GraphicsBuffer.IndirectDrawIndexedArgs[] argsData = new GraphicsBuffer.IndirectDrawIndexedArgs[1];
     GpuShapeBuffers shape;
@@ -95,6 +98,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     readonly Stack<Node> nodePool = new Stack<Node>();
     Node[] roots;
     uint[] visibleScratch;
+    float[] splitScratch;     // geomorph: splitDist per istanza visibile (riempito in AddVisible, caricato con visibleScratch)
     int visibleCount;
 
     Transform cam;
@@ -191,8 +195,10 @@ public class GpuPlanetRenderer : MonoBehaviour
         BuildIndexBuffer();
 
         visibleScratch = new uint[maxSlabs];   // la free-list è inizializzata UNA volta in AcquirePool (pool condiviso)
+        splitScratch = new float[maxSlabs];
 
         slabOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
+        splitDistOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         argsBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
 
         mat = new Material(sh);
@@ -203,8 +209,12 @@ public class GpuPlanetRenderer : MonoBehaviour
         mat.SetBuffer("_VField", fieldBuf);
         mat.SetBuffer("_VSurf", surfBuf);
         mat.SetBuffer("_SlabOfInstance", slabOfInstance);
+        mat.SetBuffer("_SplitDistOfInstance", splitDistOfInstance);
         mat.SetInt("_VertsPerSlab", vertsPerSlab);
         mat.SetFloat("_PerVertexFields", 1f);   // in gioco: usa baseN per-vertice (fragment più economico)
+        mat.SetInt("_NN", n);                                  // geomorph: vertici per lato → (i,j) dal vid + lettura vicini
+        mat.SetFloat("_MorphRange", morphRange);
+        mat.SetFloat("_UseGeomorph", useGeomorph ? 1f : 0f);
 
         radius = terrain.Recipe != null ? terrain.Recipe.baseRadius : terrain.BaseRadius;
         cs.SetInt("_HasSea", terrain.Recipe != null && terrain.Recipe.LastSea() != null ? 1 : 0);
@@ -566,7 +576,11 @@ public class GpuPlanetRenderer : MonoBehaviour
     void AddVisible(Node nd)
     {
         if (nd.slab >= 0 && visibleCount < visibleScratch.Length)
-            visibleScratch[visibleCount++] = (uint)nd.slab;
+        {
+            splitScratch[visibleCount] = nd.worldSize * lodFactor;   // geomorph: distanza di split del nodo (per istanza)
+            visibleScratch[visibleCount] = (uint)nd.slab;
+            visibleCount++;
+        }
     }
 
     /// <summary>Il nodo è oltre l'orizzonte (occluso dalla curvatura)? Test in ANGOLI: l'angolo del nodo dalla
@@ -605,6 +619,7 @@ public class GpuPlanetRenderer : MonoBehaviour
 
         Matrix4x4 m = planetTf.localToWorldMatrix;
         mat.SetMatrix("_ObjectToWorld", m);
+        mat.SetVector("_CamPosWorld", cam.position);   // geomorph: distanza camera per il fattore di morph (shader dai-buffer)
         mat.SetFloat("_DebugView", debugMode);
         RefreshLighting();
         RefreshTorch();
@@ -650,6 +665,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         if (visibleCount == 0) return;
 
         slabOfInstance.SetData(visibleScratch, 0, 0, visibleCount);
+        splitDistOfInstance.SetData(splitScratch, 0, 0, visibleCount);   // geomorph: parallelo a slabOfInstance
         argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
         argsData[0].instanceCount = (uint)visibleCount;
         argsBuf.SetData(argsData);
@@ -765,7 +781,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     {
         ReleasePool();   // i 6 buffer geometria sono CONDIVISI e refcountati: liberati solo quando muore l'ultimo corpo
         jobsBuf?.Release();
-        idxBuf?.Release(); slabOfInstance?.Release(); argsBuf?.Release();
+        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); argsBuf?.Release();
         shape?.Dispose();
         if (mat != null) Destroy(mat);
         if (cs != null) Destroy(cs);   // l'istanza propria del compute

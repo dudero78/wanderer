@@ -79,6 +79,30 @@ Shader "Wanderer/PlanetSurfaceGPU"
             float4x4 _ObjectToWorld;             // pianeta locale → mondo (floating origin: aggiornata ogni frame)
             float _DebugView;                    // diagnosi: >0.5 → colore radiale (ignora la luce) per isolare geometria vs shading
 
+            // --- GEOMORPH (CDLOD): transizione LISCIA fra livelli di LOD, niente pop né cuciture/lamelle nere.
+            StructuredBuffer<float> _SplitDistOfInstance;  // distanza di split per istanza (= worldSize·lodFactor del nodo)
+            uint _NN;                            // vertici per lato del nodo (nodeRes+1): per ricavare (i,j) dal vid e leggere i vicini
+            float _MorphRange;                   // ampiezza della banda di morph (frazione di splitDist)
+            float _UseGeomorph;                  // 1 = geomorph attivo, 0 = solo skirt (confronto A/B)
+            float3 _CamPosWorld;                 // posizione camera in mondo (shader dai-buffer: passata a mano)
+
+            float3 GeoLoadPos(uint gi) { return float3(_VPos[gi * 3], _VPos[gi * 3 + 1], _VPos[gi * 3 + 2]); }
+
+            // Spostamento del vertice (i,j) verso la forma del GENITORE (metà risoluzione), trasposto dal path CPU
+            // (PlanetQuadtree.AssembleFromGrid): i vertici a indice PARI sono già sulla griglia del genitore (delta 0);
+            // i DISPARI diventano la media dei due pari adiacenti — lungo l'asse dispari, o la DIAGONALE per gli odd-odd
+            // (coerente con la diagonale della triangolazione, i00→i11). Letto da _VPos (niente buffer extra: il collo
+            // è il fragment). nodeRes pari → i bordi sono pari → i vicini cadono sempre dentro la griglia.
+            float3 GeoMorphDelta(uint slabBase, int i, int j, float3 p)
+            {
+                int N = (int)_NN;
+                bool ox = (i & 1) == 1, oy = (j & 1) == 1;
+                if (!ox && !oy) return float3(0, 0, 0);
+                if (ox && !oy)  return 0.5 * (GeoLoadPos(slabBase + (uint)((i - 1) + j * N)) + GeoLoadPos(slabBase + (uint)((i + 1) + j * N))) - p;
+                if (!ox && oy)  return 0.5 * (GeoLoadPos(slabBase + (uint)(i + (j - 1) * N)) + GeoLoadPos(slabBase + (uint)(i + (j + 1) * N))) - p;
+                return 0.5 * (GeoLoadPos(slabBase + (uint)((i - 1) + (j - 1) * N)) + GeoLoadPos(slabBase + (uint)((i + 1) + (j + 1) * N))) - p;
+            }
+
             struct v2f
             {
                 float4 pos : SV_POSITION;
@@ -98,6 +122,37 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 float3 p  = float3(_VPos[g * 3],    _VPos[g * 3 + 1],    _VPos[g * 3 + 2]);
                 float3 n  = float3(_VNrm[g * 3],    _VNrm[g * 3 + 1],    _VNrm[g * 3 + 2]);
                 float3 bn = float3(_VBedNrm[g * 3], _VBedNrm[g * 3 + 1], _VBedNrm[g * 3 + 2]);
+
+                // GEOMORPH: morfa p verso la forma del genitore in base alla distanza camera. Puramente visivo —
+                // il walker segue SampleHeight (CPU) e da vicino mf→0, quindi mesh e collisione combaciano dove conta.
+                if (_UseGeomorph > 0.5)
+                {
+                    uint slabBase = _SlabOfInstance[iid] * _VertsPerSlab;
+                    uint interior = _NN * _NN;
+                    int i, j;
+                    if (vid < interior) { i = (int)(vid % _NN); j = (int)(vid / _NN); }
+                    else
+                    {   // SKIRT: morfa col vertice di BORDO corrispondente (resta attaccato mentre il bordo morfa)
+                        uint res = _NN - 1u;
+                        uint k = vid - interior, e = k / res, t = k % res;
+                        if (e == 0u)      { i = (int)t;          j = 0; }
+                        else if (e == 1u) { i = (int)res;        j = (int)t; }
+                        else if (e == 2u) { i = (int)(res - t);  j = (int)res; }
+                        else              { i = 0;               j = (int)(res - t); }
+                    }
+                    // per gli skirt il delta è quello del vertice di BORDO (pRef = posizione del bordo, non dello skirt)
+                    float3 pRef = (vid < interior) ? p : GeoLoadPos(slabBase + (uint)(i + j * (int)_NN));
+                    float3 delta = GeoMorphDelta(slabBase, i, j, pRef);
+                    float splitDist = _SplitDistOfInstance[iid];
+                    if (splitDist > 0.0)
+                    {
+                        float3 w0 = mul(_ObjectToWorld, float4(p, 1.0)).xyz;
+                        float d = distance(w0, _CamPosWorld);
+                        float mf = saturate((d - splitDist * (1.0 - _MorphRange)) / (splitDist * _MorphRange));
+                        p += delta * mf;
+                    }
+                }
+
                 float3 world = mul(_ObjectToWorld, float4(p, 1.0)).xyz;
                 o.pos  = UnityWorldToClipPos(world);
                 o.nrm  = normalize(mul((float3x3)_ObjectToWorld, n));    // rotazione+scala uniforme: la 3x3 basta
