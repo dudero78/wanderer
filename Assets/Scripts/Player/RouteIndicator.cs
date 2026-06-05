@@ -189,7 +189,7 @@ public class RouteIndicator : MonoBehaviour
                 // SATURAZIONE MORBIDA (per asse): sensibile vicino allo zero ma arriva al bordo (maxLeash) solo a
                 // deriva ALTA → il marker non schizza al minimo drift, ci arriva GRADUALMENTE. driftRef = m/s "di
                 // scala": più alto, più lentamente raggiunge il massimo. (Era lineare a 6 px/(m/s): saturava a ~33 m/s.)
-                const float driftRef = 110f;
+                const float driftRef = 240f;
                 Vector3 toT = (tp - camPos).normalized;
                 float closing = Vector3.Dot(relVel, toT);          // + = ti avvicini
                 Vector3 latVel = relVel - toT * closing;           // deriva laterale (perpendicolare alla rotta)
