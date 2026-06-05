@@ -124,7 +124,10 @@ public class PlanetTerrain : MonoBehaviour
         float h = 0f;
         for (int i = 0; i < layers.Count; i++)
             h = layers[i].Apply(unitDir, h);
-        return h;
+        // STESSA guardia dell'HLSL PlanetHeightCore.SampleHeightD (parità walker↔resa): un cratere più profondo del
+        // raggio (es. scavato DOPO il mare) darebbe h≤0 = geometria degenere → clamp a un fondo-ciotola positivo.
+        h = (h < 3f * BaseRadius) ? h : BaseRadius;   // NaN/Inf/assurdo → base
+        return Mathf.Max(h, BaseRadius * 0.2f);
     }
 
     /// <summary>
