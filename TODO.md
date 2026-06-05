@@ -190,9 +190,14 @@ GPU↔CPU fa da rete. Componenti nuovi: `GpuPlanetRenderer.cs`, shader `Wanderer
   - ✅ **TAGLI FILL SICURI (4 giu, geometria invariata):** **normali a 2 campioni** (differenza-in-avanti, riusa il
     centro → fill GPU ~dimezzato), **property-ID cachati** (niente hash-stringa per chiamata CPU), `_NN`/`_NSkirtStart`
     una volta sola. **`lodFactor` 4→3** (R3): `visibili` ~1023→~700 (era al tetto del pool 1024) → meno disegno + meno fill.
-  - ❌ **BATCH dei fill (1 dispatch) — ANNULLATO.** Provato (toglie le ~600 chiamate API/frame), ma ha dato
-    **corruzione di geometria** (spuntoni/lamine = vertici sbagliati): bug d'indicizzazione/hazard non trovato. Tornati
-    ai fill per-nodo (corretti). Da ri-fare con **banco di verifica** (vertici batch↔per-nodo) — vedi §13 R1.
+  - 🟡 **BATCH dei fill (1 dispatch) — RIFATTO col banco di verifica (R1), da provare in gioco.** Era stato annullato
+    (corruzione di geometria, bug d'indicizzazione non trovato). Ora i kernel batch (`CSNodeSlabBatch/SkirtBatch`)
+    sono identici ai per-nodo ma con assi/uv/slabOff/skirtDrop letti da `_Jobs[nodo]` (nodo = asse z/y del dispatch);
+    tutto float4. È **OPT-IN** (`GameBootstrap.useBatchFill`, default OFF) e si attiva SOLO se `VerifyBatchFill()`
+    trova **parità sub-cm** batch↔per-nodo sui 6 root (readback all'avvio, log `[batch-fill]`); altrimenti fallback
+    automatico al per-nodo. **Da fare:** accendere il toggle, leggere il log (PARITÀ OK?), e SE verde misurare se
+    taglia davvero il churn CPU (R5: prima conferma con GPU Frametime che non è attesa-GPU). NB: i 2 kernel in più
+    allungano la compilazione del compute all'avvio (costo di sviluppo, R2).
   - ⬜ se il churn resta: batch debuggato + per-vertice i campi a bassa freq (`baseN` interpolato → fragment quasi gratis).
   - 🟡 **SINTOMI segnalati da Dario (4 giu, bersaglio del prossimo lavoro LOD) — "nessun caricamento lungo IN GIOCO"
     (§13 R2) è IL requisito:** (a) ambiente che **carica troppo tardi** (fill a budget + split solo dentro splitDist
