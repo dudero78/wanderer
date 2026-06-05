@@ -20,7 +20,7 @@ using UnityEngine;
 [RequireComponent(typeof(Camera))]
 public class RenderScaler : MonoBehaviour
 {
-    [Range(0.4f, 1f)] public float scale = 0.7f;   // 1.0 = nativo; 0.7 ≈ densità 1080p su Retina
+    [Range(0.4f, 1f)] public float scale = 1f;     // 1.0 = nativo (nitido all'avvio); il dinamico scende SOLO su affanno GPU vero
     // RISOLUZIONE DINAMICA (tecnica AAA per restare fluidi): quando la GPU non tiene i ~60 fps, abbasso la
     // risoluzione di render (meno pixel = shader del mare più economico) per non scattare; quando c'è margine,
     // rialzo piano verso il nitido. Maschera il costo GPU senza toccare geometria/shader. minScale = quanto
@@ -75,7 +75,16 @@ public class RenderScaler : MonoBehaviour
     {
         float dt = Time.unscaledDeltaTime;
         smoothDt = smoothDt <= 0f ? dt : Mathf.Lerp(smoothDt, dt, 0.1f);
-        if (smoothDt > 1f / 57f) dynScale -= 0.8f * dt;   // affanno → meno pixel, subito
+        // Quando il Governor sta capando a idleFps (sei fermo), il frame è lento PER IL CAP (~33 ms a 30 fps), non
+        // perché la GPU è satura: quel dt è "avvelenato". Letto come affanno, abbasserebbe la risoluzione da fermo →
+        // al primo movimento (torna a 60) lo schermo sarebbe morbido. Da idle-capped: TIENI la scala, non scendere.
+        if (PerformanceGovernor.IdleCapped)
+        {
+            dynScale = Mathf.Clamp(dynScale, minScale, 1f);
+            scale = Mathf.Round(dynScale / 0.05f) * 0.05f;
+            return;
+        }
+        if (smoothDt > 1f / 57f) dynScale -= 0.8f * dt;   // affanno VERO (puntiamo a 60) → meno pixel, subito
         else dynScale += 0.12f * dt;                       // margine → più nitido, piano
         dynScale = Mathf.Clamp(dynScale, minScale, 1f);
         scale = Mathf.Round(dynScale / 0.05f) * 0.05f;

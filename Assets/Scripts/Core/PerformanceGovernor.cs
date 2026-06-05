@@ -18,6 +18,11 @@ public class PerformanceGovernor : MonoBehaviour
     public float idleDelay = 0.3f;  // secondi di immobilità prima di scendere
     public float moveThreshold = 2f; // m/s sopra cui il giocatore è "in movimento" (volo balistico)
 
+    // Stato letto da chi misura il carico dal frame-time (es. RenderScaler): un frame lento MENTRE capiamo a
+    // idleFps è "avvelenato" dal cap (non GPU satura) → va ignorato come segnale di affanno.
+    public static int TargetFps = 60;
+    public static bool IdleCapped;
+
     PlanetWalker walker;
     float lastActiveTime;
 
@@ -29,6 +34,8 @@ public class PerformanceGovernor : MonoBehaviour
         walker = FindAnyObjectByType<PlanetWalker>();
         lastActiveTime = Time.unscaledTime;
         Application.targetFrameRate = activeFps;
+        TargetFps = activeFps;
+        IdleCapped = false;
     }
 
     void Update()
@@ -37,6 +44,8 @@ public class PerformanceGovernor : MonoBehaviour
 
         bool idle = Time.unscaledTime - lastActiveTime > idleDelay;
         int target = idle ? idleFps : activeFps;
+        TargetFps = target;
+        IdleCapped = idle && idleFps < activeFps;   // frame lento ora = cap, non GPU satura
 
         // riassegna solo al cambio: evitare di scrivere targetFrameRate ogni frame
         if (Application.targetFrameRate != target)
