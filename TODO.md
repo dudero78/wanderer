@@ -1,9 +1,23 @@
 # Wanderer — TODO
 
-Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **5 giugno 2026** (sessione: acqua-superficie, mappa,
-batch fill, presets). Dettaglio tecnico nel `CLAUDE.md`.
+Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **5 giugno 2026** (sessioni: acqua-superficie, mappa,
+batch fill, geomorph GPU, VRAM, **AUDIT #2**, spuntone, overdraw). Dettaglio tecnico nel `CLAUDE.md`.
 
-> ## 🔴 PARTI DA QUI — 3 BUG APERTI nell'EDITOR (sessione 5 giu, da riprendere a freddo)
+> ## 🟢 PARTI DA QUI (6 giu+) — `AUDIT2.md` È L'AUTORITÀ DELLA ROADMAP, leggilo a freddo
+> Motore **6.6→~8/10**, Audit #1 ~90% chiuso, **spuntone CHIUSO**, overdraw dimezzato. La roadmap prioritizzata è in
+> **`AUDIT2.md`**. Ordine deciso con Dario: **#18 spaccare il god-object** (`SlabPool`+`PlanetLodTree` dal
+> `GpuPlanetRenderer` — refactor BASE, spostamento puro, abilita gli altri) → **#14 quadtree 2:1** (niente skirt,
+> Cull Back unico — visivo, con verifica Dario) → **#15 fisica in FixedUpdate + tick intero** (determinismo, timing)
+> → **#16 layer `StarSystem`** (additivo, per i sistemi solari multipli) → **#17 fonte unica della funzione altezza**
+> (genera l'HLSL dal C#, chiude il rischio "fluttua/sprofonda"). RIMANDATI con motivo: colore per-vertice (+120MB
+> VRAM, riprendere col PBR), gating `_HAS_SEA` (zero risparmio se la scena ha un mare). Molti commit locali non pushati.
+>
+> ### ✅ RISOLTI — i 3 bug editor di prima (storico, non più PARTI DA QUI)
+> (1) mare-non-allaga → **maschera "sotto il pelo = acqua"** (gestisce crateri-dopo-mare); (2) trasparenza "al
+> contrario" → **modello trasparenza ripensato** (tinta separata dalla luminosità); (3) bake fa sparire il pianeta →
+> **auto-heal** in `GpuPlanetSurface`. Dettaglio storico qui sotto.
+
+> ## (storico) 🔴 i 3 BUG dell'EDITOR — RISOLTI (vedi sopra)
 > Tutti e tre nell'**editor di pianeti** (scena "Apri editor pianeti"), su Valentina2 (mare + tettonica + crateri):
 >
 > **(1) Il livello del mare sembra non allagare in palla d'acqua.** Alzando "Livello (m)" al MAX (259) il pianeta

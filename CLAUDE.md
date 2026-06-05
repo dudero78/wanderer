@@ -29,8 +29,13 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 > - **MAPPA**: proxy proporzionali, **camera orbitale** (destro=ruota, WASD=pan, rotella=zoom), superficie GPU sospesa
 >   in mappa (`GpuPlanetRenderer.SuppressDraw`).
 > - **Editor Salva** scrive ANCHE in `Resources/Planets/` → il gioco usa la **ricetta**, non il bake (ribakare non serve).
-> - **🔴 3 BUG APERTI nell'editor** (vedi `TODO.md` §PARTI DA QUI): livello mare non allaga in palla d'acqua · trasparenza
->   "al contrario" · bake da editor fa sparire il pianeta. **PROSSIMO grafica: GEOMORPH (Tappa 2b)** = fix cuciture LOD.
+> - **AUDIT #2 fatto** (`AUDIT2.md` = AUTORITÀ DELLA ROADMAP, leggilo). Motore **6.6→~8/10**. Chiusi: geomorph GPU,
+>   VRAM condiviso (459 MB, nodeRes 96 PARI), parità runtime, gravità binario, wall-stop, acqua (maschera+ripple-LOD),
+>   **horizon culling height-aware** (`lodPeakAngle`, niente nero all'orizzonte), **overdraw dimezzato** (cull-split a
+>   DUE MATERIALI, `interiorCull=1`/Front), **SPUNTONE chiuso** (rete direzione-aware `_DirOfInstance`), early-out
+>   per-corpo, ring buffer scia. **PROSSIMO (roadmap AUDIT2):** #18 spaccare god-object (`SlabPool`+`PlanetLodTree`)
+>   → #14 quadtree 2:1 (niente skirt, Cull Back unico) → #15 fisica FixedUpdate+tick → #16 layer StarSystem (multi-
+>   sistema) → #17 fonte unica altezza (C#↔HLSL). Rimandati con motivo: colore per-vertice (+120MB), `_HAS_SEA`.
 
 Funziona: floating origin + doppia precisione, orbita Kepleriana, **gravità radiale**,
 **volo col jetpack** (tuta da raccogliere), **torcia** (F), ciclo giorno/notte.
@@ -511,6 +516,15 @@ vicino all'origine di Unity → la precisione non degrada mai.
   shading dove due livelli si toccano (peggio coi salti di 2+ livelli: l'albero non è bilanciato). Il fix definitivo
   è il **quadtree bilanciato 2:1** (vicini ≤ 1 livello → il morph di un livello basta; si possono togliere gli skirt).
   Deciso ma RIMANDATO: ci si è persi troppo tempo, si va avanti col gioco.
+- **`MaterialPropertyBlock` NON guida lo stato fisso `Cull [_Cull]` in built-in (5 giu 2026).** Tentato il cull-split
+  (interno Cull Back + skirt Cull Off in 2 draw) impostando `_Cull` via MPB per-draw: NON funziona (verificato — con
+  `interiorCull=1`/Front il pianeta restava visibile, segno che il Cull non cambiava). Il `_Cull` lo guida solo il
+  **MATERIALE** → servono DUE MATERIALI (stessi buffer/uniform, `_Cull` diverso). L'MPB resta valido per gli UNIFORM,
+  non per lo stato fisso. `interiorCull=1` (l'interno è Front-facing; con 2/Back le geometrie si ribaltano).
+- **Spuntoni rari in volo veloce = fetta del pool con la geometria di una REGIONE PRECEDENTE (churn evict→refill).**
+  Il vertice ha lunghezza ~giusta ma DIREZIONE sbagliata → una rete sola-magnitudine non lo vede. Cura: rete
+  **direzione-aware** (`_DirOfInstance` = direzione-centro del nodo per istanza; il vertex collassa chi devia in
+  direzione oltre l'estensione angolare, sull'àncora valida data dalla CPU). Fix vero più robusto = region-stamp.
 - **Colore dalla ricetta.** `PlanetBaker.BuildMaterial` DEVE impostare `_SoilMean/_MariaColor/_MariaScale/_MariaStr`
   da `terrain.Recipe`, o un corpo marziano esce grigio (lo shader resta sul default lunare). L'editor li spingeva a
   mano; in gioco serve qui.
