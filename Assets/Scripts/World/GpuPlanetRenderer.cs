@@ -462,41 +462,54 @@ public class GpuPlanetRenderer : MonoBehaviour
     /// l'altra volta corruppe la geometria. Costa qualche readback sincrono, ma è UNA volta sola all'avvio.</summary>
     bool VerifyBatchFill()
     {
-        int vfloats = vertsPerSlab * 3;
         int g = (n + 7) / 8;
+        // confronta TUTTI i buffer scritti dai fill, non solo le posizioni: un bug d'indicizzazione che sposta
+        // _VPos lo prende anche pos, ma un errore nei VALORI di normali/profondità/pelo passerebbe inosservato e
+        // si vedrebbe come luce/acqua sbagliata (più subdolo di uno spuntone). pos/nrm/bedNrm = 3 float/v, gli altri 1.
+        var bufs = new[] { posBuf, nrmBuf, bedNrmBuf, depthBuf, fieldBuf, surfBuf };
+        var pers = new[] { 3, 3, 3, 1, 1, 1 };
+        var names = new[] { "pos", "nrm", "bedNrm", "depth", "field", "surf" };
 
-        // A = PER-NODO per ogni root, salvato (è il noto-corretto)
-        var aSlabs = new List<(int baseF, float[] data)>();
-        foreach (var r in roots)
+        // A = PER-NODO per ogni root, salvo tutti i buffer (è il noto-corretto)
+        var roots2 = new List<Node>();
+        foreach (var r in roots) if (r.slab >= 0) { FillSlabImmediate(r); roots2.Add(r); }
+        var aData = new float[roots2.Count][][];
+        for (int ri = 0; ri < roots2.Count; ri++)
         {
-            if (r.slab < 0) continue;
-            FillSlabImmediate(r);
-            var d = new float[vfloats];
-            posBuf.GetData(d, 0, r.slab * vfloats, vfloats);
-            aSlabs.Add((r.slab * vfloats, d));
+            aData[ri] = new float[bufs.Length][];
+            for (int bi = 0; bi < bufs.Length; bi++)
+            {
+                int cnt = vertsPerSlab * pers[bi];
+                var d = new float[cnt];
+                bufs[bi].GetData(d, 0, roots2[ri].slab * cnt, cnt);
+                aData[ri][bi] = d;
+            }
         }
 
         // B = BATCH di TUTTI i root in UN SOLO dispatch — come in gioco (MULTI-JOB). Un bug che spunta solo con
         // più nodi nello stesso dispatch (hazard/indicizzazione sull'asse z/y) si vede QUI, non col job singolo.
         jobCount = 0;
-        foreach (var r in roots) if (r.slab >= 0) jobScratch[jobCount++] = MakeJob(r);
+        foreach (var r in roots2) jobScratch[jobCount++] = MakeJob(r);
         jobsBuf.SetData(jobScratch, 0, 0, jobCount);
         cs.Dispatch(kSlabBatch, g, g, jobCount);
         cs.Dispatch(kSkirtBatch, (4 * nodeRes + 63) / 64, jobCount, 1);
 
-        float maxDiff = 0f; long compared = 0;
-        var b = new float[vfloats];
-        foreach (var (baseF, ad) in aSlabs)
-        {
-            posBuf.GetData(b, 0, baseF, vfloats);
-            for (int i = 0; i < vfloats; i++) { float d = Mathf.Abs(ad[i] - b[i]); if (d > maxDiff) maxDiff = d; compared++; }
-        }
+        float maxDiff = 0f; long compared = 0; string worst = "";
+        for (int ri = 0; ri < roots2.Count; ri++)
+            for (int bi = 0; bi < bufs.Length; bi++)
+            {
+                int cnt = vertsPerSlab * pers[bi];
+                var bd = new float[cnt];
+                bufs[bi].GetData(bd, 0, roots2[ri].slab * cnt, cnt);
+                var ad = aData[ri][bi];
+                for (int i = 0; i < cnt; i++) { float d = Mathf.Abs(ad[i] - bd[i]); if (d > maxDiff) { maxDiff = d; worst = names[bi]; } compared++; }
+            }
 
-        foreach (var r in roots) if (r.slab >= 0) FillSlabImmediate(r);   // ripristina il per-nodo
+        foreach (var r in roots2) FillSlabImmediate(r);   // ripristina il per-nodo
         jobCount = 0;
-        bool ok = maxDiff < 0.01f;                           // sub-cm = identici (a meno del round-off)
-        Debug.Log($"[batch-fill] verifica {terrain.name} (multi-job, {aSlabs.Count} fette in 1 dispatch): " +
-                  $"{(ok ? "PARITÀ OK" : "DIVERGE!")} — {compared} float, max diff {maxDiff:F5} m");
+        bool ok = maxDiff < 0.01f;                           // sub-cm/sub-1% = identici (a meno del round-off)
+        Debug.Log($"[batch-fill] verifica {terrain.name} (multi-job, {roots2.Count} fette × {bufs.Length} buffer in 1 dispatch): " +
+                  $"{(ok ? "PARITÀ OK" : "DIVERGE!")} — {compared} float, max diff {maxDiff:F5} (buffer peggiore: {worst})");
         return ok;
     }
 
