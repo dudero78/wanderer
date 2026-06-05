@@ -245,9 +245,14 @@ public static class SolarSystemSetup
         return body;
     }
 
-    /// <summary>Aggiunge la superficie renderizzata a un corpo roccioso: quadtree CDLOD (geometria view-dependent
-    /// → crateri nitidi calpestabili) oppure mesh singola a risoluzione fissa (fallback). Walker/gravità/collisione
-    /// NON dipendono da questa scelta (leggono PlanetTerrain.SampleHeight).</summary>
+    /// <summary>Aggiunge la superficie renderizzata a un corpo roccioso. GERARCHIA DEI RENDERER (decisa — audit #2):
+    /// 1) <see cref="GpuPlanetRenderer"/> = renderer AUTORITATIVO in gioco (quadtree CDLOD su GPU + geomorph + 1 draw
+    ///    indirect + pool VRAM condiviso); 2) <see cref="PlanetQuadtree"/> = FALLBACK ESPLICITO (stesso LOD su CPU) se
+    ///    la GPU non regge i compute — NON è morto, è la garanzia "niente pianeta invisibile"; 3)
+    ///    <see cref="SingleMeshPlanet"/> = fallback finale + proxy a bassa res della mappa.
+    /// DISCIPLINA (contro il debito dei "renderer paralleli"): le feature di RESA nuove (geomorph, materiali PBR,
+    /// eclissi GPU...) vanno SOLO sul renderer autoritativo; i fallback restano CONGELATI, così un fix non va
+    /// replicato in N posti né diverge. Walker/gravità/collisione NON dipendono dal renderer (leggono SampleHeight).</summary>
     static void AddSurface(GameObject go, PlanetTerrain terrain, Material[] faceMats, bool quadtree, int singleRes, int proxyRes,
                            bool gpuSurface = false, int gpuRes = 256)
     {

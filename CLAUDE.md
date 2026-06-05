@@ -35,15 +35,17 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 Funziona: floating origin + doppia precisione, orbita Kepleriana, **gravità radiale**,
 **volo col jetpack** (tuta da raccogliere), **torcia** (F), ciclo giorno/notte.
 
-**Renderer dei corpi rocciosi: QUADTREE CDLOD** (`PlanetQuadtree`, cube-sphere a 6 facce-radice).
-Geometria view-dependent: fitta sotto i piedi (crateri nitidi calpestabili, look Elite/Star Citizen),
-rada all'orizzonte. Build async su thread + **geomorph** (UV2, niente pop) + **skirt** + horizon culling +
-cache LRU dei nodi + LOD predittivo. Toggle `useQuadtree` su `GameBootstrap` (default ON); `SingleMeshPlanet`
-(res fissa, niente LOD) resta come fallback. Walker/gravità/collisione NON dipendono dal renderer: leggono
-`PlanetTerrain.SampleHeight` (una sola verità; il morph è puramente visivo e vale 0 da vicino, dove mesh e
-collisione combaciano). **Limite noto, ACCANTONATO:** ai confini fra livelli di LOD restano transizioni di
-shading ("scalini") — niente fessure/buchi (lo skirt è dimensionato sul salto di morph del bordo, copre per
-costruzione). Il fix definitivo è il **CDLOD bilanciato 2:1** — deciso ma RIMANDATO (vedi "Lezioni dure").
+**Renderer dei corpi rocciosi (gerarchia decisa — audit #2).** Quello AUTORITATIVO in gioco è
+**`GpuPlanetRenderer`**: quadtree CDLOD calcolato e disegnato **sulla GPU** (1 draw indirect per corpo, pool VRAM
+**CONDIVISO** fra i corpi, colore procedurale nel fragment) con **GEOMORPH** nel vertex shader (transizioni di LOD
+lisce, niente pop né "lamelle nere" ai confini — legge i vicini da `_VPos`, toggle `useGeomorph`) + skirt + horizon
+culling + cache LRU + LOD predittivo. **`PlanetQuadtree`** (stesso CDLOD su CPU, mesh per nodo, geomorph via UV2) è
+il **FALLBACK ESPLICITO** se la GPU non regge i compute — non è morto, è la garanzia "niente pianeta invisibile".
+**`SingleMeshPlanet`** (res fissa) = fallback finale + proxy della mappa. DISCIPLINA: le feature di RESA nuove
+(materiali PBR, eclissi GPU...) vanno SOLO sul renderer autoritativo, i fallback restano congelati. Walker/gravità/
+collisione NON dipendono dal renderer: leggono `PlanetTerrain.SampleHeight` (una sola verità; il morph è puramente
+visivo e vale 0 da vicino, dove mesh e collisione combaciano). Il **CDLOD bilanciato 2:1** (toglierebbe gli skirt →
+Cull Back gratis, dimezza il fragment) resta una miglioria possibile, non urgente.
 
 **Crateri: geometria vera nell'heightfield** (`CraterTerrainLayer`: composizione additiva, griglia 3D hashata
 seam-free, profilo a **legge di potenza** con bordo netto regolabile `rimSharpness` 1=cono…4=quasi tagliente)
