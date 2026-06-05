@@ -129,6 +129,9 @@ public class GpuPlanetRenderer : MonoBehaviour
     int splitsThisFrame;
     int fillsThisFrame;   // diagnosi: quante fette riempite (dispatch) in questo frame
     long fillTicks;       // diagnosi: tempo CPU speso nelle chiamate dei fill (SetX+Dispatch), per separarlo dalla traversata
+    // scomposizione CPU del frame (ms), SOMMATA su tutti i corpi, esposta all'HUD: collo del churn a colpo d'occhio
+    public static float Trav, Fill, Send;
+    static int sBreakdownFrame = -1;
 
     // --- BATCH FILL (opt-in): accumula i fill del frame e li manda in UN dispatch invece di uno per nodo (taglia le
     // chiamate API). Si attiva solo se la VERIFICA di parità (batch↔per-nodo, vedi VerifyBatchFill) è verde; altrimenti
@@ -739,6 +742,9 @@ public class GpuPlanetRenderer : MonoBehaviour
         double fillMs = fillTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
         double travMs = lodMs - fillMs;                 // logica di traversata pura (split/merge/orizzonte)
         double sendMs = ms - lodMs;                      // SetData + invio del draw (qui appare l'attesa-GPU)
+        // accumula la scomposizione del frame (sommata sui corpi; reset al cambio di frame) per l'HUD
+        if (Time.frameCount != sBreakdownFrame) { sBreakdownFrame = Time.frameCount; Trav = Fill = Send = 0f; }
+        Trav += (float)travMs; Fill += (float)fillMs; Send += (float)sendMs;
         if (ms >= 4.0) Debug.Log($"[GpuPlanet {name}] CPU {ms:F1} ms (trav {travMs:F1} · fill {fillMs:F1} · invio {sendMs:F1}) · fills={fillsThisFrame} · visibili={visibleCount}");
     }
 

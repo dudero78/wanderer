@@ -24,6 +24,7 @@ public class DebugHud : MonoBehaviour
     // e — cruciale per i micro-scatti — il PICCO (fotogramma peggiore dell'ultimo secondo): se la media è bassa
     // ma il picco è alto, c'è uno stutter. È la misura vera, fuori dall'editor che gonfia i numeri.
     float avgMs, worstMs, displayWorst, windowEnd;
+    float wTrav, wFill, wSend, dTrav, dFill, dSend;   // scomposizione (trav/fill/invio del renderer) del frame-PICCO della finestra
     bool showPerf = true;   // riga performance: si accende/spegne con "è" (come à apre le impostazioni)
 
     void Update()
@@ -31,8 +32,8 @@ public class DebugHud : MonoBehaviour
         if (Input.inputString.Contains("è") || Input.inputString.Contains("È")) showPerf = !showPerf;
         float ms = Time.unscaledDeltaTime * 1000f;
         avgMs = avgMs <= 0f ? ms : avgMs + (ms - avgMs) * 0.1f;   // media morbida
-        if (ms > worstMs) worstMs = ms;
-        if (Time.unscaledTime >= windowEnd) { displayWorst = worstMs; worstMs = 0f; windowEnd = Time.unscaledTime + 1f; }
+        if (ms > worstMs) { worstMs = ms; wTrav = GpuPlanetRenderer.Trav; wFill = GpuPlanetRenderer.Fill; wSend = GpuPlanetRenderer.Send; }
+        if (Time.unscaledTime >= windowEnd) { displayWorst = worstMs; dTrav = wTrav; dFill = wFill; dSend = wSend; worstMs = 0f; windowEnd = Time.unscaledTime + 1f; }
     }
 
     public void Init(Transform p, CelestialBody pl, CelestialBody st, SolarSystem s, PlanetWalker w, Flashlight fl, Transform suit, Transform cam)
@@ -145,7 +146,7 @@ public class DebugHud : MonoBehaviour
         }
 
         string perfLine = showPerf
-            ? $"FPS {(avgMs > 0f ? 1000f / avgMs : 0f):F0}   ·   fotogramma {avgMs:F1} ms   ·   picco/sec {displayWorst:F1} ms   ('è' nascondi)\n"
+            ? $"FPS {(avgMs > 0f ? 1000f / avgMs : 0f):F0}   ·   fotogramma {avgMs:F1} ms   ·   picco/sec {displayWorst:F1} ms (trav {dTrav:F1}·fill {dFill:F1}·invio {dSend:F1})   ('è' nascondi)\n"
             : "";
         return
             perfLine +
