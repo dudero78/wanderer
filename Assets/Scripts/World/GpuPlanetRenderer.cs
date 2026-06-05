@@ -59,7 +59,9 @@ public class GpuPlanetRenderer : MonoBehaviour
     static readonly int ID_Step = Shader.PropertyToID("_Step");
     static readonly int ID_NSlabOff = Shader.PropertyToID("_NSlabOff");
     static readonly int ID_NSkirtDrop = Shader.PropertyToID("_NSkirtDrop");
-    GraphicsBuffer posBuf, nrmBuf, bedNrmBuf, depthBuf, fieldBuf, surfBuf;   // POOL: maxSlabs * vertsPerSlab
+    // POOL geometria: ALIAS dei buffer CONDIVISI statici (sPos…), assegnati in AcquirePool. Un solo pool serve
+    // tutti i corpi (#2 sez. A): un corpo solo è "attivo" per volta, gli altri stanno alle radici → 1×~843 MB, non 6×.
+    GraphicsBuffer posBuf, nrmBuf, bedNrmBuf, depthBuf, fieldBuf, surfBuf;
     GraphicsBuffer idxBuf;                                // topologia di UNA fetta (interno + skirt), condivisa
     GraphicsBuffer slabOfInstance;                        // istanza visibile → indice di fetta
     GraphicsBuffer argsBuf;
@@ -69,12 +71,26 @@ public class GpuPlanetRenderer : MonoBehaviour
     Transform planetTf;
     PlanetTerrain terrain;
 
-    readonly Stack<int> freeSlabs = new Stack<int>();
-    // CACHE LRU: una regione (face,depth,u0,v0) che esce di vista NON si butta — la sua fetta (già riempita, la
-    // geometria è statica) resta in cache e si RIUSA al ritorno → niente ricalcolo (era il "continua a ridisegnarsi").
-    readonly Dictionary<long, int> cacheSlab = new Dictionary<long, int>();
-    readonly Dictionary<long, int> cacheClock = new Dictionary<long, int>();
-    int clock;
+    // free-list + CACHE LRU delle fette: CONDIVISE fra i corpi (alias degli statici, assegnati in AcquirePool).
+    // Una regione (face,depth,u0,v0) che esce di vista NON si butta: la sua fetta resta in cache e si riusa al
+    // ritorno → niente ricalcolo. Con pool condiviso un corpo attivo può "prendere in prestito" le fette in cache
+    // dei corpi lontani (eviction LRU): per loro è solo un refill al ritorno.
+    Stack<int> freeSlabs;
+    Dictionary<long, int> cacheSlab;
+    Dictionary<long, int> cacheClock;
+    int bodyId;   // identità del corpo nel pool condiviso: entra nella chiave di cache → due corpi non collidono
+
+    // ---- POOL CONDIVISO (statico, refcountato): i 6 buffer geometria + free-list + cache, UNO per tutti i corpi.
+    // Risparmio: 1×~843 MB invece di 6× ≈ 5 GB allocati alla costruzione scena (#2 sez. A, NOTES_pool_vram.md).
+    // Tutti i corpi devono avere lo STESSO vertsPerSlab (= stesso nodeRes), o le fette non sarebbero allineate.
+    static GraphicsBuffer sPos, sNrm, sBedNrm, sDepth, sField, sSurf;
+    static readonly Stack<int> sFreeSlabs = new Stack<int>();
+    static readonly Dictionary<long, int> sCacheSlab = new Dictionary<long, int>();
+    static readonly Dictionary<long, int> sCacheClock = new Dictionary<long, int>();
+    static int sClock;
+    static int sRefCount;
+    static int sPoolVerts, sPoolSlabs;   // dimensioni con cui il pool è stato allocato (tutti i corpi le condividono)
+    static int sNextBodyId;
     // pool degli oggetti Node: split/merge in movimento NON allocano più (niente GC → niente stallo periodico).
     readonly Stack<Node> nodePool = new Stack<Node>();
     Node[] roots;
@@ -126,7 +142,11 @@ public class GpuPlanetRenderer : MonoBehaviour
     {
         this.terrain = terrain;
         this.planetTf = terrain.transform;
-        nodeRes = Mathf.Clamp(res, 4, 128);
+        // TETTO di nodeRes (#2 sez. B): la VRAM del pool cresce col QUADRATO di nodeRes. 96 invece di 128 taglia
+        // ~1.8× la memoria per fetta con un calo di dettaglio modesto (il quadtree si suddivide comunque per
+        // distanza). È un DIAL: 128 = dettaglio pieno/più VRAM, 64 = ~4× meno VRAM/più grossolano. Cap, non default,
+        // così vale qualunque gpuSurfaceRes serializzato in scena. (Editor preview = altra classe, non toccata.)
+        nodeRes = Mathf.Clamp(res, 4, 96);
         n = nodeRes + 1;
         skirtStart = n * n;
         vertsPerSlab = n * n + 4 * nodeRes;
@@ -148,22 +168,10 @@ public class GpuPlanetRenderer : MonoBehaviour
         kSlabBatch = cs.FindKernel("CSNodeSlabBatch");
         kSkirtBatch = cs.FindKernel("CSNodeSkirtBatch");
 
-        int totalVerts = maxSlabs * vertsPerSlab;
-        posBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
-        nrmBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
-        bedNrmBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
-        depthBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
-        fieldBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);   // baseN per-vertice
-        surfBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);    // pelo del mare per-vertice
-        jobsBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 5 * 16); // NodeJob = 5×float4
+        AcquirePool();   // alloca (o riusa) il pool CONDIVISO → alias posBuf…surfBuf + free-list/cache + bodyId
+        jobsBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 5 * 16); // NodeJob = 5×float4 (per-corpo, ~82 KB)
         jobScratch = new NodeJob[maxSlabs];
 
-        // VRAM del pool, resa VISIBILE (era un costo nascosto): è maxSlabs × vertsPerSlab × 48 byte/vertice
-        // (pos+nrm+bedNrm = 3 float ciascuno, depth+field+surf = 1 ciascuno). Cresce col QUADRATO di nodeRes.
-        // È la leva grossa sulla memoria video: a nodeRes=128 un corpo occupa ~843 MB, ×6 corpi ≈ 5 GB allocati
-        // GIÀ alla costruzione della scena. Il fix strutturale (pool condiviso fra i corpi) è in NOTES_pool_vram.md.
-        long poolBytes = (long)maxSlabs * vertsPerSlab * 48L;
-        Debug.Log($"[GpuPlanet {terrain.name}] pool VRAM ~{poolBytes / (1024 * 1024)} MB (nodeRes={nodeRes}, maxSlabs={maxSlabs}, vertsPerSlab={vertsPerSlab})");
         // i 4 kernel (per-nodo + batch) scrivono lo STESSO pool; i batch leggono anche _Jobs
         foreach (int k in new[] { kSlab, kSkirt, kSlabBatch, kSkirtBatch })
         {
@@ -182,10 +190,7 @@ public class GpuPlanetRenderer : MonoBehaviour
 
         BuildIndexBuffer();
 
-        // free-list: tutte le fette libere all'inizio
-        freeSlabs.Clear();
-        for (int i = maxSlabs - 1; i >= 0; i--) freeSlabs.Push(i);
-        visibleScratch = new uint[maxSlabs];
+        visibleScratch = new uint[maxSlabs];   // la free-list è inizializzata UNA volta in AcquirePool (pool condiviso)
 
         slabOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         argsBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
@@ -301,12 +306,56 @@ public class GpuPlanetRenderer : MonoBehaviour
 
     /// <summary>Chiave STABILE della regione (face, profondità, indici di griglia interi): u0,v0 sono multipli
     /// di 1/2^depth → indici esatti. Stessa idea del vecchio quadtree.</summary>
-    static long Key(Node nd)
+    long Key(Node nd)
     {
         int N = 1 << nd.depth;
         long ix = Mathf.RoundToInt(nd.u0 * N);
         long iy = Mathf.RoundToInt(nd.v0 * N);
-        return (long)nd.face | ((long)nd.depth << 3) | (ix << 8) | (iy << 32);
+        // bodyId nei bit alti: nel pool CONDIVISO due corpi con la stessa regione non devono collidere in cache.
+        // iy ≤ 2^depth ≤ 64 < 2^7 → occupa i bit 32-38, quindi bodyId da bit 40 in su è libero.
+        return (long)nd.face | ((long)nd.depth << 3) | (ix << 8) | (iy << 32) | ((long)bodyId << 40);
+    }
+
+    /// <summary>Alloca il pool CONDIVISO la prima volta (refcount), o lo riusa, e ne fa alias i campi per-corpo
+    /// (posBuf…surfBuf, freeSlabs/cacheSlab/cacheClock). Assegna un bodyId univoco per la chiave di cache.</summary>
+    void AcquirePool()
+    {
+        if (sRefCount > 0 && vertsPerSlab != sPoolVerts)
+            Debug.LogError($"GpuPlanetRenderer: pool condiviso con vertsPerSlab diverso ({vertsPerSlab} vs {sPoolVerts}) — tutti i corpi devono avere lo stesso nodeRes, le fette non sarebbero allineate.");
+        if (sRefCount == 0)
+        {
+            int totalVerts = maxSlabs * vertsPerSlab;
+            sPos = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
+            sNrm = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
+            sBedNrm = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);
+            sDepth = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
+            sField = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
+            sSurf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
+            sFreeSlabs.Clear();
+            for (int i = maxSlabs - 1; i >= 0; i--) sFreeSlabs.Push(i);
+            sCacheSlab.Clear(); sCacheClock.Clear(); sClock = 0;
+            sPoolVerts = vertsPerSlab; sPoolSlabs = maxSlabs;
+            long poolBytes = (long)maxSlabs * vertsPerSlab * 48L;   // pos+nrm+bedNrm (3 float) + depth+field+surf (1) = 48 byte/vertice
+            Debug.Log($"[GpuPlanet] pool VRAM CONDIVISO ~{poolBytes / (1024 * 1024)} MB (nodeRes={nodeRes}, maxSlabs={maxSlabs}, vertsPerSlab={vertsPerSlab}) — UNO per tutti i corpi");
+        }
+        sRefCount++;
+        posBuf = sPos; nrmBuf = sNrm; bedNrmBuf = sBedNrm; depthBuf = sDepth; fieldBuf = sField; surfBuf = sSurf;
+        freeSlabs = sFreeSlabs; cacheSlab = sCacheSlab; cacheClock = sCacheClock;
+        bodyId = sNextBodyId++;
+    }
+
+    /// <summary>Rilascia il pool condiviso quando l'ULTIMO corpo sparisce (refcount → 0). I corpi del gioco
+    /// nascono e muoiono tutti insieme (lifecycle di scena) → al refcount 0 il pool si libera per intero.</summary>
+    void ReleasePool()
+    {
+        if (sRefCount == 0) return;
+        sRefCount--;
+        if (sRefCount == 0)
+        {
+            sPos?.Release(); sNrm?.Release(); sBedNrm?.Release(); sDepth?.Release(); sField?.Release(); sSurf?.Release();
+            sPos = sNrm = sBedNrm = sDepth = sField = sSurf = null;
+            sFreeSlabs.Clear(); sCacheSlab.Clear(); sCacheClock.Clear(); sClock = 0; sNextBodyId = 0;
+        }
     }
 
     int AllocSlab()
@@ -339,7 +388,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         if (nd.slab < 0) return;
         long key = Key(nd);
         if (cacheSlab.ContainsKey(key)) freeSlabs.Push(nd.slab);   // duplicato improbabile: libera
-        else { cacheSlab[key] = nd.slab; cacheClock[key] = ++clock; }
+        else { cacheSlab[key] = nd.slab; cacheClock[key] = ++sClock; }
         nd.slab = -1;
     }
 
@@ -714,7 +763,8 @@ public class GpuPlanetRenderer : MonoBehaviour
 
     void OnDestroy()
     {
-        posBuf?.Release(); nrmBuf?.Release(); bedNrmBuf?.Release(); depthBuf?.Release(); fieldBuf?.Release(); surfBuf?.Release(); jobsBuf?.Release();
+        ReleasePool();   // i 6 buffer geometria sono CONDIVISI e refcountati: liberati solo quando muore l'ultimo corpo
+        jobsBuf?.Release();
         idxBuf?.Release(); slabOfInstance?.Release(); argsBuf?.Release();
         shape?.Dispose();
         if (mat != null) Destroy(mat);
