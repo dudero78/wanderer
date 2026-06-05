@@ -27,7 +27,8 @@ void CSNodeSlab(uint3 id : SV_DispatchThreadID)
     // (Le posizioni NON cambiano: nessun rischio di artefatti, cambia solo la luce.)
     float3 pXp = NPosAt(tx + _Step, ty);
     float3 pYp = NPosAt(tx, ty + _Step);
-    float3 nrm = normalize(cross(pYp - p, pXp - p));
+    float3 cr = cross(pYp - p, pXp - p);
+    float3 nrm = (dot(cr, cr) > 1e-20) ? normalize(cr) : dir;   // fallback radiale se la cella e' degenere (niente NaN)
     if (dot(nrm, dir) < 0.0) nrm = -nrm;
     _VNrm[o] = nrm.x; _VNrm[o + 1] = nrm.y; _VNrm[o + 2] = nrm.z;
 
@@ -37,7 +38,8 @@ void CSNodeSlab(uint3 id : SV_DispatchThreadID)
         float3 bC = dir * BedHeight(dir);
         float3 bXp = ParamToDir(tx + _Step, ty); bXp *= BedHeight(bXp);
         float3 bYp = ParamToDir(tx, ty + _Step); bYp *= BedHeight(bYp);
-        bn = normalize(cross(bYp - bC, bXp - bC));
+        float3 bcr = cross(bYp - bC, bXp - bC);
+        bn = (dot(bcr, bcr) > 1e-20) ? normalize(bcr) : dir;   // fallback radiale se degenere
         if (dot(bn, dir) < 0.0) bn = -bn;
     }
     _VBedNrm[o] = bn.x; _VBedNrm[o + 1] = bn.y; _VBedNrm[o + 2] = bn.z;
@@ -102,7 +104,8 @@ void CSNodeSlabBatch(uint3 id : SV_DispatchThreadID)
 
     float3 pXp = ParamToDirA(tx + step, ty, up, ax, bx); pXp *= SampleHeight(pXp);
     float3 pYp = ParamToDirA(tx, ty + step, up, ax, bx); pYp *= SampleHeight(pYp);
-    float3 nrm = normalize(cross(pYp - p, pXp - p));
+    float3 cr = cross(pYp - p, pXp - p);
+    float3 nrm = (dot(cr, cr) > 1e-20) ? normalize(cr) : dir;   // fallback radiale se la cella e' degenere (niente NaN)
     if (dot(nrm, dir) < 0.0) nrm = -nrm;
     _VNrm[o] = nrm.x; _VNrm[o + 1] = nrm.y; _VNrm[o + 2] = nrm.z;
 
@@ -112,7 +115,8 @@ void CSNodeSlabBatch(uint3 id : SV_DispatchThreadID)
         float3 bC = dir * BedHeight(dir);
         float3 bXp = ParamToDirA(tx + step, ty, up, ax, bx); bXp *= BedHeight(bXp);
         float3 bYp = ParamToDirA(tx, ty + step, up, ax, bx); bYp *= BedHeight(bYp);
-        bn = normalize(cross(bYp - bC, bXp - bC));
+        float3 bcr = cross(bYp - bC, bXp - bC);
+        bn = (dot(bcr, bcr) > 1e-20) ? normalize(bcr) : dir;   // fallback radiale se degenere
         if (dot(bn, dir) < 0.0) bn = -bn;
     }
     _VBedNrm[o] = bn.x; _VBedNrm[o + 1] = bn.y; _VBedNrm[o + 2] = bn.z;
