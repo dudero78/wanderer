@@ -24,13 +24,6 @@ public class CelestialBody : MonoBehaviour
     /// <summary>Parametro gravitazionale standard μ = g·r².</summary>
     public double Mu => SurfaceGravity * Radius * Radius;
 
-    /// <summary>Accelerazione gravitazionale a distanza r dal centro.</summary>
-    public float GravityAt(float r)
-    {
-        double rr = r;
-        return (float)(Mu / (rr * rr));
-    }
-
     public void UpdatePosition(double time)
     {
         if (Orbit != null && Parent != null)

@@ -11,7 +11,7 @@ public class SolarSystem : MonoBehaviour
 {
     public static SolarSystem Instance;
 
-    public double TimeScale = 3.0;          // accelera la simulazione per vedere l'orbita
+    public double TimeScale = 1.0;          // 1 = valore di GIOCO (unica fonte). Solo un debug fast-forward esplicito lo alza: con 3 le velocità orbitali triplicano e il match-velocity è ingiocabile
     public double SimTime = 0;
     public CelestialBody Anchor;            // ancora iniziale (prima che esista il giocatore)
     public Rigidbody PlayerBody;            // se settato: l'origine ancora al corpo PIÙ VICINO al giocatore
