@@ -29,9 +29,9 @@ public class GpuPlanetRenderer : MonoBehaviour
                                  // NON tocca il dettaglio sotto i piedi, solo quanto lontano si estende)
     public float mergeHysteresis = 2f;   // banda morta larga: meno flip split/merge (meno churn)
     public int maxDepth = 6;
-    public float skirtFactor = 1.2f;   // profondità skirt = worldSize·questo (alzato da 0.5: su terreno ripido il salto
-                                       // di altezza al confine di LOD superava lo skirt → buchi neri). Più profondo = copre
-                                       // di più; uno skirt troppo lungo resta nascosto dietro il vicino, un buco no.
+    public float skirtFactor = 0.5f;   // profondità skirt = worldSize·questo. Tenerlo BASSO: lo skirt è un muretto al
+                                       // confine di LOD, e più è profondo più si vede come lamella scura. Il fix vero
+                                       // delle cuciture è il GEOMORPH (Tappa 2b), non skirt più profondi.
     public int maxSlabs = 1024;  // fette nel pool (free + cache + visibili). Pre-allocate
     public int splitBudget = 8;  // quante tessere nuove al MASSIMO preparare per fotogramma (×4 fill): spalmando il
                                  // lavoro su più fotogrammi si evita l'ondata che fa scattare. Il LOD predittivo copre il "ritardo"
@@ -302,7 +302,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     // profondità dello skirt. UNA sola formula condivisa da per-nodo e batch → restano IDENTICI (parità). Cap a
     // worldSize·3 (non più worldSize, che annullava skirtFactor>1): su pareti ripide serve uno skirt più profondo
     // del nodo per coprire il salto di LOD.
-    float SkirtDrop(Node nd) => Mathf.Clamp(nd.worldSize * skirtFactor, 1f, nd.worldSize * 3f);
+    float SkirtDrop(Node nd) => Mathf.Clamp(nd.worldSize * skirtFactor, 1f, nd.worldSize);
 
     NodeJob MakeJob(Node nd) => new NodeJob
     {
