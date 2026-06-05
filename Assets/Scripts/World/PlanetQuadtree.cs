@@ -84,12 +84,14 @@ public class PlanetQuadtree : MonoBehaviour
            + "attorno al pianeta a quota d'orbita. Oltre, si scarta il meno usato di recente (LRU).")]
     public int cacheCapacity = 600;
     readonly Dictionary<long, QuadNode> cache = new Dictionary<long, QuadNode>();
-    int cacheClock;
+    // LRU O(1): sfratto dal FRONTE della lista invece di scansionare tutta la cache per il minimo (era O(n) per sfratto).
+    readonly LinkedList<long> lru = new LinkedList<long>();
+    readonly Dictionary<long, LinkedListNode<long>> lruNode = new Dictionary<long, LinkedListNode<long>>();
 
     /// <summary>Estrae dalla cache il nodo per quella regione (se c'è), togliendolo: torna "vivo".</summary>
     public bool TryTakeCached(long key, out QuadNode node)
     {
-        if (cache.TryGetValue(key, out node)) { cache.Remove(key); return true; }
+        if (cache.TryGetValue(key, out node)) { cache.Remove(key); if (lruNode.TryGetValue(key, out var ln)) { lru.Remove(ln); lruNode.Remove(key); } return true; }
         node = null;
         return false;
     }
@@ -98,18 +100,19 @@ public class PlanetQuadtree : MonoBehaviour
     public void CacheLeaf(QuadNode n)
     {
         n.SetVisible(false);
-        n.cacheStamp = ++cacheClock;
         if (cache.TryGetValue(n.Key, out var old) && old != n) old.Dispose();  // mai due nodi per regione
+        if (lruNode.TryGetValue(n.Key, out var ex)) { lru.Remove(ex); lruNode.Remove(n.Key); }   // via l'eventuale voce vecchia
         cache[n.Key] = n;
+        lruNode[n.Key] = lru.AddLast(n.Key);   // in coda = più recente
         if (cache.Count > cacheCapacity) EvictLeastRecent();
     }
 
     void EvictLeastRecent()
     {
-        long evictKey = 0; int min = int.MaxValue; bool found = false;
-        foreach (var kv in cache)
-            if (kv.Value.cacheStamp < min) { min = kv.Value.cacheStamp; evictKey = kv.Key; found = true; }
-        if (found) { var ev = cache[evictKey]; cache.Remove(evictKey); ev.Dispose(); }
+        if (lru.Count == 0) return;
+        long evictKey = lru.First.Value;          // il FRONTE = la regione meno recente, O(1)
+        lru.RemoveFirst(); lruNode.Remove(evictKey);
+        if (cache.TryGetValue(evictKey, out var ev)) { cache.Remove(evictKey); ev.Dispose(); }
     }
 
     /// <summary>Baker GPU del rumore (compute shader). Se null o non supportato, i nodi si costruiscono
@@ -240,7 +243,6 @@ public class QuadNode
     // identità STABILE della regione (face, depth, indici di griglia): chiave di cache. Due nodi
     // che coprono la stessa patch hanno la stessa Key → riuso al posto della ricostruzione.
     public readonly long Key;
-    public int cacheStamp;   // "orologio" d'uso per l'eviction LRU della cache
 
     // dati mesh calcolati su thread, consumati (upload) sul main thread
     Vector3[] dVerts, dNormals;
@@ -370,20 +372,21 @@ public class QuadNode
     {
         float h = size * 0.5f;
         children = new QuadNode[4];
-        float[] cu = { u0, u0 + h, u0, u0 + h };
-        float[] cv = { v0, v0, v0 + h, v0 + h };
         for (int i = 0; i < 4; i++)
         {
+            // u/v dei 4 quadranti a mano (niente float[] temporanei → niente GC a ogni split)
+            float cuX = (i == 1 || i == 3) ? u0 + h : u0;
+            float cvY = (i >= 2) ? v0 + h : v0;
             // se quella regione è in cache (già costruita prima, poi uscita di vista) la RIUSO
             // all'istante: niente ricostruzione → niente pop, niente calore, niente crepe transitorie.
-            long k = MakeKey(face, depth + 1, cu[i], cv[i]);
+            long k = MakeKey(face, depth + 1, cuX, cvY);
             if (qt.TryTakeCached(k, out var cached))
             {
                 children[i] = cached;   // è già Ready, con mesh e GameObject pronti (nascosto)
             }
             else
             {
-                var child = new QuadNode(qt, face, up, cu[i], cv[i], h, depth + 1, material);
+                var child = new QuadNode(qt, face, up, cuX, cvY, h, depth + 1, material);
                 child.State = BuildState.Queued;
                 children[i] = child;
                 qt.EnqueueBuild(child);   // questo nodo resta visibile finché i 4 figli non sono pronti
