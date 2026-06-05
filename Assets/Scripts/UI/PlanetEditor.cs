@@ -427,19 +427,30 @@ public class PlanetEditor : MonoBehaviour
                     p.seaForma = Slider("  forma fondale", "Geometria del fondale: −1 = creste/dune, 0 = liscio, +1 = collinette/gobbe (come dune marziane).", p.seaForma, -1f, 1f, ui, ref geomDirty);
                     if (p.seaForma != prevForma) colorDirty = true;
                 }
+                // PRESET rapidi: impostano colore + saturazione + liquido + trasparenza + limpidezza (non la geometria).
+                // "Acqua" = il look azzurro di default. Sotto puoi rifinire R/G/B a mano per acido, mari colorati, ecc.
+                GUILayout.BeginHorizontal();
+                if (Button("Acqua", "Preset: acqua azzurra, liquida e limpida.", ui))
+                    ApplySeaPreset(p, new Color(0.06f, 0.40f, 0.62f), 1f, true, true, 14f, ref colorDirty);
+                if (Button("Ghiaccio", "Preset: ghiaccio liscio e trasparente (non liquido → niente increspatura).", ui))
+                    ApplySeaPreset(p, new Color(0.72f, 0.84f, 0.92f), 0.55f, false, true, 28f, ref colorDirty);
+                if (Button("Acido", "Preset: acido verde, liquido e torbido (vedi poco il fondo).", ui))
+                    ApplySeaPreset(p, new Color(0.32f, 0.72f, 0.10f), 1.2f, true, true, 7f, ref colorDirty);
+                if (Button("Trasparente", "Preset: acqua quasi invisibile, vedi il fondo (liquida + limpidissima).", ui))
+                    ApplySeaPreset(p, new Color(0.80f, 0.90f, 0.95f), 0.3f, true, true, 45f, ref colorDirty);
+                GUILayout.EndHorizontal();
+
                 p.seaSaturation = Slider("Saturazione mare", "Intensità del colore dell'acqua, indipendente dalla saturazione globale.", p.seaSaturation, 0f, 2f, ui, ref colorDirty);
-                p.seaColor.r = Slider("Colore R", "Componente rossa dell'acqua.", p.seaColor.r, 0f, 1f, ui, ref colorDirty);
+                p.seaColor.r = Slider("Colore R", "Componente rossa dell'acqua: il colore degli slider È il colore dell'acqua (acqua, acido, ecc.); più scura, meno si vede il fondo.", p.seaColor.r, 0f, 1f, ui, ref colorDirty);
                 p.seaColor.g = Slider("Colore G", "Componente verde dell'acqua.", p.seaColor.g, 0f, 1f, ui, ref colorDirty);
                 p.seaColor.b = Slider("Colore B", "Componente blu dell'acqua.", p.seaColor.b, 0f, 1f, ui, ref colorDirty);
-                p.liquid = Toggle("Liquido", "Rende il mare come ACQUA (riflessi speculari + lucentezza ai bordi) invece di superficie opaca tinta. È solo aspetto: il nuoto sarà nel gioco.", p.liquid, ui, geometry: false, changed: out bool liqChg);
+                p.liquid = Toggle("Liquido", "Rende il mare come ACQUA in movimento: increspatura, riflesso del sole, lucentezza ai bordi. Spento = superficie liscia (es. ghiaccio). È solo aspetto: il nuoto sarà nel gioco.", p.liquid, ui, geometry: false, changed: out bool liqChg);
                 if (liqChg) colorDirty = true;
-                if (p.liquid)
-                {
-                    p.seaClear = Toggle("  Trasparente", "Acqua limpida: si vede il fondale sommerso, che sbiadisce verso il colore profondo man mano che l'acqua si fa fonda. (Visibile sull'anteprima GPU.)", p.seaClear, ui, geometry: false, changed: out bool clearChg);
-                    if (clearChg) colorDirty = true;
-                    if (p.seaClear)
-                        p.seaClarity = Slider("  limpidezza (m)", "Profondità a cui l'acqua diventa quasi opaca: bassa = torbida (vedi solo le secche), alta = cristallina (vedi anche il fondo profondo).", p.seaClarity, 1f, 60f, ui, ref colorDirty);
-                }
+                // TRASPARENTE indipendente da Liquido → vale anche per il ghiaccio (limpido senza increspatura).
+                p.seaClear = Toggle("Trasparente", "Limpido: si vede il fondale sommerso, TINTO dal colore dell'acqua (più scuro/saturo = meno visibile). Indipendente da Liquido (vale anche per il ghiaccio).", p.seaClear, ui, geometry: false, changed: out bool clearChg);
+                if (clearChg) colorDirty = true;
+                if (p.seaClear)
+                    p.seaClarity = Slider("  limpidezza (m)", "Profondità a cui l'acqua diventa quasi opaca: bassa = torbida (vedi solo le secche), alta = cristallina (vedi anche il fondo profondo).", p.seaClarity, 1f, 60f, ui, ref colorDirty);
             }
             GUILayout.Space(8f * ui);
         }
@@ -611,6 +622,12 @@ public class PlanetEditor : MonoBehaviour
         changed = nv != v;
         if (changed && geometry) geomDirty = true;
         return nv;
+    }
+    // applica un PRESET di mare (solo aspetto: colore + saturazione + liquido + trasparenza + limpidezza; niente geometria)
+    static void ApplySeaPreset(ProcessStep p, Color col, float sat, bool liquid, bool clear, float clarity, ref bool colorDirty)
+    {
+        p.seaColor = col; p.seaSaturation = sat; p.liquid = liquid; p.seaClear = clear; p.seaClarity = clarity;
+        colorDirty = true;
     }
     bool Button(string label, string tipText, float ui, float width = 0f)
     {

@@ -94,10 +94,10 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     float region = smoothstep(0.42, 0.64, fbm(sdir * _MariaScale));
     alb = lerp(alb, alb * _MariaColor.rgb, low * region * _MariaStr);
 
-    // MARE SOLIDO (non liquido): è SUOLO di colore diverso — antiche colate laviche (maria), ghiaccio piatto…
-    // → tinta piatta del _SeaColor nell'albedo, niente trattamento d'acqua. (L'acqua LIQUIDA è una superficie a
-    // sé, sotto la luce.) Così un mare di maria resta roccia colorata, non diventa acquamarina.
-    if (_SeaOn > 0.5 && _SeaLiquid < 0.5)
+    // MARE SOLIDO OPACO (né liquido né trasparente): è SUOLO di colore diverso — antiche colate laviche (maria)…
+    // → tinta piatta del _SeaColor nell'albedo, niente trattamento d'acqua. (Liquido O trasparente = superficie a
+    // sé, sotto la luce: vedi il blocco ACQUA.) Così un mare di maria resta roccia colorata, non acquamarina.
+    if (_SeaOn > 0.5 && _SeaLiquid < 0.5 && _SeaClear < 0.5)
     {
         float seaLuma = dot(_SeaColor.rgb, float3(0.2126, 0.7152, 0.0722));
         float3 seaCol = lerp(float3(seaLuma, seaLuma, seaLuma), _SeaColor.rgb, _SeaSat);
@@ -122,53 +122,51 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     float ndlT = saturate(dot(nrm, L));
     col += alb * (_TorchColor * (ndlT * att * cone));
 
-    // ===== ACQUA LIQUIDA (solo se _SeaLiquid) =====
-    // Resa come SUPERFICIE, non come tinta sul terreno. Tre cue che la fanno leggere come acqua:
-    //  1) COLORE per PROFONDITÀ: bassofondo turchese chiaro → profondo blu scuro (indipendente dal fondo).
-    //  2) INCRESPATURA animata (WaterRippleNormal): spezza il glint e dà microstruttura → niente "macchia" enorme.
-    //  3) RIFLESSO: glint stretto del sole + Fresnel verso un cielo chiaro ai bordi radenti.
-    // TRASPARENZA: solo in acqua BASSA (Beer-Lambert sulla profondità) si vede il fondo, illuminato dalla sua
-    // normale (rilievo del fondale). L'acqua PROFONDA è opaca e piatta → non segue più i dossi sommersi.
-    if (seaMask > 0.0 && _SeaLiquid > 0.5)
+    // ===== ACQUA (superficie): mare LIQUIDO e/o TRASPARENTE =====
+    // Il COLORE viene tutto dagli slider R/G/B (_SeaColor): bassofondo CHIARO → profondo SCURO, sempre nella tinta
+    // scelta → puoi fare acqua, acido, qualunque colore; più scuro = meno si vede il fondo. TRASPARENTE (_SeaClear,
+    // indipendente da liquido → vale anche per ghiaccio) lascia vedere il fondo, TINTO dal colore (scuro/saturo =
+    // fondo più nascosto). LIQUIDO (_SeaLiquid) aggiunge increspatura animata + glint + Fresnel + battigia; senza
+    // liquido (es. ghiaccio) la superficie è liscia. Almeno uno dei due acceso → questo blocco; nessuno → mare opaco.
+    if (seaMask > 0.0 && (_SeaLiquid > 0.5 || _SeaClear > 0.5))
     {
         float seaLuma = dot(_SeaColor.rgb, float3(0.2126, 0.7152, 0.0722));
-        float3 deepCol = _SeaColor.rgb * 0.52;
-        float3 shallowCol = lerp(_SeaColor.rgb, float3(0.42, 0.78, 0.85), 0.55);   // turchese di bassofondo
-        float dN = saturate(depth / 36.0);                                        // gradiente più dolce → meno "muro" opaco
+        float3 shallowCol = lerp(_SeaColor.rgb, saturate(_SeaColor.rgb * 1.7 + 0.22), 0.6);   // bassofondo più chiaro (stessa tinta)
+        float3 deepCol = _SeaColor.rgb * 0.5;                                                 // profondo più scuro
+        float dN = saturate(depth / 34.0);
         float3 waterCol = lerp(shallowCol, deepCol, dN);
         waterCol = lerp(float3(seaLuma, seaLuma, seaLuma), waterCol, _SeaSat);     // saturazione propria del mare
 
-        // trasparenza: il fondo (alb del suolo, tinto d'acqua) emerge in acqua bassa. pow(.,0.75) alza la
-        // trasparenza per le profondità medie → acqua più limpida. La PROFONDITÀ-soglia resta _SeaClarity (ricetta).
+        // TRASPARENZA: il fondo emerge in acqua bassa, TINTO dal colore dell'acqua (×colore → colore scuro/saturo
+        // nasconde di più). pow(.,0.6) = più limpido alle profondità medie. Soglia di profondità = _SeaClarity.
         float seaTrans = 0.0;
         if (_SeaClear > 0.5)
         {
-            seaTrans = pow(exp(-max(depth, 0.0) / max(_SeaClarity, 0.05)), 0.75);
-            float3 waterTint = _SeaColor.rgb / max(seaLuma, 0.04);                 // tinta a luminosità neutra
-            float3 bedSeen = alb * lerp(float3(1.0, 1.0, 1.0), waterTint, 0.7);
-            waterCol = lerp(waterCol, bedSeen, seaTrans);
+            seaTrans = pow(exp(-max(depth, 0.0) / max(_SeaClarity, 0.05)), 0.6);
+            float3 bedThroughWater = alb * (_SeaColor.rgb * 2.2);                  // fondo visto ATTRAVERSO l'acqua colorata
+            waterCol = lerp(waterCol, bedThroughWater, seaTrans);
         }
 
-        // normale: il pelo resta SEMPRE acqua increspata (è la superficie!). Il fondo si vede come COLORE, non
-        // sostituendo la normale → un filo di rilievo del fondale (peso BASSO), non una lastra vetrosa liscia
-        // alla riva (era l'"effetto strano sulle coste": la normale-fondo liscia spegneva le increspature).
-        float3 rN = WaterRippleNormal(Pobj, nrm, 0.22);   // dominio fisso al pianeta → flusso costante (vedi WaterRippleNormal)
+        // normale: con LIQUIDO il pelo è acqua increspata; senza (ghiaccio) è liscio. Dove si vede il fondo in
+        // trasparenza, un filo di rilievo del fondale (non sostituisce la normale → niente lastra vetrosa alla riva).
+        float3 rN = (_SeaLiquid > 0.5) ? WaterRippleNormal(Pobj, nrm, 0.22) : nrm;
         float3 shadeN = (seaTrans > 0.0) ? normalize(lerp(rN, normalize(bnrmW), seaTrans * 0.30)) : rN;
         float ndl = saturate(dot(shadeN, _SunDir));
         float3 wcol = waterCol * (ndl * _SunColor + _Ambient);
 
-        // riflesso d'acqua: glint del sole spezzato dalle increspature + Fresnel verso un cielo chiaro ai bordi
-        float3 V = normalize(_WorldSpaceCameraPos - worldP);
-        float3 H = normalize(_SunDir + V);
-        float spec = pow(saturate(dot(rN, H)), 600.0);                 // glint stretto (le increspature lo spezzano)
-        float fres = pow(1.0 - saturate(dot(rN, V)), 5.0);            // riflesso radente
-        float3 skyCol = lerp(_SunColor, float3(0.55, 0.72, 1.0), 0.6) * (_Ambient + 0.6);
-        wcol += _SunColor * (spec * 1.4 * saturate(ndlLand + 0.05));   // sole sull'acqua
-        wcol = lerp(wcol, skyCol, fres * 0.45 * saturate(ndlLand + 0.25));   // cielo riflesso ai bordi
-
-        // BATTIGIA: linea di schiuma dove l'acqua è bassissima (depth ~0) → riva netta
-        float foam = (1.0 - smoothstep(0.0, 1.0, depth));
-        wcol = lerp(wcol, wcol * 0.5 + float3(0.85, 0.9, 0.95) * 0.5, foam * 0.35);
+        if (_SeaLiquid > 0.5)
+        {
+            // riflesso d'ACQUA: glint del sole spezzato dalle increspature + Fresnel verso un cielo chiaro + battigia
+            float3 V = normalize(_WorldSpaceCameraPos - worldP);
+            float3 H = normalize(_SunDir + V);
+            float spec = pow(saturate(dot(rN, H)), 600.0);
+            float fres = pow(1.0 - saturate(dot(rN, V)), 5.0);
+            float3 skyCol = lerp(_SunColor, float3(0.55, 0.72, 1.0), 0.6) * (_Ambient + 0.6);
+            wcol += _SunColor * (spec * 1.4 * saturate(ndlLand + 0.05));
+            wcol = lerp(wcol, skyCol, fres * 0.45 * saturate(ndlLand + 0.25));
+            float foam = (1.0 - smoothstep(0.0, 1.0, depth));
+            wcol = lerp(wcol, wcol * 0.5 + float3(0.85, 0.9, 0.95) * 0.5, foam * 0.35);
+        }
 
         col = lerp(col, wcol, seaMask);
     }

@@ -181,8 +181,13 @@ GPU↔CPU fa da rete. Componenti nuovi: `GpuPlanetRenderer.cs`, shader `Wanderer
   - ✅ **CACHE LRU delle fette** (fix del "delirio": redraw/spariscono/stutter). Una regione che esce di vista NON
     si ricalcola: la fetta (geometria statica) resta in cache e si riusa al ritorno. Pool 512→1024, budget split
     24→64, isteresi 1.4→2.0. Ogni corpo `Instantiate` il proprio ComputeShader (no clobber multi-corpo).
-  - ⬜ **Tappa 2b — GEOMORPH** (transizioni LOD lisce, niente "pop"): morph delta per-vertice dal compute + lerp nel
-    vertex shader con la distanza camera. Resta il "pop" allo split/merge (skirt evita i buchi, non il pop).
+  - 🔜 **Tappa 2b — GEOMORPH (PROSSIMO PASSO deciso 5 giu).** È il fix VERO delle CUCITURE/CREPE ai confini di LOD:
+    le "lamelle nere" che Dario vede sono GAP dove il nodo grosso è più ALTO del bordo del nodo fine → lo skirt
+    (cade solo verso il basso) non le copre, e skirt più profondi peggiorano (muretti scuri visibili). Il geomorph
+    fa MORFARE il bordo fine verso l'altezza del nodo grosso vicino con la distanza camera → niente gap in NESSUN
+    verso + niente "pop" allo split/merge. Sul path GPU: il compute emette il bersaglio di morph per-vertice (la
+    posizione che il vertice avrebbe alla risoluzione del GENITORE) + un fattore morph per-nodo/distanza nel vertex
+    shader (come il quadtree CPU con UV2). Skirt diventa secondario/rimovibile. Vedi [[wanderer-terreno-strategia]].
   - ⬜ warning compute `CSNodeSlab/Skirt` ("uint if possible") = perf, non bug.
   - 🟡 **MISURATO (4 giu mattina):** è **GPU-bound dal FRAGMENT**. Test con `debugMode=1` (fragment banale):
     GPU fermo **9.3→2.3 ms**, volo **20.4→5.6 ms** → ~7–15 ms erano il rumore per-pixel (`n3_fbm` 5 ott. per `baseN`
