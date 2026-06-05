@@ -155,18 +155,6 @@ public class PlanetEditor : MonoBehaviour
         if (recipe == null) return;
         if (Input.GetKeyDown(KeyCode.G)) ToggleGpuPreview();
 
-        // INQUADRATURA: se il mare sommerge TUTTO il pianeta, il pelo è una palla di raggio baseRadius+seaLevel che
-        // CRESCE col livello → la camera si allontana in proporzione, così il pianeta resta della stessa dimensione a
-        // schermo (non "zooma"). Sotto le vette, frameScale=1 (inquadratura normale).
-        if (orbitCam == null) orbitCam = FindAnyObjectByType<EditorOrbitCam>();
-        if (orbitCam != null)
-        {
-            float baseFrame = recipe.baseRadius + recipe.amplitude;   // raggio "normale" da inquadrare (vette incluse)
-            var sea = recipe.LastSea();
-            float seaTop = sea != null ? recipe.baseRadius + sea.seaLevel + Mathf.Max(0f, sea.seaRoughness) : 0f;
-            orbitCam.frameScale = Mathf.Max(baseFrame, seaTop) / Mathf.Max(1f, baseFrame);
-        }
-
         if (autoRes && gpu != null && gpu.Ready)   // risoluzione legata allo zoom (con isteresi)
         {
             if (orbitCam == null) orbitCam = FindAnyObjectByType<EditorOrbitCam>();
