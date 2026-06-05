@@ -19,9 +19,12 @@ public static class SolarSystemSetup
     // --- Luna6: corpo creato nell'editor, in orbita attorno al SOLE. Raggio 500 m (dalla ricetta) ---
     public const float Luna6Radius = 500f;
     public const string Luna6BakedDir = "BakedPlanet_Luna6";
-    // --- terra-test3: corpo dell'editor (con mare), bakeato su disco, in orbita attorno al SOLE. Raggio 700 m ---
+    // --- terra-test3: corpo dell'editor (con mare). Gemello binario di Valentina2 (orbitano un baricentro comune). 700 m ---
     public const float TerraTest3Radius = 700f;
     public const string TerraTest3BakedDir = "BakedPlanet_terra-test3";
+    // --- Valentina2: gemello binario di terra-test3, ma RICETTA PROPRIA (Valentina2.json) → editabile a parte. 700 m ---
+    public const float Valentina2Radius = 700f;
+    public const string Valentina2BakedDir = "BakedPlanet_Valentina2";
     // --- Luna7: piccola luna in orbita attorno a TERRA-TEST3 (non alla stella). Raggio 300 m ---
     public const float Luna7Radius = 300f;
     public const string Luna7BakedDir = "BakedPlanet_Luna7";
@@ -33,6 +36,8 @@ public static class SolarSystemSetup
     public static bool ApplyLuna6Recipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Luna6", Luna6Radius);
     /// <summary>Applica la ricetta di terra-test3 (Resources/Planets/terra-test3.json), scalata al raggio.</summary>
     public static bool ApplyTerraTest3Recipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "terra-test3", TerraTest3Radius);
+    /// <summary>Applica la ricetta di Valentina2 (Resources/Planets/Valentina2.json), scalata al raggio.</summary>
+    public static bool ApplyValentina2Recipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Valentina2", Valentina2Radius);
     /// <summary>Applica la ricetta di Luna7 (Resources/Planets/Luna7.json), scalata al raggio.</summary>
     public static bool ApplyLuna7Recipe(PlanetTerrain terrain) => ApplyRecipe(terrain, "Luna7", Luna7Radius);
 
@@ -72,10 +77,20 @@ public static class SolarSystemSetup
             BakedDir = Luna6BakedDir, Apply = ApplyLuna6Recipe,
             Orbit = new KeplerOrbit { SemiMajorAxis = 95000, Eccentricity = 0.08, Period = 1150, Inclination = 0.25 },
         },
+        // BINARIO: terra-test3 e Valentina2 orbitano un BARICENTRO comune (creato in Build come "Baricentro"), a
+        // 180° l'uno dall'altro (stessa orbita, MeanAnomalyAtEpoch 0 e π) → restano sempre opposti, separazione
+        // costante 2·1500 = 3000 m fra i centri (~1600 m fra le superfici: un salto breve). Il baricentro orbita la
+        // stella → la coppia gira INSIEME attorno al sole. Le orbite ("O"/mappa) mostrano tutto correttamente.
         new OrbitBody {
-            Name = "terra-test3", Radius = TerraTest3Radius, Gravity = 9.81, AroundStar = true, ProxyRes = 32,
+            Name = "terra-test3", Radius = TerraTest3Radius, Gravity = 9.81, ParentName = "Baricentro", ProxyRes = 32,
             BakedDir = TerraTest3BakedDir, Apply = ApplyTerraTest3Recipe,
-            Orbit = new KeplerOrbit { SemiMajorAxis = 130000, Eccentricity = 0.05, Period = 1840, Inclination = 0.15 },
+            Orbit = new KeplerOrbit { SemiMajorAxis = 1500, Eccentricity = 0.0, Period = 320, Inclination = 0.0, MeanAnomalyAtEpoch = 0.0 },
+        },
+        // Gemello: RICETTA PROPRIA (Valentina2.json) → puoi editarlo a parte. Orbita opposta sul baricentro (M0 = π).
+        new OrbitBody {
+            Name = "Valentina2", Radius = Valentina2Radius, Gravity = 9.81, ParentName = "Baricentro", ProxyRes = 32,
+            BakedDir = Valentina2BakedDir, Apply = ApplyValentina2Recipe,
+            Orbit = new KeplerOrbit { SemiMajorAxis = 1500, Eccentricity = 0.0, Period = 320, Inclination = 0.0, MeanAnomalyAtEpoch = 3.14159265 },
         },
         new OrbitBody {
             Name = "Luna7", Radius = Luna7Radius, Gravity = 3.0, ParentName = "terra-test3", ProxyRes = 24,
@@ -89,7 +104,10 @@ public static class SolarSystemSetup
     /// include nel bake senza toccare il tool.</summary>
     public static IEnumerable<(string bakedDir, System.Func<PlanetTerrain, bool> apply)> BodyBakeTargets()
     {
-        foreach (var d in Orbiting) yield return (d.BakedDir, d.Apply);
+        // dedup per cartella: corpi che condividono il bake (es. i gemelli binari) lo producono UNA volta sola.
+        var seen = new HashSet<string>();
+        foreach (var d in Orbiting)
+            if (seen.Add(d.BakedDir)) yield return (d.BakedDir, d.Apply);
     }
 
     /// <summary>Riferimenti che il resto della scena (giocatore, luce, mappa, HUD) deve conoscere.</summary>
@@ -165,7 +183,19 @@ public static class SolarSystemSetup
         // --- Corpi in orbita (data-driven). Genitore risolto per nome (lune di lune): ParentName dev'essere costruito
         //     PRIMA nell'array. Senza ParentName → stella o pianeta-casa. Cattura il corpo su cui nascere (test). ---
         CelestialBody spawnBody = planet; GameObject spawnGo = planetGo; PlanetTerrain spawnTerrain = terrain;
-        var byName = new Dictionary<string, CelestialBody> { { "Pianeta", planet } };
+
+        // BARICENTRO del binario terra-test3/Valentina2: punto SENZA MASSA che orbita la stella. I due gemelli gli
+        // orbitano attorno (vedi Orbiting) → coppia legata che gira insieme attorno al sole. Massless = niente
+        // gravità/ancora/marker, ma la sua orbita viene disegnata. Registrato PRIMA dei gemelli (il genitore va
+        // aggiornato prima dei figli in SolarSystem.Step). Niente terreno/superficie: è invisibile.
+        var baryGo = new GameObject("Baricentro");
+        var bary = baryGo.AddComponent<CelestialBody>();
+        bary.Radius = 0; bary.SurfaceGravity = 0; bary.Massless = true;
+        bary.Parent = star;
+        bary.Orbit = new KeplerOrbit { SemiMajorAxis = 130000, Eccentricity = 0.05, Period = 1840, Inclination = 0.15 };
+        solar.Register(bary);
+
+        var byName = new Dictionary<string, CelestialBody> { { "Pianeta", planet }, { "Baricentro", bary } };
         foreach (var def in Orbiting)
         {
             CelestialBody parent = !string.IsNullOrEmpty(def.ParentName) && byName.TryGetValue(def.ParentName, out var p)

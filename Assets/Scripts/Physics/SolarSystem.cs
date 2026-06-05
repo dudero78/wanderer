@@ -128,7 +128,7 @@ public class SolarSystem : MonoBehaviour
         for (int i = 0; i < Bodies.Count; i++)
         {
             var b = Bodies[i];
-            if (b == null) continue;
+            if (b == null || b.Massless) continue;   // il baricentro non ancora l'origine
             float d = (b.transform.position - scenePos).sqrMagnitude;
             if (d < bd) { bd = d; best = b; }
         }

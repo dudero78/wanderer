@@ -528,7 +528,7 @@ public class PlanetWalker : MonoBehaviour
         for (int i = 0; i < s.Bodies.Count; i++)
         {
             var b = s.Bodies[i];
-            if (b == null) continue;
+            if (b == null || b.Massless) continue;   // il baricentro non dà gravità né riferimento d'altitudine
             float d = (b.transform.position - rb.position).sqrMagnitude;
             if (d < bd) { bd = d; best = b; }
         }

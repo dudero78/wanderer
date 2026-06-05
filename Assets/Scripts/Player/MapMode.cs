@@ -92,30 +92,35 @@ public class MapMode : MonoBehaviour
             bool isStar = b.Orbit == null;
             Color col = isStar ? new Color(1f, 0.85f, 0.45f) : new Color(0.7f, 0.78f, 0.9f);
 
-            // marker cliccabile (sfera unlit), posizionato e scalato ogni frame
-            var mk = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            mk.name = "Marker_" + b.gameObject.name;
-            if (markerShader != null)
+            // Il BARICENTRO di un binario è un punto senza massa: niente marker/proxy (non è un bersaglio), ma la
+            // sua ORBITA attorno al sole va disegnata → salto solo il marker e cado dritto al blocco orbita.
+            if (!b.Massless)
             {
-                var m = new Material(markerShader);
-                m.SetColor("_Color", col);
-                mk.GetComponent<MeshRenderer>().sharedMaterial = m;
-            }
-            mk.transform.SetParent(transform, false);
-            markers.Add(mk);
-            markerBody[mk] = b;
+                // marker cliccabile (sfera unlit), posizionato e scalato ogni frame
+                var mk = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                mk.name = "Marker_" + b.gameObject.name;
+                if (markerShader != null)
+                {
+                    var m = new Material(markerShader);
+                    m.SetColor("_Color", col);
+                    mk.GetComponent<MeshRenderer>().sharedMaterial = m;
+                }
+                mk.transform.SetParent(transform, false);
+                markers.Add(mk);
+                markerBody[mk] = b;
 
-            // CORPO REALE: se ha una ricetta, costruisci un proxy a bassa res (mesh craterizzata + materiali
-            // bakeati) e rendi il marker un bersaglio di click INVISIBILE. La stella (niente terreno) resta disco.
-            var terr = b.GetComponent<PlanetTerrain>();
-            if (terr != null && terr.Recipe != null)
-            {
-                mk.GetComponent<MeshRenderer>().enabled = false;
-                var pgo = new GameObject("Proxy_" + b.gameObject.name);
-                pgo.transform.SetParent(transform, false);
-                var proxy = pgo.AddComponent<SingleMeshPlanet>();
-                proxy.Build(terr, terr.FaceMaterials, MapProxyRes, MapProxyRes);
-                proxies[b] = pgo.transform;
+                // CORPO REALE: se ha una ricetta, costruisci un proxy a bassa res (mesh craterizzata + materiali
+                // bakeati) e rendi il marker un bersaglio di click INVISIBILE. La stella (niente terreno) resta disco.
+                var terr = b.GetComponent<PlanetTerrain>();
+                if (terr != null && terr.Recipe != null)
+                {
+                    mk.GetComponent<MeshRenderer>().enabled = false;
+                    var pgo = new GameObject("Proxy_" + b.gameObject.name);
+                    pgo.transform.SetParent(transform, false);
+                    var proxy = pgo.AddComponent<SingleMeshPlanet>();
+                    proxy.Build(terr, terr.FaceMaterials, MapProxyRes, MapProxyRes);
+                    proxies[b] = pgo.transform;
+                }
             }
 
             // orbita (solo per i corpi che orbitano)

@@ -15,6 +15,9 @@ public class CelestialBody : MonoBehaviour
     public double SurfaceGravity = 9.81;
     public KeplerOrbit Orbit;        // null -> corpo fisso (la stella)
     public CelestialBody Parent;     // corpo centrale dell'orbita
+    // Punto SENZA MASSA (es. il baricentro di un binario): orbita ed È genitore di altri corpi, ma non attrae,
+    // non ancora l'origine, non compare in mappa come bersaglio. La sua ORBITA sì viene disegnata ("O"/mappa).
+    public bool Massless;
 
     public Vector3d UniversePosition;
 
