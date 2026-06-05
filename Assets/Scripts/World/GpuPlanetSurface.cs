@@ -32,6 +32,7 @@ public class GpuPlanetSurface : MonoBehaviour
     GpuShapeBuffers shape;                    // base + pipeline ordinata (crateri/mare/tettonica)
     Material mat;
     Bounds bounds;
+    PlanetTerrain healTerrain;                // memorizzato per l'AUTO-HEAL: ri-Setup se i buffer si nullano (bug #3)
 
     public bool Ready { get; private set; }
     /// <summary>Quando true, Update disegna la superficie GPU. L'editor lo accende/spegne col toggle.</summary>
@@ -46,6 +47,7 @@ public class GpuPlanetSurface : MonoBehaviour
     public void Setup(PlanetTerrain terrain, int res)
     {
         this.res = Mathf.Max(2, res);
+        healTerrain = terrain;             // per l'auto-heal dopo un domain reload (bug #3)
         gp = this.res + 2;
         vertsPerFace = gp * gp;
 
@@ -231,11 +233,17 @@ public class GpuPlanetSurface : MonoBehaviour
     void Update()
     {
         if (!Active || !Ready) return;
-        // Dopo un DOMAIN RELOAD in Play (ricompilazione di script/shader durante una sessione attiva) i
-        // GraphicsBuffer — non serializzabili — tornano NULL, mentre Ready/Active vengono ripristinati dal
-        // backup: disegnare qui lancerebbe ArgumentNullException A OGNI FRAME (stallo + crash). Non disegnare
-        // finché i buffer non sono validi (al prossimo Rebuild/Setup tornano buoni).
-        if (mat == null || idxBuf == null || !idxBuf.IsValid() || posBuf == null || !posBuf.IsValid()) return;
+        // Dopo un DOMAIN RELOAD in Play (es. l'AssetDatabase.Refresh del BAKE, o una ricompilazione di script/
+        // shader) i GraphicsBuffer — non serializzabili — tornano NULL, mentre Ready/Active sono ripristinati dal
+        // backup. Disegnare lancerebbe ArgumentNullException ogni frame; il solo "return" lasciava il pianeta
+        // SPARITO finché non toccavi uno slider (bug #3 "il pianeta sparisce dopo il bake").
+        // AUTO-HEAL: se i buffer sono invalidi, ri-inizializzo da solo (Setup rialloca + Rebuild) → la superficie
+        // ritorna al frame dopo, da sola, qualunque sia stata la causa del nullamento.
+        if (mat == null || idxBuf == null || !idxBuf.IsValid() || posBuf == null || !posBuf.IsValid())
+        {
+            if (healTerrain != null) { Ready = false; Setup(healTerrain, res); }
+            return;
+        }
         var rp = new RenderParams(mat) { worldBounds = bounds };
         Graphics.RenderPrimitivesIndexed(rp, MeshTopology.Triangles, idxBuf, indexCount);
     }
