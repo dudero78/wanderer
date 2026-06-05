@@ -118,7 +118,19 @@ Shader "Wanderer/PlanetSurfaceGPU"
                     return fixed4(normalize(IN.nrm) * 0.5 + 0.5, 1);
                 if (_DebugView > 0.5)
                     return fixed4(normalize(IN.lp) * 0.5 + 0.5, 1);
-                return fixed4(PlanetShade(IN.lp, IN.wp, IN.nrm, IN.bnrm, IN.depth, IN.baseN, IN.seaSurf), 1);
+
+                // ANTI-ALIASING della normale (mipmap ANALITICO): da lontano il corpo è piccolo e il rilievo dei
+                // crateri cade sotto il pixel → la normale "scintilla" (sale e pepe). fwidth(N) misura quanto la
+                // normale cambia PER PIXEL: dove cambia tanto (dettaglio sub-pixel) sfumo verso la normale LISCIA
+                // della sfera (radiale) → shading liscio, niente scintillio. Da vicino (fwidth piccolo) resta il
+                // dettaglio pieno. Costo: due derivate. (La via giusta per questo progetto: niente texture da mippare.)
+                float3 N = normalize(IN.nrm);
+                float nv = length(fwidth(N));
+                float3 center = mul(_ObjectToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+                float3 radialW = normalize(IN.wp - center);                  // normale liscia della sfera (mondo)
+                float detail = smoothstep(0.8, 0.12, nv);                    // nv alto → 0 (liscio); nv basso → 1 (pieno)
+                float3 nrmAA = normalize(lerp(radialW, N, detail));
+                return fixed4(PlanetShade(IN.lp, IN.wp, nrmAA, IN.bnrm, IN.depth, IN.baseN, IN.seaSurf), 1);
             }
             ENDCG
         }
