@@ -20,7 +20,7 @@ public class RouteIndicator : MonoBehaviour
     MapMode map;     // per disegnare il reticolo anche in mappa (sul corpo selezionato), con la sua camera
     Camera view;     // camera ATTIVA in questo frame: quella del giocatore, o quella della mappa se aperta
 
-    Texture2D ringTex, chevronTex, discTex, progradeTex, retroTex, barTex;
+    Texture2D ringTex, chevronTex, discTex, progradeTex, retroTex, barTex, crossTex;
     GUIStyle label;
 
     // Tavolozza: blu di riposo, verde quando sincronizzato o in intercetto.
@@ -100,12 +100,32 @@ public class RouteIndicator : MonoBehaviour
 
         // rettangolo pieno: barra/fondino della gauge di frenata (tinta via GUI.color in resa).
         barTex = Make(8, 8, (u, v) => 1f);
+
+        // MIRINO al centro schermo: puntino + 4 tacche con un GAP centrale (reticolo di puntamento, non invasivo).
+        crossTex = Make(64, 64, (u, v) =>
+        {
+            float dx = u - 0.5f, dy = v - 0.5f;
+            float r = Mathf.Sqrt(dx * dx + dy * dy);
+            float dot = r < 0.05f ? 1f : 0f;                                       // puntino centrale
+            float tick = (r > 0.13f && r < 0.34f &&                                 // 4 tacche oltre il gap
+                          (Mathf.Abs(dx) < 0.018f || Mathf.Abs(dy) < 0.018f)) ? 1f : 0f;
+            return Mathf.Max(dot, tick);
+        }, mip: true, ss: 4);
     }
 
     void OnGUI()
     {
         if (Event.current.type != EventType.Repaint) return;
         if (cam == null || solar == null) return;
+
+        // MIRINO centrale: sempre durante il gioco (tranne in mappa, dove il cursore è libero). Indipendente dal
+        // target → disegnato PRIMA del return su Destination nullo.
+        if (cam.enabled && !(map != null && map.Active))
+        {
+            float uic = Mathf.Max(1f, Screen.height / 1080f);
+            DrawTex(crossTex, new Vector2(Screen.width * 0.5f, Screen.height * 0.5f), 26f * uic, 26f * uic, 0f, A(White, 0.5f));
+        }
+
         var target = solar.Destination;
         if (target == null) return;
 
