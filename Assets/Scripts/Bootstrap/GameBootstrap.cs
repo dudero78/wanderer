@@ -31,6 +31,10 @@ public class GameBootstrap : MonoBehaviour
     public bool useCullSplit = true;   // ON di default (testato: interno Cull Back, skirt Cull Off → metà overdraw)
     public int interiorCull = 2;   // 2=Back, 1=Front (se l'interno sparisce con useCullSplit ON)
 
+    [Tooltip("GEOMORPH: transizioni LOD lisce nel vertex shader. SPEGNILO per A/B se vedi artefatti di geometria "
+           + "(blob 'sciolti' / spuntoni) sui crateri densi a bassa quota.")]
+    public bool useGeomorph = true;
+
     [Tooltip("DEBUG/test: nasci su questo corpo invece che sul pianeta-casa (es. \"terra-test3\"). Vuoto = pianeta-casa.")]
     public string spawnOnBody = "terra-test3";
 
@@ -61,6 +65,7 @@ public class GameBootstrap : MonoBehaviour
         GpuPlanetRenderer.UseBatchFill = useBatchFill;   // PRIMA della Build: la verifica gira nel Setup di ogni corpo
         GpuPlanetRenderer.CullSplit = useCullSplit;      // overdraw: interno Cull Back + skirt Cull Off (toggle da provare)
         GpuPlanetRenderer.InteriorCull = interiorCull;
+        GpuPlanetRenderer.UseGeomorph = useGeomorph;     // A/B per isolare gli artefatti di geometria
         var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody);
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);
         LightingSetup.Setup(gameObject, solar, sys.StarTransform, sys.HomePlanetGo.transform);

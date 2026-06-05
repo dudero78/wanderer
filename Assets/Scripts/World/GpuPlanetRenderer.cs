@@ -39,7 +39,7 @@ public class GpuPlanetRenderer : MonoBehaviour
                                  // lavoro su più fotogrammi si evita l'ondata che fa scattare. Il LOD predittivo copre il "ritardo"
     public float lookaheadTime = 0.7f;   // LOD PREDITTIVO: valuta lo split dalla posizione DOVE SARAI fra ~tot secondi
                                          // (verso cui voli) → il dettaglio è pronto PRIMA di arrivarci (niente "carica tardi")
-    public bool useGeomorph = true;      // GEOMORPH CDLOD nel vertex shader: transizioni LOD lisce (niente pop/lamelle nere). Toggle A/B
+    public static bool UseGeomorph = true;   // GEOMORPH CDLOD nel vertex shader: transizioni LOD lisce. Statico (da GameBootstrap), toggle A/B
     public float morphRange = 0.5f;      // ampiezza della banda di morph (frazione di splitDist): 0.1 stretta, 0.9 larga
     // OVERDRAW: disegna l'interno con Cull Back (metà fragment) + le skirt con Cull Off, in 2 draw. STATICI
     // (impostati da GameBootstrap, come UseBatchFill). InteriorCull 2=Back; se l'interno SPARISCE accendendolo,
@@ -237,7 +237,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         mat.SetFloat("_PerVertexFields", 1f);   // in gioco: usa baseN per-vertice (fragment più economico)
         mat.SetInt("_NN", n);                                  // geomorph: vertici per lato → (i,j) dal vid + lettura vicini
         mat.SetFloat("_MorphRange", morphRange);
-        mat.SetFloat("_UseGeomorph", useGeomorph ? 1f : 0f);
+        mat.SetFloat("_UseGeomorph", UseGeomorph ? 1f : 0f);
 
         radius = terrain.Recipe != null ? terrain.Recipe.baseRadius : terrain.BaseRadius;
         cs.SetInt("_HasSea", terrain.Recipe != null && terrain.Recipe.LastSea() != null ? 1 : 0);
@@ -698,7 +698,7 @@ public class GpuPlanetRenderer : MonoBehaviour
             // acos(R/(R+maxH)). Su corpi piccoli è grande (R=500,maxH=25 → ~18°): senza, la curvatura "mangia" le
             // creste ancora visibili a quota → tessere NERE all'orizzonte in viaggio. maxH stimato generoso (base +
             // crateri/tettonica), limitato a [3%,10%] del raggio per non sovra-disegnare troppo. La GPU ha margine.
-            float maxH = Mathf.Clamp(terrain.Amplitude * 2.5f, radius * 0.03f, radius * 0.1f);
+            float maxH = Mathf.Clamp(terrain.Amplitude * 3f, radius * 0.04f, radius * 0.12f);
             lodPeakAngle = Mathf.Acos(Mathf.Clamp(radius / (radius + maxH), 0f, 1f));
         }
 
