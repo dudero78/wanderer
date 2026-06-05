@@ -166,7 +166,17 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
 
         // normale: con LIQUIDO il pelo è acqua increspata; senza (ghiaccio) è liscio. Dove si vede il fondo in
         // trasparenza, un filo di rilievo del fondale (non sostituisce la normale → niente lastra vetrosa alla riva).
-        float3 rN = (_SeaLiquid > 0.5) ? WaterRippleNormal(Pobj, nrm, 0.22) : nrm;
+        // INCRESPATURA con LOD per DISTANZA (collo GPU del mare a bassa quota): l'onda è SUB-PIXEL sull'acqua
+        // lontana → la sfumo verso il pelo liscio e SALTO le 2 noised quando il contributo è trascurabile. A bassa
+        // quota guardando il mare verso l'orizzonte la maggior parte dei pixel è acqua lontana → enorme risparmio
+        // sul fragment; il vicino resta pienamente increspato. (Soglie ~30..250 m, scala "media" dei corpi.)
+        float3 rN;
+        if (_SeaLiquid > 0.5)
+        {
+            float rippleLod = saturate((250.0 - distance(worldP, _WorldSpaceCameraPos)) / 220.0);
+            rN = (rippleLod > 0.004) ? lerp(nrm, WaterRippleNormal(Pobj, nrm, 0.22), rippleLod) : nrm;
+        }
+        else rN = nrm;
         float3 shadeN = (seaTrans > 0.0) ? normalize(lerp(rN, normalize(bnrmW), seaTrans * 0.30)) : rN;
         float ndl = saturate(dot(shadeN, _SunDir));
         float3 wcol = waterCol * (ndl * _SunColor + _Ambient);
