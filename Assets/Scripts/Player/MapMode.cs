@@ -37,7 +37,11 @@ public class MapMode : MonoBehaviour
     // trasla con la floating origin) e riconvertita a scena ogni frame → resta coerente con stella e orbite.
     LineRenderer trail;
     const int MaxTrailPoints = 1024;   // ring buffer: oltre, scarta il punto più vecchio (scia "recente")
-    readonly List<Vector3d> trailPts = new List<Vector3d>();
+    // scia = RING BUFFER vero (O(1) inserimento): niente List.RemoveAt(0) O(n) a ogni punto durante il volo veloce.
+    // trailHead = indice del più VECCHIO; i punti in ordine cronologico sono trailRing[(trailHead+i) % cap].
+    readonly Vector3d[] trailRing = new Vector3d[MaxTrailPoints];
+    int trailHead, trailCount;
+    Vector3d TrailAt(int i) => trailRing[(trailHead + i) % MaxTrailPoints];
     float trailStep = 30f;             // distanza minima fra due punti registrati (scalata sul sistema in Init)
     float trailMaxJump = 1e9f;         // salto max plausibile fra due frame: oltre = ri-ancoraggio, si scarta
 
@@ -367,14 +371,19 @@ public class MapMode : MonoBehaviour
     {
         if (walker == null) return;
         Vector3d uni = FloatingOrigin.SceneOrigin + new Vector3d(walker.transform.position);
-        if (trailPts.Count > 0)
+        if (trailCount > 0)
         {
-            double d = Vector3d.Distance(uni, trailPts[trailPts.Count - 1]);
+            double d = Vector3d.Distance(uni, TrailAt(trailCount - 1));
             if (d > trailMaxJump) return;   // salto da ri-ancoraggio (floating origin): NON è moto reale, scarta
             if (d <= trailStep) return;     // troppo vicino all'ultimo punto: non registrare
         }
-        trailPts.Add(uni);
-        if (trailPts.Count > MaxTrailPoints) trailPts.RemoveAt(0);   // scia "recente": scarta il più vecchio
+        if (trailCount < MaxTrailPoints)
+            trailRing[(trailHead + trailCount++) % MaxTrailPoints] = uni;   // riempi
+        else
+        {
+            trailRing[trailHead] = uni;                                     // pieno: sovrascrivi il più vecchio, avanza la testa
+            trailHead = (trailHead + 1) % MaxTrailPoints;
+        }
     }
 
     void UpdateVisuals()
@@ -389,9 +398,9 @@ public class MapMode : MonoBehaviour
         if (trail != null)
         {
             trail.widthMultiplier = Mathf.Max(0.2f, mapDist * 0.0016f);   // ∝ zoom, come le orbite (era fissa = nastro verde enorme)
-            int n = trailPts.Count;
+            int n = trailCount;
             trail.positionCount = n;
-            for (int i = 0; i < n; i++) trail.SetPosition(i, (trailPts[i] - FloatingOrigin.SceneOrigin).ToVector3());
+            for (int i = 0; i < n; i++) trail.SetPosition(i, (TrailAt(i) - FloatingOrigin.SceneOrigin).ToVector3());
             trail.enabled = n >= 2;   // serve almeno un segmento
         }
         for (int i = 0; i < markers.Count; i++)
@@ -449,7 +458,7 @@ public class MapMode : MonoBehaviour
         foreach (var px in proxies.Values) if (px != null) px.gameObject.SetActive(on);
         for (int i = 0; i < orbits.Count; i++) orbits[i].enabled = on;
         if (playerMarker != null) playerMarker.SetActive(on);
-        if (trail != null) trail.enabled = on && trailPts.Count >= 2;
+        if (trail != null) trail.enabled = on && trailCount >= 2;
     }
 
     void OnGUI()
