@@ -343,27 +343,40 @@ public class GpuPlanetRenderer : MonoBehaviour
     bool VerifyBatchFill()
     {
         int vfloats = vertsPerSlab * 3;
-        var a = new float[vfloats];
-        var b = new float[vfloats];
-        float maxDiff = 0f; long compared = 0;
         int g = (n + 7) / 8;
+
+        // A = PER-NODO per ogni root, salvato (è il noto-corretto)
+        var aSlabs = new List<(int baseF, float[] data)>();
         foreach (var r in roots)
         {
             if (r.slab < 0) continue;
-            int baseF = r.slab * vfloats;                    // indice float di inizio fetta nel pool
-            FillSlabImmediate(r);                            // A = per-nodo (noto-corretto)
-            posBuf.GetData(a, 0, baseF, vfloats);
-            jobScratch[0] = MakeJob(r);                      // B = batch (1 job)
-            jobsBuf.SetData(jobScratch, 0, 0, 1);
-            cs.Dispatch(kSlabBatch, g, g, 1);
-            cs.Dispatch(kSkirtBatch, (4 * nodeRes + 63) / 64, 1, 1);
-            posBuf.GetData(b, 0, baseF, vfloats);
-            for (int i = 0; i < vfloats; i++) { float d = Mathf.Abs(a[i] - b[i]); if (d > maxDiff) maxDiff = d; compared++; }
-            FillSlabImmediate(r);                            // ripristina il per-nodo
+            FillSlabImmediate(r);
+            var d = new float[vfloats];
+            posBuf.GetData(d, 0, r.slab * vfloats, vfloats);
+            aSlabs.Add((r.slab * vfloats, d));
         }
+
+        // B = BATCH di TUTTI i root in UN SOLO dispatch — come in gioco (MULTI-JOB). Un bug che spunta solo con
+        // più nodi nello stesso dispatch (hazard/indicizzazione sull'asse z/y) si vede QUI, non col job singolo.
+        jobCount = 0;
+        foreach (var r in roots) if (r.slab >= 0) jobScratch[jobCount++] = MakeJob(r);
+        jobsBuf.SetData(jobScratch, 0, 0, jobCount);
+        cs.Dispatch(kSlabBatch, g, g, jobCount);
+        cs.Dispatch(kSkirtBatch, (4 * nodeRes + 63) / 64, jobCount, 1);
+
+        float maxDiff = 0f; long compared = 0;
+        var b = new float[vfloats];
+        foreach (var (baseF, ad) in aSlabs)
+        {
+            posBuf.GetData(b, 0, baseF, vfloats);
+            for (int i = 0; i < vfloats; i++) { float d = Mathf.Abs(ad[i] - b[i]); if (d > maxDiff) maxDiff = d; compared++; }
+        }
+
+        foreach (var r in roots) if (r.slab >= 0) FillSlabImmediate(r);   // ripristina il per-nodo
         jobCount = 0;
         bool ok = maxDiff < 0.01f;                           // sub-cm = identici (a meno del round-off)
-        Debug.Log($"[batch-fill] verifica {terrain.name}: {(ok ? "PARITÀ OK" : "DIVERGE!")} — {compared} float su {roots.Length} fette, max diff {maxDiff:F5} m");
+        Debug.Log($"[batch-fill] verifica {terrain.name} (multi-job, {aSlabs.Count} fette in 1 dispatch): " +
+                  $"{(ok ? "PARITÀ OK" : "DIVERGE!")} — {compared} float, max diff {maxDiff:F5} m");
         return ok;
     }
 
