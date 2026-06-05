@@ -6,13 +6,17 @@ batch fill, presets). Dettaglio tecnico nel `CLAUDE.md`.
 > ## 🔴 PARTI DA QUI — 3 BUG APERTI nell'EDITOR (sessione 5 giu, da riprendere a freddo)
 > Tutti e tre nell'**editor di pianeti** (scena "Apri editor pianeti"), su Valentina2 (mare + tettonica + crateri):
 >
-> **(1) Il livello del mare NON allaga come dovrebbe.** Alzando "Livello (m)" al MAX (259 = amplitude·2) il pianeta
-> resta una luna craterizzata per lo più ASCIUTTA con acqua solo nelle conche — NON la palla d'acqua attesa (a
-> seaSurf = baseRadius+seaLevel = 759, ben sopra le vette ~710, dovrebbe sommergere TUTTO). Dario: "prima funzionava,
-> non riaprivo l'editor da tempo". SOSPETTO PRINCIPALE: **ordine dei processi** — la pipeline è TETTONICA → MARE →
-> **CRATERI** (crateri DOPO il mare): i crateri scavano/sollevano sul pelo allagato → rim che bucano l'acqua
-> ovunque → sembra non allagato. (Verificare: con MARE come ultimo processo allaga? oppure seaLevel non arriva alla
-> geometria?) NON è la camera (correzione frameScale già tolta). Da instrumentare: log del seaRadius reale + % allagata.
+> **(1) Il livello del mare sembra non allagare in palla d'acqua.** Alzando "Livello (m)" al MAX (259) il pianeta
+> resta una luna craterizzata per lo più ASCIUTTA con acqua solo nelle conche — NON la palla d'acqua liscia attesa.
+> Dario: "prima funzionava, non riaprivo l'editor da tempo". **CAUSA QUASI CERTA (ricostruita): ordine processi
+> TETTONICA → MARE → CRATERI** (crateri DOPO il mare). La geometria SÌ allaga a seaSurf=759 (palla), MA poi i CRATERI
+> scavano/sollevano su quel pelo → `length(pos)` devia da `_VSurf` ovunque ci sia un cratere → la **maschera del mare**
+> (`seaMask = 1 − smoothstep(0.15,0.75, abs(h − seaSurf))`) legge le aree craterizzate come ASCIUTTE → grigio ovunque,
+> acqua solo nei lembi piatti. È il design "cratere DOPO un mare = buca asciutta", ma per Dario è sbagliato (vuole il
+> mare che SOMMERGE i crateri). **FIX da valutare a freddo:** (a) consigliare a Dario di RIORDINARE (CRATERI prima del
+> MARE, con Su/Giù → crateri sommersi); (b) o cambiare la maschera per leggere "sotto il pelo" anche dove un cratere
+> ha scavato (mostrare il cratere attraverso l'acqua bassa). Verificare prima con un mare come ULTIMO processo (dovrebbe
+> allagare liscio). NON è la camera (frameScale già tolto).
 >
 > **(2) Trasparenza dell'acqua "al contrario" nell'editor, e troppo poco effetto in gioco.** Nell'editor alzando
 > "limpidezza" l'acqua sembra diventare MENO trasparente (il codice fa il contrario: limpidezza alta = `seaTrans`
