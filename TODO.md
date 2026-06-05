@@ -246,10 +246,19 @@ Bivi possibili (da decidere con Dario):
   [[wanderer-rendering-roadmap]].
 - ⬜ **Residuo minore**: forse restano marcature di shading molto tenui qua e là sull'anteprima GPU (da indagare
   solo se danno fastidio).
-- ⬜ **Acqua liquida — resto**: toggle "liquido" + look acqua (glint+fresnel) + **trasparenza** (vedere il
-  fondale sommerso, attenuato con la profondità) FATTI sul path GPU. Resta il **nuoto/affondamento** del walker
-  (gameplay) e — se serve — la trasparenza anche sul path CPU/in gioco (PlanetBaked, che non ha la profondità
-  per-vertice → andrebbe portata lì come vertex attribute o ricostruita).
+- ✅ **Acqua come SUPERFICIE in gioco**: pelo per-vertice (`_VSurf` → maschera esatta), increspatura animata
+  (`WaterRippleNormal`, gradiente analitico da `noised`), colore per profondità, riflesso sole+Fresnel-cielo,
+  trasparenza solo in acqua bassa, battigia. Mare SOLIDO (maria/ghiaccio, non `_SeaLiquid`) = tinta piatta, NON
+  acqua. Riva stretta (banda 0.15..0.75 m) → l'acqua non si arrampica sui corpi che affiorano.
+- ⬜ **GUSCIO D'ACQUA SEPARATO (fix definitivo del pelo PIATTO, da fare al gameplay-acqua).** Oggi l'acqua è il
+  terreno ALLAGATO (una mesh: `h=max(terreno, livello)`) → alle coste la griglia fa una RAMPA (l'acqua si
+  "arrampica"; stretta la maschera è un cerotto, non la cura). La cura vera = DUE superfici: (1) terreno col
+  rilievo pieno (niente allagamento) + (2) un **guscio** = sfera sottile trasparente al livello del mare. Il
+  terreno buca il guscio di NETTO (zero rampe), trasparenza/rifrazione/onde vere, riflessi puliti. Costo: 2°
+  draw + **blending trasparenza** (ordinamento), il walker deve sapere di 2 superfici (nuoto vs cammino), un po'
+  più di complessità nel renderer GPU. È il modo "giusto"; abbinarlo al **nuoto/affondamento** del walker.
+- ⬜ **Acqua — minori**: increspatura/colori esposti come manopole della ricetta (ora costanti nello shader);
+  trasparenza anche sul path CPU `PlanetBaked` (non ha la profondità per-vertice) se mai servirà lì.
 - ⬜ **Altri processi**: montagne (ridged noise per la texture delle catene), ghiaccio, erosione (bake?).
 - ⬜ **Migliorie editor**: editing per-feature (cancella/modifica singolo cratere), più preset.
 

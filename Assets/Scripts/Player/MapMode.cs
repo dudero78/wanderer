@@ -330,8 +330,12 @@ public class MapMode : MonoBehaviour
             float screen = Vector3.Distance(camPos, b.transform.position) * markerScreenSize;
             if (proxies.TryGetValue(b, out var px))
             {
-                // corpo reale: il proxy mostra la superficie, il marker resta SOLO bersaglio di click (invisibile)
-                float R = screen * 1.0f;                 // raggio apparente del pianeta in mappa
+                // corpo reale: il proxy mostra la superficie, il marker resta SOLO bersaglio di click (invisibile).
+                // Dimensione apparente PROPORZIONALE al raggio reale ma COMPRESSA (esponente < 1): una luna piccola
+                // si vede più piccola del suo pianeta, ma non come un punto. Riferimento = i pianeti grandi (700 m).
+                // GlobalShrink = tutto un filo più piccolo (così il binario terra/Valentina2 non è un blob unico).
+                const float RefRadius = 700f, SizePow = 0.8f, GlobalShrink = 0.82f;
+                float R = screen * Mathf.Pow((float)b.Radius / RefRadius, SizePow) * GlobalShrink;
                 if (b == selected) R *= 1.2f;
                 px.position = b.transform.position;
                 px.localScale = Vector3.one * (R / Mathf.Max(1f, (float)b.Radius));   // mesh a raggio reale → scala a R
@@ -339,7 +343,9 @@ public class MapMode : MonoBehaviour
             }
             else
             {
-                float sz = screen * 1.6f;                // la stella: disco un po' più grande
+                // la stella: disco stilizzato, NON in scala (un sole vero è 100× un pianeta → dominerebbe). Fisso,
+                // solo un filo più piccolo di prima per stare in tono col resto.
+                float sz = screen * 1.4f;
                 if (b == selected) sz *= 1.5f;
                 mk.transform.localScale = Vector3.one * sz;
             }
