@@ -60,7 +60,7 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     // Niente più ricostruzione del rumore nel fragment: la 3-vs-4 ottave sbagliava ad alta rugosità (acqua "dipinta")
     // e costava un fbm per-pixel sul mare GPU-bound. La banda 2..4 m dà il bordo (pelo netto + battigia anti-alias).
     float seaSurf = seaSurfField;
-    float seaMask = (_SeaOn > 0.5) ? (1.0 - smoothstep(2.0, 4.0, abs(h - seaSurf))) : 0.0;
+    float seaMask = (_SeaOn > 0.5) ? (1.0 - smoothstep(1.2, 3.2, abs(h - seaSurf))) : 0.0;
 
     // suolo: colore base × variazione MACRO a bassa frequenza (campo dunale) — procedurale, niente texture
     float macroV = fbm(sdir * _MacroScale);
@@ -116,25 +116,28 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     if (seaMask > 0.0)
     {
         float seaLuma = dot(_SeaColor.rgb, float3(0.2126, 0.7152, 0.0722));
-        float3 deepCol = _SeaColor.rgb * 0.45;
+        float3 deepCol = _SeaColor.rgb * 0.52;
         float3 shallowCol = lerp(_SeaColor.rgb, float3(0.42, 0.78, 0.85), 0.55);   // turchese di bassofondo
-        float dN = saturate(depth / 26.0);
+        float dN = saturate(depth / 36.0);                                        // gradiente più dolce → meno "muro" opaco
         float3 waterCol = lerp(shallowCol, deepCol, dN);
         waterCol = lerp(float3(seaLuma, seaLuma, seaLuma), waterCol, _SeaSat);     // saturazione propria del mare
 
-        // trasparenza: il fondo (alb del suolo, tinto d'acqua) emerge in acqua bassa
+        // trasparenza: il fondo (alb del suolo, tinto d'acqua) emerge in acqua bassa. pow(.,0.75) alza la
+        // trasparenza per le profondità medie → acqua più limpida. La PROFONDITÀ-soglia resta _SeaClarity (ricetta).
         float seaTrans = 0.0;
         if (_SeaClear > 0.5)
         {
-            seaTrans = exp(-max(depth, 0.0) / max(_SeaClarity, 0.05));
+            seaTrans = pow(exp(-max(depth, 0.0) / max(_SeaClarity, 0.05)), 0.75);
             float3 waterTint = _SeaColor.rgb / max(seaLuma, 0.04);                 // tinta a luminosità neutra
             float3 bedSeen = alb * lerp(float3(1.0, 1.0, 1.0), waterTint, 0.7);
             waterCol = lerp(waterCol, bedSeen, seaTrans);
         }
 
-        // normale: pelo increspato; dove si vede il fondo in trasparenza, sfuma verso la normale del FONDO
+        // normale: il pelo resta SEMPRE acqua increspata (è la superficie!). Il fondo si vede come COLORE, non
+        // sostituendo la normale → un filo di rilievo del fondale (peso BASSO), non una lastra vetrosa liscia
+        // alla riva (era l'"effetto strano sulle coste": la normale-fondo liscia spegneva le increspature).
         float3 rN = WaterRippleNormal(worldP, nrm, _SeaLiquid > 0.5 ? 0.22 : 0.0);
-        float3 shadeN = (seaTrans > 0.0) ? normalize(lerp(rN, normalize(bnrmW), seaTrans * 0.85)) : rN;
+        float3 shadeN = (seaTrans > 0.0) ? normalize(lerp(rN, normalize(bnrmW), seaTrans * 0.30)) : rN;
         float ndl = saturate(dot(shadeN, _SunDir));
         float3 wcol = waterCol * (ndl * _SunColor + _Ambient);
 
@@ -150,9 +153,9 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
             wcol = lerp(wcol, skyCol, fres * 0.45 * saturate(ndlLand + 0.25));   // cielo riflesso ai bordi
         }
 
-        // BATTIGIA: linea chiara dove l'acqua è bassissima (depth ~0) → riva netta, schiuma
-        float foam = (1.0 - smoothstep(0.0, 1.4, depth));
-        wcol = lerp(wcol, wcol * 0.5 + float3(0.85, 0.9, 0.95) * 0.5, foam * 0.45);
+        // BATTIGIA: linea SOTTILE di schiuma dove l'acqua è bassissima (depth ~0) → riva netta, senza lastra larga
+        float foam = (1.0 - smoothstep(0.0, 0.8, depth));
+        wcol = lerp(wcol, wcol * 0.5 + float3(0.85, 0.9, 0.95) * 0.5, foam * 0.22);
 
         col = lerp(col, wcol, seaMask);
     }
