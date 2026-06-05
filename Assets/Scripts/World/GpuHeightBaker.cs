@@ -26,6 +26,7 @@ public class GpuHeightBaker : IDisposable
     readonly int ne;                   // lato della griglia estesa di un nodo (nodeRes+3): costante
     readonly Stack<ComputeBuffer> pool = new Stack<ComputeBuffer>();
     int outstanding;                   // readback in volo (per non far esplodere il pool)
+    bool disposed;                     // se Dispose è già passato, un buffer che rientra (readback in volo) va RILASCIATO, non rimesso nel pool morto
 
     public bool Supported { get; private set; }
 
@@ -119,6 +120,7 @@ public class GpuHeightBaker : IDisposable
     void Release(ComputeBuffer b)
     {
         if (b == null) return;
+        if (disposed) { b.Release(); return; }   // baker già disposto: una lettura in volo che rientra va liberata, non poolata (no leak)
         // il pool deve coprire le build concorrenti in volo (vedi maxConcurrentBuilds GPU nel quadtree):
         // con molte letture asincrone insieme servono altrettanti buffer vivi, non se ne ricicla 16.
         if (pool.Count < 64) pool.Push(b);
@@ -150,6 +152,7 @@ public class GpuHeightBaker : IDisposable
 
     public void Dispose()
     {
+        disposed = true;   // i buffer ancora in volo li rilascerà il loro callback (Release vede 'disposed')
         shape?.Dispose(); shape = null;
         while (pool.Count > 0) pool.Pop().Release();
     }
