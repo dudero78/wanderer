@@ -50,6 +50,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
         _SeaClarity ("Mare: limpidezza (m)", Float) = 8
 
         _Saturation ("Saturazione", Range(0,2)) = 1
+        _Cull ("Cull mode (0=Off 1=Front 2=Back)", Float) = 0   // guidato dal MATERIALE (interno=Back, skirt=Off): dimezza l'overdraw
     }
     SubShader
     {
@@ -59,7 +60,10 @@ Shader "Wanderer/PlanetSurfaceGPU"
             // Cull Off: gli SKIRT (anelli tappabuchi ai confini di LOD) DEVONO essere a doppia faccia — coprono la
             // fessura da qualunque angolo. Con Cull Back sparivano dal lato sbagliato → buchi/muri. La superficie
             // interna avrebbe verso coerente, ma non si può avere Cull diverso per interno e skirt nello stesso draw.
-            Cull Off
+            // OVERDRAW: il valore è guidato dal MATERIALE (NON da un MaterialPropertyBlock, che in built-in non
+            // cambia lo stato fisso Cull — verificato). Due materiali: interno con Cull Back (verso coerente → niente
+            // retro-facce ombreggiate = metà overdraw del fragment) e skirt con Cull Off (devono restare doppia faccia).
+            Cull [_Cull]
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag

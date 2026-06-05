@@ -30,6 +30,11 @@ public class GameBootstrap : MonoBehaviour
            + "(blob 'sciolti' / spuntoni) sui crateri densi a bassa quota.")]
     public bool useGeomorph = true;
 
+    [Tooltip("OVERDRAW: interno Cull Back + skirt Cull Off in 2 draw (due materiali) → dimezza l'ombreggiatura "
+           + "per-pixel del terreno. Se l'INTERNO del pianeta SPARISCE accendendolo, metti interiorCull=1 (Front).")]
+    public bool useCullSplit = true;
+    public int interiorCull = 2;   // 2=Back, 1=Front
+
     [Tooltip("DEBUG/test: nasci su questo corpo invece che sul pianeta-casa (es. \"terra-test3\"). Vuoto = pianeta-casa.")]
     public string spawnOnBody = "terra-test3";
 
@@ -59,6 +64,8 @@ public class GameBootstrap : MonoBehaviour
         //     spawn del giocatore → illuminazione → interfaccia. Aggiungere/cambiare un pezzo = nel suo Setup, non qui. ---
         GpuPlanetRenderer.UseBatchFill = useBatchFill;   // PRIMA della Build: la verifica gira nel Setup di ogni corpo
         GpuPlanetRenderer.UseGeomorph = useGeomorph;     // A/B per isolare gli artefatti di geometria
+        GpuPlanetRenderer.CullSplit = useCullSplit;      // overdraw: interno Cull Back + skirt Cull Off (2 materiali)
+        GpuPlanetRenderer.InteriorCull = interiorCull;
         var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody);
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);
         LightingSetup.Setup(gameObject, solar, sys.StarTransform, sys.HomePlanetGo.transform);

@@ -41,6 +41,11 @@ public class GpuPlanetRenderer : MonoBehaviour
                                          // (verso cui voli) → il dettaglio è pronto PRIMA di arrivarci (niente "carica tardi")
     public static bool UseGeomorph = true;   // GEOMORPH CDLOD nel vertex shader: transizioni LOD lisce. Statico (da GameBootstrap), toggle A/B
     public float morphRange = 0.5f;      // ampiezza della banda di morph (frazione di splitDist): 0.1 stretta, 0.9 larga
+    // OVERDRAW: interno con Cull Back + skirt con Cull Off, in 2 draw (il _Cull lo guida il MATERIALE, deterministico).
+    // STATICI (impostati da GameBootstrap). InteriorCull 2=Back; se l'INTERNO sparisce accendendolo, il verso è
+    // invertito → mettilo a 1 (Front). Dimezza l'ombreggiatura per-pixel del terreno (niente retro-facce).
+    public static bool CullSplit = true;
+    public static int InteriorCull = 2;
 
     /// <summary>DIAGNOSI: 0 = resa normale · 1 = posizione radiale (fragment banale) · 2 = normale di mondo.</summary>
     public int debugMode = 0;
@@ -49,6 +54,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     int vertsPerSlab;  // n*n + 4*nodeRes (interno + skirt)
     int skirtStart;    // n*n
     int indexCountPerSlab;
+    int interiorIndexCount;   // indici dei tris INTERNI (primi nodeRes²·6): il resto dell'index buffer è skirt
     float radius;
 
     ComputeShader cs;
@@ -71,8 +77,11 @@ public class GpuPlanetRenderer : MonoBehaviour
     GraphicsBuffer splitDistOfInstance;                   // geomorph: splitDist (worldSize·lodFactor) per istanza, parallelo a slabOfInstance
     GraphicsBuffer argsBuf;
     GraphicsBuffer.IndirectDrawIndexedArgs[] argsData = new GraphicsBuffer.IndirectDrawIndexedArgs[1];
+    GraphicsBuffer argsSkirtBuf;   // secondo draw (solo skirt, Cull Off) quando cullSplit è ON
+    GraphicsBuffer.IndirectDrawIndexedArgs[] argsSkirtData = new GraphicsBuffer.IndirectDrawIndexedArgs[1];
     GpuShapeBuffers shape;
-    Material mat;
+    Material mat;        // INTERNO: Cull Back quando cullSplit è ON
+    Material matSkirt;   // SKIRT: Cull Off (doppia faccia). Stessi buffer/uniform di mat, solo il _Cull diverso
     Transform planetTf;
     PlanetTerrain terrain;
 
@@ -211,6 +220,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         slabOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         splitDistOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         argsBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
+        argsSkirtBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
 
         mat = new Material(sh);
         mat.SetBuffer("_VPos", posBuf);
@@ -248,7 +258,22 @@ public class GpuPlanetRenderer : MonoBehaviour
 
         VerifyParityRuntime();   // #9: gate non bloccante CPU↔GPU (un readback dei root, una volta sola)
         ApplyColor();
+
+        // SKIRT: secondo materiale = copia di mat ma con Cull Off. new Material(mat) copia gli uniform; i BUFFER li
+        // ri-lego esplicitamente (la copia non sempre li porta con sé) → robusto. Il Cull lo guida il MATERIALE.
+        matSkirt = new Material(mat);
+        BindSurfaceBuffers(matSkirt);
+        matSkirt.SetInt("_Cull", 0);   // skirt SEMPRE Cull Off (doppia faccia, tappano la fessura da ogni angolo)
+
         Ready = true;
+    }
+
+    /// <summary>Lega i 6 buffer del pool + i due per-istanza a un materiale (mat e matSkirt condividono gli stessi).</summary>
+    void BindSurfaceBuffers(Material m)
+    {
+        m.SetBuffer("_VPos", posBuf); m.SetBuffer("_VNrm", nrmBuf); m.SetBuffer("_VBedNrm", bedNrmBuf);
+        m.SetBuffer("_VDepth", depthBuf); m.SetBuffer("_VField", fieldBuf); m.SetBuffer("_VSurf", surfBuf);
+        m.SetBuffer("_SlabOfInstance", slabOfInstance); m.SetBuffer("_SplitDistOfInstance", splitDistOfInstance);
     }
 
     /// <summary>GATE DI PARITÀ a runtime (#9): all'avvio del corpo confronta la geometria che il renderer ha
@@ -647,11 +672,22 @@ public class GpuPlanetRenderer : MonoBehaviour
         if (cam == null) { var c = Camera.main; if (c == null) return; cam = c.transform; }
 
         Matrix4x4 m = planetTf.localToWorldMatrix;
+        // per-frame su ENTRAMBI i materiali (interno e skirt sono ombreggiati uguale). mat porta il _Cull dell'interno
+        // (Back se cullSplit, altrimenti Off = comportamento a draw singolo). matSkirt resta Cull Off (impostato nel Setup).
         mat.SetMatrix("_ObjectToWorld", m);
         mat.SetVector("_CamPosWorld", cam.position);   // geomorph: distanza camera per il fattore di morph (shader dai-buffer)
         mat.SetFloat("_DebugView", debugMode);
-        RefreshLighting();
-        RefreshTorch();
+        mat.SetInt("_Cull", CullSplit ? InteriorCull : 0);
+        RefreshLighting(mat);
+        RefreshTorch(mat);
+        if (CullSplit && matSkirt != null)
+        {
+            matSkirt.SetMatrix("_ObjectToWorld", m);
+            matSkirt.SetVector("_CamPosWorld", cam.position);
+            matSkirt.SetFloat("_DebugView", debugMode);
+            RefreshLighting(matSkirt);
+            RefreshTorch(matSkirt);
+        }
 
         // LOD: decidi split/merge e raccogli le foglie visibili
         var sw = System.Diagnostics.Stopwatch.StartNew();   // diagnosi: costo CPU del mio lavoro per frame
@@ -703,17 +739,34 @@ public class GpuPlanetRenderer : MonoBehaviour
         splitDistOfInstance.SetData(splitScratch, 0, 0, visibleCount);   // geomorph: parallelo a slabOfInstance
 
         var worldBounds = new Bounds(planetCenter, Vector3.one * (radius * 5f));
-        // UN draw, tutto l'index buffer, Cull Off. (Il cull-split interno-Back/skirt-Off via MaterialPropertyBlock è
-        // stato RIMOSSO: verificato con interiorCull=1 che il MPB NON guida lo stato fisso Cull in built-in → era un
-        // no-op. La superficie interna ha verso coerente, ma le skirt vogliono Cull Off → serve un Cull diverso per i
-        // due, impossibile in un draw col MPB. L'overdraw si dimezzerà con un depth pre-pass o il quadtree 2:1, quando
-        // la GPU sarà davvero carica — niente trucco a due materiali da mantenere.)
-        argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
-        argsData[0].instanceCount = (uint)visibleCount;
-        argsData[0].startIndex = 0;
-        argsBuf.SetData(argsData);
-        var rp = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
-        Graphics.RenderPrimitivesIndexedIndirect(rp, MeshTopology.Triangles, idxBuf, argsBuf, 1);
+        if (CullSplit && matSkirt != null)
+        {
+            // DUE materiali: INTERNO (mat, Cull Back → niente retro-facce ombreggiate = metà overdraw del fragment)
+            // sui primi interiorIndexCount indici, + SKIRT (matSkirt, Cull Off) sul resto. Il Cull lo guida il
+            // MATERIALE (deterministico, a differenza del MaterialPropertyBlock). Stessi buffer/uniform su entrambi.
+            argsData[0].indexCountPerInstance = (uint)interiorIndexCount;
+            argsData[0].instanceCount = (uint)visibleCount;
+            argsData[0].startIndex = 0;
+            argsBuf.SetData(argsData);
+            argsSkirtData[0].indexCountPerInstance = (uint)(indexCountPerSlab - interiorIndexCount);
+            argsSkirtData[0].instanceCount = (uint)visibleCount;
+            argsSkirtData[0].startIndex = (uint)interiorIndexCount;
+            argsSkirtBuf.SetData(argsSkirtData);
+            var rpI = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
+            var rpS = new RenderParams(matSkirt) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
+            Graphics.RenderPrimitivesIndexedIndirect(rpI, MeshTopology.Triangles, idxBuf, argsBuf, 1);
+            Graphics.RenderPrimitivesIndexedIndirect(rpS, MeshTopology.Triangles, idxBuf, argsSkirtBuf, 1);
+        }
+        else
+        {
+            // UN draw, tutto l'index buffer, Cull Off (mat._Cull=0)
+            argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
+            argsData[0].instanceCount = (uint)visibleCount;
+            argsData[0].startIndex = 0;
+            argsBuf.SetData(argsData);
+            var rp = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
+            Graphics.RenderPrimitivesIndexedIndirect(rp, MeshTopology.Triangles, idxBuf, argsBuf, 1);
+        }
 
         // diagnosi: logga SOLO i frame "pesanti" (il mio lavoro CPU ≥ 4 ms) con quante patch ha generato.
         // Se vedi spesso fills alti o ms alti = è il LOD (CPU). Se i frame scattano ma qui i ms sono bassi = è la GPU.
@@ -742,6 +795,7 @@ public class GpuPlanetRenderer : MonoBehaviour
                 idx.Add(i00); idx.Add(i01); idx.Add(i11);
                 idx.Add(i00); idx.Add(i11); idx.Add(i10);
             }
+        interiorIndexCount = idx.Count;   // tutto ciò che precede le skirt = i tris INTERNI (draw separato con Cull Back)
         // skirt: collega ogni vertice di bordo al suo vertice di skirt abbassato
         for (int k = 0; k < per; k++)
         {
@@ -772,7 +826,7 @@ public class GpuPlanetRenderer : MonoBehaviour
     void ApplyColor()
     {
         if (mat == null) return;
-        RefreshLighting();
+        RefreshLighting(mat);
         var rec = terrain.Recipe;
         mat.SetFloat("_BaseRadius", rec != null ? rec.baseRadius : terrain.BaseRadius);
         mat.SetFloat("_Amplitude", rec != null ? rec.amplitude : terrain.Amplitude);
@@ -789,31 +843,31 @@ public class GpuPlanetRenderer : MonoBehaviour
         }
     }
 
-    void RefreshLighting()
+    void RefreshLighting(Material m)
     {
-        if (mat == null) return;
+        if (m == null) return;
         if (sun == null && SunLight.Instance != null) sun = SunLight.Instance.GetComponent<Light>();
         Vector3 dir = sun != null ? -sun.transform.forward : Vector3.up;
         Color sc = sun != null ? sun.color * sun.intensity : Color.white;
-        mat.SetVector("_SunDir", dir.normalized);
-        mat.SetVector("_SunColor", new Vector4(sc.r, sc.g, sc.b, 1f));
+        m.SetVector("_SunDir", dir.normalized);
+        m.SetVector("_SunColor", new Vector4(sc.r, sc.g, sc.b, 1f));
         Color amb = RenderSettings.ambientLight;
-        mat.SetVector("_Ambient", new Vector4(amb.r, amb.g, amb.b, 1f));
+        m.SetVector("_Ambient", new Vector4(amb.r, amb.g, amb.b, 1f));
     }
 
-    void RefreshTorch()
+    void RefreshTorch(Material m)
     {
-        if (mat == null) return;
+        if (m == null) return;
         if (torch == null) { var fl = FindAnyObjectByType<Flashlight>(); if (fl != null) torch = fl.lamp; }
-        if (torch == null) { mat.SetVector("_TorchColor", Vector4.zero); return; }
+        if (torch == null) { m.SetVector("_TorchColor", Vector4.zero); return; }
         Color tc = torch.color * torch.intensity;   // intensità 0 da spenta → contributo nullo
-        mat.SetVector("_TorchPos", torch.transform.position);
-        mat.SetVector("_TorchDir", torch.transform.forward);
-        mat.SetVector("_TorchColor", new Vector4(tc.r, tc.g, tc.b, 1f));
-        mat.SetFloat("_TorchRange", torch.range);
+        m.SetVector("_TorchPos", torch.transform.position);
+        m.SetVector("_TorchDir", torch.transform.forward);
+        m.SetVector("_TorchColor", new Vector4(tc.r, tc.g, tc.b, 1f));
+        m.SetFloat("_TorchRange", torch.range);
         float half = torch.spotAngle * 0.5f * Mathf.Deg2Rad;
-        mat.SetFloat("_TorchCosOuter", Mathf.Cos(half));
-        mat.SetFloat("_TorchCosInner", Mathf.Cos(half * 0.85f));
+        m.SetFloat("_TorchCosOuter", Mathf.Cos(half));
+        m.SetFloat("_TorchCosInner", Mathf.Cos(half * 0.85f));
     }
 
     /// <summary>STREAMING-SAFE: rende le fette di QUESTO corpo (vive nell'albero + in cache) alla free-list
@@ -848,9 +902,10 @@ public class GpuPlanetRenderer : MonoBehaviour
         ReturnMySlabs();   // streaming-safe: rendi le fette di questo corpo PRIMA di mollare il riferimento al pool
         ReleasePool();   // i 6 buffer geometria sono CONDIVISI e refcountati: liberati solo quando muore l'ultimo corpo
         jobsBuf?.Release();
-        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); argsBuf?.Release();
+        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); argsBuf?.Release(); argsSkirtBuf?.Release();
         shape?.Dispose();
         if (mat != null) Destroy(mat);
+        if (matSkirt != null) Destroy(matSkirt);
         if (cs != null) Destroy(cs);   // l'istanza propria del compute
     }
 }
