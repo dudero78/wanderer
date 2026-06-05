@@ -21,10 +21,10 @@ public class GameBootstrap : MonoBehaviour
     public bool useQuadtree = true;
     [Tooltip("Solo se useQuadtree=OFF: risoluzione della mesh singola per faccia (build su thread).")]
     public int singleMeshRes = 320;
-    [Tooltip("Sperimentale (B1/R1): riempi le fette del LOD in UN dispatch invece che uno per nodo (meno chiamate "
-           + "API). Si attiva solo se la VERIFICA di parità batch↔per-nodo all'avvio è verde (log [batch-fill]); "
-           + "altrimenti resta il path per-nodo. Default OFF.")]
-    public bool useBatchFill = false;
+    [Tooltip("Riempi le fette del LOD in UN dispatch invece che uno per nodo (meno chiamate API → meno churn CPU). "
+           + "Si attiva solo se la VERIFICA di parità batch↔per-nodo all'avvio è verde (log [batch-fill]); altrimenti "
+           + "ripiega da solo sul path per-nodo. Parità confermata (max diff 0) → ON di default.")]
+    public bool useBatchFill = true;
 
     [Tooltip("DEBUG/test: nasci su questo corpo invece che sul pianeta-casa (es. \"terra-test3\"). Vuoto = pianeta-casa.")]
     public string spawnOnBody = "terra-test3";

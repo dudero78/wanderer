@@ -29,16 +29,18 @@ float _PerVertexFields;
 // INCRESPATURA dell'acqua: perturba la normale del pelo con due ottave di rumore SCORREVOLE (gradiente
 // ANALITICO da noised → niente differenze finite). È ciò che dà identità di SUPERFICIE all'acqua: spezza il
 // glint del sole in scintille e toglie il look "dipinto" (un pelo perfettamente liscio riflette il sole come
-// un'unica macchia enorme). Tutto in spazio MONDO (worldP/Nw coerenti): sotto la floating origin il dominio
-// può "saltare" a un ri-ancoraggio, ma è impercettibile perché l'acqua è già in animazione. ampiezza/scala/
-// velocità costanti (acqua stilizzata, GPU-first; si potranno esporre come manopole della ricetta).
-float3 WaterRippleNormal(float3 worldP, float3 Nw, float strength)
+// un'unica macchia enorme). DOMINIO = spazio OGGETTO (fisso al pianeta): così il flusso lo muove SOLO il tempo,
+// non il moto del corpo nello spazio — usando la pos di MONDO, un corpo che ti orbita attorno aggiungeva il suo
+// spostamento al dominio → l'acqua scorreva più o meno veloce a seconda della sua velocità. Il gradiente resta
+// valido per perturbare la normale di MONDO perché pianeta→mondo è pura TRASLAZIONE (i corpi non ruotano su sé
+// stessi): la traslazione non cambia direzioni/gradienti. velocità/scala costanti (acqua stilizzata, GPU-first).
+float3 WaterRippleNormal(float3 objP, float3 Nw, float strength)
 {
     if (strength <= 0.0) return Nw;
     float tt = _Time.y;   // secondi
-    float4 n1 = noised(worldP * 0.35 + float3(0.6, 0.0, 0.37) * tt);   // onda fine, scorre in una direzione
-    float4 n2 = noised(worldP * 0.13 + float3(-0.27, 0.0, 0.5) * tt);  // onda larga, scorre nell'altra
-    float3 grad = n1.yzw * 0.6 + n2.yzw * 1.0;          // gradiente combinato (mondo)
+    float4 n1 = noised(objP * 0.35 + float3(0.6, 0.0, 0.37) * tt);   // onda fine, scorre in una direzione
+    float4 n2 = noised(objP * 0.13 + float3(-0.27, 0.0, 0.5) * tt);  // onda larga, scorre nell'altra
+    float3 grad = n1.yzw * 0.6 + n2.yzw * 1.0;          // gradiente combinato (= mondo: niente rotazione)
     float3 slope = grad - dot(grad, Nw) * Nw;           // componente TANGENTE (la pendenza del pelo)
     return normalize(Nw - slope * strength);
 }
@@ -150,7 +152,7 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
         // normale: il pelo resta SEMPRE acqua increspata (è la superficie!). Il fondo si vede come COLORE, non
         // sostituendo la normale → un filo di rilievo del fondale (peso BASSO), non una lastra vetrosa liscia
         // alla riva (era l'"effetto strano sulle coste": la normale-fondo liscia spegneva le increspature).
-        float3 rN = WaterRippleNormal(worldP, nrm, 0.22);
+        float3 rN = WaterRippleNormal(Pobj, nrm, 0.22);   // dominio fisso al pianeta → flusso costante (vedi WaterRippleNormal)
         float3 shadeN = (seaTrans > 0.0) ? normalize(lerp(rN, normalize(bnrmW), seaTrans * 0.30)) : rN;
         float ndl = saturate(dot(shadeN, _SunDir));
         float3 wcol = waterCol * (ndl * _SunColor + _Ambient);

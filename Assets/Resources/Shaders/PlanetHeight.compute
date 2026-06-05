@@ -46,23 +46,24 @@ void CSNodeSlab(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void CSNodeSkirt(uint3 id : SV_DispatchThreadID)
 {
-    int res = _NN - 1;
-    int per = 4 * res;
-    if ((int)id.x >= per) return;
-    int k = (int)id.x;
-    int e = k / res, t = k % res;     // edge e (0..3), posizione t lungo il bordo
+    // indice del bordo in UINT: su Metal div/mod interi con segno sono più lenti (warning) — qui k,res ≥ 0.
+    uint res = (uint)(_NN - 1);
+    if (id.x >= 4u * res) return;
+    uint k = id.x;
+    uint e = k / res, t = k % res;    // edge e (0..3), posizione t lungo il bordo
+    int rr = (int)res, tt = (int)t;
     int i, j;
-    if (e == 0)      { i = t;       j = 0; }
-    else if (e == 1) { i = res;     j = t; }
-    else if (e == 2) { i = res - t; j = res; }
-    else             { i = 0;       j = res - t; }
+    if (e == 0u)      { i = tt;      j = 0; }
+    else if (e == 1u) { i = rr;      j = tt; }
+    else if (e == 2u) { i = rr - tt; j = rr; }
+    else              { i = 0;       j = rr - tt; }
     float tx = _U0 + i * _Step;
     float ty = _V0 + j * _Step;
     float3 dir = ParamToDir(tx, ty);
     float depth, surf;
     float3 p = dir * SampleHeightD(dir, depth, surf);
     float3 sp = p - dir * _NSkirtDrop;     // abbassa lungo il radiale
-    int vi = _NSlabOff + _NSkirtStart + k;
+    int vi = _NSlabOff + _NSkirtStart + (int)k;
     int o = vi * 3;
     _VPos[o] = sp.x; _VPos[o + 1] = sp.y; _VPos[o + 2] = sp.z;
     _VNrm[o] = dir.x; _VNrm[o + 1] = dir.y; _VNrm[o + 2] = dir.z;       // radiale → si illumina come terreno piatto
@@ -120,29 +121,29 @@ void CSNodeSlabBatch(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void CSNodeSkirtBatch(uint3 id : SV_DispatchThreadID)
 {
-    int res = _NN - 1;
-    int per = 4 * res;
-    if ((int)id.x >= per) return;
+    uint res = (uint)(_NN - 1);
+    if (id.x >= 4u * res) return;
     NodeJobGPU jb = _Jobs[id.y];
     float3 up = jb.faceUp.xyz, ax = jb.axisA.xyz, bx = jb.axisB.xyz;
     float u0 = jb.uv.x, v0 = jb.uv.y, step = jb.uv.z;
     int slabOff = (int)jb.uv.w;
     float drop = jb.misc.x;
 
-    int k = (int)id.x;
-    int e = k / res, t = k % res;
+    uint k = id.x;
+    uint e = k / res, t = k % res;
+    int rr = (int)res, tt = (int)t;
     int i, jj;
-    if (e == 0)      { i = t;       jj = 0; }
-    else if (e == 1) { i = res;     jj = t; }
-    else if (e == 2) { i = res - t; jj = res; }
-    else             { i = 0;       jj = res - t; }
+    if (e == 0u)      { i = tt;      jj = 0; }
+    else if (e == 1u) { i = rr;      jj = tt; }
+    else if (e == 2u) { i = rr - tt; jj = rr; }
+    else              { i = 0;       jj = rr - tt; }
     float tx = u0 + i * step;
     float ty = v0 + jj * step;
     float3 dir = ParamToDirA(tx, ty, up, ax, bx);
     float depth, surf;
     float3 p = dir * SampleHeightD(dir, depth, surf);
     float3 sp = p - dir * drop;
-    int vi = slabOff + _NSkirtStart + k;
+    int vi = slabOff + _NSkirtStart + (int)k;
     int o = vi * 3;
     _VPos[o] = sp.x; _VPos[o + 1] = sp.y; _VPos[o + 2] = sp.z;
     _VNrm[o] = dir.x; _VNrm[o + 1] = dir.y; _VNrm[o + 2] = dir.z;
