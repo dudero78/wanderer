@@ -216,7 +216,14 @@ public class RouteIndicator : MonoBehaviour
                 float lateral = latVel.magnitude;
                 float dx = Vector3.Dot(latVel, view.transform.right) / driftRef;
                 float dy = -Vector3.Dot(latVel, view.transform.up) / driftRef;
-                Vector2 off = new Vector2(dx / Mathf.Sqrt(1f + dx * dx), dy / Mathf.Sqrt(1f + dy * dy)) * maxLeash;
+                // saturazione morbida + EASE-IN (pow > 1): il PRIMO tratto (dal centro, deriva piccola) è più lento,
+                // il resto della corsa verso il bordo resta com'è (1^k = 1).
+                float Soft(float t)
+                {
+                    float m = Mathf.Abs(t);
+                    return Mathf.Sign(t) * Mathf.Pow(m / Mathf.Sqrt(1f + m * m), 1.7f);
+                }
+                Vector2 off = new Vector2(Soft(dx), Soft(dy)) * maxLeash;
 
                 bool aligned = lateral < 2f && closing > 0.5f;     // poca deriva E ti avvicini
                 Color pc = aligned ? Green : Blue;
