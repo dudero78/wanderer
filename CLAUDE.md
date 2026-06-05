@@ -281,12 +281,18 @@ isole + tornado, tipo Profondo Gigante); stelle 3-5 km a cui **ti avvicini ed en
 non-walkable (gas/stelle) saranno un **secondo renderer volumetrico** (raymarch su sfera-guscio),
 non mesh. I rocciosi usano il **quadtree CDLOD** (vedi "Stato attuale").
 
-## Direzione (il GIOCO, non il renderer)
+## Direzione e PRIORITÀ
+
+**PRIORITÀ ATTUALE (5 giu 2026, esplicita di Dario): resa grafica + qualità + performance.** Il **VERBO /
+mini-loop di gioco è IN FONDO alla lista** (resta l'MVP a tendere, ma NON è la priorità ora). Ordine: (1)
+ottimizzazioni di resa/qualità (es. quadtree 2:1 → niente skirt → Cull Back) → (2) materiali PBR / look SC-ED
+→ (… molto dopo) il GIOCO. **Le migliorie di MARGINE/perf chiaramente utili si fanno PROATTIVAMENTE** (dopo le
+priorità più alte), non si rimandano in attesa che "la macchina soffra" — il "misura prima" vale solo per la
+DIAGNOSI del collo e per non ri-architettare su un'intuizione.
 
 I pianeti si **creano nell'editor da una ricetta** (`PlanetRecipe`), poi si **FISSANO** (bake su disco):
-il procedurale è uno strumento di CREAZIONE, non un sistema runtime. La superficie ravvicinata col quadtree
-è a target — costruire il GIOCO: più corpi DIVERSI + un VERBO (atterra · cammina · raccogli · vai altrove ·
-puoi fallire). **MVP: mini-loop su 2-3 corpi.**
+il procedurale è uno strumento di CREAZIONE, non un sistema runtime. A tendere l'MVP è un mini-loop su 2-3 corpi
+con un VERBO (atterra · cammina · raccogli · vai altrove · puoi fallire) — **ma in fondo alla coda, vedi sopra.**
 FATTO: hand-off di gravità, mappa+selezione, **viaggio fra corpi + match-velocity**, indicatore di rotta,
 **autopilota**, **editor RICCO (processi ordinati: crateri/mari geometrici/tettonica)**, **quadtree CDLOD**, **corpi
 (Pianeta, Cetra, Luna6, Valentina2) astratti in SolarSystemSetup**, **GPU per l'editor Tappe 1-3 (anteprima GPU completa: geometria+colore+normali a parità)** —
