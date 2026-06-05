@@ -59,8 +59,12 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     // quota h coincide col pelo; un cratere scavato DOPO il mare abbassa h sotto il pelo → asciutto, niente acqua.
     // Niente più ricostruzione del rumore nel fragment: la 3-vs-4 ottave sbagliava ad alta rugosità (acqua "dipinta")
     // e costava un fbm per-pixel sul mare GPU-bound. La banda 2..4 m dà il bordo (pelo netto + battigia anti-alias).
+    // banda STRETTA attorno al pelo: il blu finisce netto al bordo, la rampa di mesh sopra il pelo (transizione
+    // acqua→terra del heightfield allagato) resta spiaggia invece di colorarsi d'acqua → l'acqua non "si arrampica"
+    // sui corpi che affiorano. (Il pelo geometricamente È piatto dove allagato; la rampa è inevitabile a mesh
+    // singola — la cura definitiva del tutto-piatto sarebbe un guscio d'acqua separato. Stringere basta per ora.)
     float seaSurf = seaSurfField;
-    float seaMask = (_SeaOn > 0.5) ? (1.0 - smoothstep(1.2, 3.2, abs(h - seaSurf))) : 0.0;
+    float seaMask = (_SeaOn > 0.5) ? (1.0 - smoothstep(0.4, 1.6, abs(h - seaSurf))) : 0.0;
 
     // suolo: colore base × variazione MACRO a bassa frequenza (campo dunale) — procedurale, niente texture
     float macroV = fbm(sdir * _MacroScale);
@@ -153,9 +157,9 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
             wcol = lerp(wcol, skyCol, fres * 0.45 * saturate(ndlLand + 0.25));   // cielo riflesso ai bordi
         }
 
-        // BATTIGIA: linea SOTTILE di schiuma dove l'acqua è bassissima (depth ~0) → riva netta, senza lastra larga
-        float foam = (1.0 - smoothstep(0.0, 0.8, depth));
-        wcol = lerp(wcol, wcol * 0.5 + float3(0.85, 0.9, 0.95) * 0.5, foam * 0.22);
+        // BATTIGIA: linea di schiuma dove l'acqua è bassissima (depth ~0) → riva netta
+        float foam = (1.0 - smoothstep(0.0, 1.0, depth));
+        wcol = lerp(wcol, wcol * 0.5 + float3(0.85, 0.9, 0.95) * 0.5, foam * 0.35);
 
         col = lerp(col, wcol, seaMask);
     }
