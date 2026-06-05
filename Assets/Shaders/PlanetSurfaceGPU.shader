@@ -50,6 +50,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
         _SeaClarity ("Mare: limpidezza (m)", Float) = 8
 
         _Saturation ("Saturazione", Range(0,2)) = 1
+        _Cull ("Cull mode (0=Off 1=Front 2=Back)", Float) = 0   // default Off (comportamento attuale). Lo split interno/skirt lo guida per draw
     }
     SubShader
     {
@@ -59,8 +60,10 @@ Shader "Wanderer/PlanetSurfaceGPU"
             // Cull Off: gli SKIRT (anelli tappabuchi ai confini di LOD) DEVONO essere a doppia faccia — coprono la
             // fessura da qualunque angolo. Con Cull Back sparivano dal lato sbagliato → buchi/muri. La superficie
             // interna avrebbe verso coerente, ma non si può avere Cull diverso per interno e skirt nello stesso draw.
-            // Il dimezzamento del per-pixel via culling tornerà col quadtree 2:1 (niente skirt) o un depth pre-pass.
-            Cull Off
+            // OVERDRAW: di default Cull Off (le skirt sono a doppia faccia). Col toggle cullSplit nel renderer, la
+            // superficie INTERNA si disegna a parte con Cull Back (verso coerente → metà overdraw del fragment) e solo
+            // le skirt restano Cull Off → si prende il guadagno del Cull Back senza togliere le skirt né il 2:1.
+            Cull [_Cull]
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
