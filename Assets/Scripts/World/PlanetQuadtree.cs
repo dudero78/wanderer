@@ -87,6 +87,7 @@ public class PlanetQuadtree : MonoBehaviour
     // LRU O(1): sfratto dal FRONTE della lista invece di scansionare tutta la cache per il minimo (era O(n) per sfratto).
     readonly LinkedList<long> lru = new LinkedList<long>();
     readonly Dictionary<long, LinkedListNode<long>> lruNode = new Dictionary<long, LinkedListNode<long>>();
+    public readonly Stack<QuadNode[]> childArrayPool = new Stack<QuadNode[]>();   // riusa gli array figli (no new QuadNode[4] a ogni split)
 
     /// <summary>Estrae dalla cache il nodo per quella regione (se c'è), togliendolo: torna "vivo".</summary>
     public bool TryTakeCached(long key, out QuadNode node)
@@ -251,6 +252,15 @@ public class QuadNode
     Vector4[] dMorph;   // UV2: xyz = spostamento verso la griglia genitore, w = distanza di split
     int[] dTris;
 
+    // SCRATCH thread-locale per la build CPU (ComputeData/AssembleFromGrid girano su thread worker, anche più
+    // d'uno insieme): liste/array riusati per-thread con Clear() a ogni build → niente alloc per nodo (restano
+    // solo i .ToArray finali, che SONO i dati del nodo). [ThreadStatic] = una copia per thread, niente lock.
+    [System.ThreadStatic] static List<Vector3> tsVerts, tsNormals;
+    [System.ThreadStatic] static List<Vector4> tsTangents, tsMorph;
+    [System.ThreadStatic] static List<Vector2> tsUVs;
+    [System.ThreadStatic] static List<int> tsTris, tsRing;
+    [System.ThreadStatic] static Vector3[] tsP;
+
     public QuadNode(PlanetQuadtree qt, int face, Vector3 up, float u0, float v0, float size, int depth, Material material)
     {
         this.qt = qt;
@@ -371,7 +381,7 @@ public class QuadNode
     void Split()
     {
         float h = size * 0.5f;
-        children = new QuadNode[4];
+        children = qt.childArrayPool.Count > 0 ? qt.childArrayPool.Pop() : new QuadNode[4];   // dal pool
         for (int i = 0; i < 4; i++)
         {
             // u/v dei 4 quadranti a mano (niente float[] temporanei → niente GC a ogni split)
@@ -407,6 +417,7 @@ public class QuadNode
                 c.Dispose();
             children[i] = null;
         }
+        qt.childArrayPool.Push(children);   // riusa l'array figli
         children = null;
     }
 
@@ -416,6 +427,7 @@ public class QuadNode
         if (children != null)
         {
             for (int i = 0; i < 4; i++) { children[i].Dispose(); children[i] = null; }
+            qt.childArrayPool.Push(children);   // riusa l'array figli
             children = null;
         }
         if (go != null) Object.Destroy(go);
@@ -462,7 +474,8 @@ public class QuadNode
         int R = qt.nodeRes;
         int ne = (R + 1) + 2;                 // griglia ESTESA (bordo di 1 vertice per lato) per le normali
         float step = size / R;
-        var P = new Vector3[ne * ne];
+        if (tsP == null || tsP.Length != ne * ne) tsP = new Vector3[ne * ne];   // scratch thread-locale, riusato
+        var P = tsP;
         var terr = qt.Terrain;
         for (int y = 0; y < ne; y++)
             for (int x = 0; x < ne; x++)
@@ -488,16 +501,17 @@ public class QuadNode
         float step = size / R;
         int ne = n + 2;
 
-        var verts = new List<Vector3>(n * n + 4 * n);
-        var normals = new List<Vector3>(n * n + 4 * n);
-        var tangents = new List<Vector4>(n * n + 4 * n);
-        var uvs = new List<Vector2>(n * n + 4 * n);
+        // scratch thread-locale, riusato (Clear a ogni build): niente alloc delle liste per nodo
+        (tsVerts ??= new List<Vector3>()).Clear();    var verts = tsVerts;
+        (tsNormals ??= new List<Vector3>()).Clear();  var normals = tsNormals;
+        (tsTangents ??= new List<Vector4>()).Clear(); var tangents = tsTangents;
+        (tsUVs ??= new List<Vector2>()).Clear();      var uvs = tsUVs;
         // GEOMORPH: per ogni vertice salviamo (in UV2) lo SPOSTAMENTO verso la posizione che avrebbe
         // sulla griglia del GENITORE (metà risoluzione) + la distanza di split del nodo (w). Lo shader
         // lo userà per far "nascere" il nodo con la forma del genitore e trasformarlo nel dettaglio
         // fine avvicinandosi → niente pop, niente anello di LOD. I vertici a indice pari sono già
         // sulla griglia del genitore (delta 0); i dispari si interpolano dai pari adiacenti.
-        var morph = new List<Vector4>(n * n + 4 * n);
+        (tsMorph ??= new List<Vector4>()).Clear();    var morph = tsMorph;
         float splitDist = worldSize * qt.lodFactor;
 
         for (int y = 0; y < n; y++)
@@ -529,7 +543,7 @@ public class QuadNode
                 morph.Add(new Vector4(d.x, d.y, d.z, splitDist));
             }
 
-        var tris = new List<int>(R * R * 6 + R * 4 * 6);
+        (tsTris ??= new List<int>()).Clear(); var tris = tsTris;
         for (int y = 0; y < R; y++)
             for (int x = 0; x < R; x++)
             {
@@ -547,7 +561,7 @@ public class QuadNode
             }
 
         // skirt: anello di bordo abbassato che nasconde le giunture coi vicini a LOD diverso.
-        var ring = new List<int>(4 * R);
+        (tsRing ??= new List<int>()).Clear(); var ring = tsRing;
         for (int x = 0; x < R; x++) ring.Add(x);
         for (int y = 0; y < R; y++) ring.Add(y * n + (n - 1));
         for (int x = R; x > 0; x--) ring.Add((n - 1) * n + x);
