@@ -206,8 +206,25 @@ public class PlanetWalker : MonoBehaviour
         // gravità verso il centro, limitata al valore di superficie: r non scende
         // mai sotto il raggio nel calcolo, quindi niente picco 1/r^2 vicino al centro.
         float rEff = Mathf.Max(r, (float)planet.Radius);
-        float g = (float)(planet.Mu / ((double)rEff * rEff));
-        rb.AddForce(-up * g, ForceMode.Acceleration);
+        float g = (float)(planet.Mu / ((double)rEff * rEff));   // magnitudo del corpo DOMINANTE (riferimento per freno/autopilota)
+        // GRAVITÀ = somma vettoriale dei corpi (1/r²), non solo il più vicino. In un BINARIO ravvicinato (i gemelli)
+        // questo toglie il SALTO della direzione "giù" a metà strada: la somma è continua e dà il punto di Lagrange
+        // naturale fra i due. I corpi lontani pesano ~0 (1/r²) → altrove non cambia nulla. Il 'planet' più vicino
+        // resta il riferimento di orientamento/superficie/altitudine; solo la FORZA applicata è la somma.
+        Vector3 gravAccel = -up * g;
+        var sysG = SolarSystem.Instance;
+        if (sysG != null)
+            for (int i = 0; i < sysG.Bodies.Count; i++)
+            {
+                var b = sysG.Bodies[i];
+                if (b == null || b == planet || b.Massless) continue;
+                Vector3 toB = b.transform.position - rb.position;
+                float rB = toB.magnitude;
+                if (rB < 1e-3f) continue;
+                float rEffB = Mathf.Max(rB, (float)b.Radius);
+                gravAccel += (toB / rB) * (float)(b.Mu / ((double)rEffB * rEffB));
+            }
+        rb.AddForce(gravAccel, ForceMode.Acceleration);
 
         // ORIENTAMENTO — due regimi.
         // VOLO LIBERO (Newtoniano, staccato dal suolo): NIENTE aggancio alla gravità. L'orientamento
