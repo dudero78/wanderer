@@ -15,6 +15,31 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 
 ## Stato attuale (vedi git log per il dettaglio)
 
+> **AGGIORNAMENTO — SESSIONE AUTONOMA (PREVALE; dettaglio in `REPORT_SESSIONE_AUTONOMA.md`):**
+> - **LIMITE DI ~7 CORPI VIVI: TOLTO.** Il region-stamp anti-spuntone è ora **uint** (era float, mantissa 24 bit):
+>   `PlanetLodTree.RegionId`→uint, buffer `_RegionOfInstance` (uint) dedicato + `_SlabRegion` uint, confronto INTERO
+>   esatto nel vertex (`!=`). Regge ~4095 corpi vivi. Guardia BodyId 7→4000.
+> - **Colore per-vertice (GPU-1):** i 3 fbm value-noise (macro/minerali/maria) emessi dal compute in `_VColor`
+>   (`SlabPool`, 3 float/v), interpolati nel fragment dietro `_PerVertexColor` (1 in gioco, 0 editor). Value-noise
+>   copiato verbatim nel core HLSL (`c_fbm`). Nel banco `VerifyBatchFill`.
+> - **PBR (GPU-4):** roccia per pendenza + speculare GGX leggero, keyword **`_PBR_TERRAIN`** (A/B da
+>   `GameBootstrap.usePbrTerrain`). Iterazione visiva con Dario per i parametri.
+> - **`_HAS_SEA` (GPU-2):** `shader_feature_local` che strippa il blocco acqua sui corpi asciutti (macro condiviso
+>   `WANDERER_HAS_SEA`; editor sempre on). **Occupancy:** fill 1D `numthreads(64,1)` (indici uint), geometria identica.
+> - **Multi-sistema (STARSYSTEM Tappe 3-4-5):** `SystemRecipe` + `SolarSystemSetup.Galaxy` (Casa+Helios+Vega);
+>   `BuildSystem`/`DestroySystem`; interest in `SolarSystem.UpdateInterstellar` (prossimità + isteresi); il sistema-casa
+>   resta RESIDENTE (possibile grazie all'uint), i distanti si svegliano/dormono. Mappa galattica (billboard stelle).
+> - **Sonda alla Outer Wilds** (`Player/Probe.cs` + `ProbeController.cs`): gravità sommata + collisione ANALITICA +
+>   `Loose` + `ExtraViewpoints`; **P** lancia · **V** vista · **K** richiama · **G** foto. Renderer multi-viewpoint già pronto.
+> - **AUDIT3: tutte le aree non-arte ad A** (Architettura/Rendering/Fisica/Performance/Robustezza/Shader). SimTime a
+>   tick INTERO (deterministico); strumentazione per-fill dietro `Profile`; nodeRes divergente → fallback esplicito;
+>   draw indirect blindato (baseVertexIndex/startInstance espliciti). **Prodotto** resta arte (scelta di Dario).
+> - **Verifica:** C# col gate offline (pulito); shader → Unity ri-importa in background, **nessun "Shader error"**.
+>   Le varianti keyword (`_HAS_SEA`/`_PBR_TERRAIN` accese) si compilano al primo Play → conferma prudente a gioco aperto.
+> - **Rimandati (con motivo):** #17 transpiler (protetto dai gate); ARCH-7 split `PlanetEditor` (solo-editor, non
+>   verificabile alla cieca); R2 auto-heal renderer (dev-only). **NIENTE committato** in questa sessione (richiesta di
+>   Dario) tranne il primo checkpoint isolato `db83f2a` (region-stamp): tutto il resto è nel working tree.
+>
 > **AGGIORNAMENTO 6 giu 2026 (PREVALE su tutto ciò che segue su LOD/crepe/skirt):**
 > - **Motore terreno = CDLOD PURO, crack-free.** Il crack-free viene dal **morph continuo** (mf = funzione continua
 >   della distanza, completa alla distanza di MERGE ≈2·splitDist) + **`mergeHysteresis=1`** (confini netti). `trav` ~0.1ms.
@@ -42,9 +67,12 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 >   + draw + luce). Spostamento puro, verificato metodo-per-metodo. **#17 reso SICURO**: `PlanetParityGate` gira la
 >   parità altezza GPU↔CPU su tutte le ricette ufficiali **a ogni ricompila** (il transpiler C#→HLSL resta da fare,
 >   ma la duplicazione a mano ora è protetta). **#15 era già fatto** (walker: input in Update, fisica in FixedUpdate).
-> - **PROSSIMO (roadmap Audit #3, vedi `AUDIT3.md`):** la RESA — keyword `_HAS_SEA`, **colore per-vertice** (3 fbm
->   residui nel fragment = prerequisito PBR), eclissi nel renderer autoritativo → poi materiali pendenza/quota + PBR.
->   In parallelo il **#16 layer multi-sistema** (piano a tappe additivo in `STARSYSTEM_DESIGN.md`). Il #14 è morto.
+> - **FATTO sessioni 3-4 (6 giu):** Performance→A, Robustezza→A, Fisica→A (#8 sim nel tick fisso + velocità orbitale
+>   analitica), eclissi nel renderer GPU autoritativo, renderer multi-viewpoint (`ExtraViewpoints`, pronto per la sonda),
+>   singleton ri-puntabili. Checkpoint git fino a `91d4215` (l'ultimo ha 1 shader NON verificato offline = eclissi GPU).
+> - **PROSSIMO = il BACKLOG in `TODO.md` → "🚀 PROSSIMA SESSIONE"** (colore per-vertice→PBR, uint region-stamp, Tappe 3-5
+>   multi-sistema + sonda, ecc.). **VINCOLO CHIAVE:** il gate C# offline NON compila gli shader → per il backlog shader
+>   serve **Unity CHIUSO** (allora `Unity -batchmode` compila tutto, shader inclusi) o a-fuoco. Il #14 è morto.
 >
 > **AGGIORNAMENTO 5 giu 2026 (delta sulle sezioni sotto, che possono essere datate):**
 > - **Resa GPU in gioco (B1) GIRA**: quadtree CDLOD su GPU + 1 draw indirect + colore procedurale + **BATCH FILL**

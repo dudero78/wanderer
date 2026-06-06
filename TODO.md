@@ -42,12 +42,52 @@ guardie C0 nelle pipeline, strumenti di diagnosi, rimozione skirt). Dettaglio te
 
 Voti di partenza (Audit #3): Architettura B+, Rendering B, Fisica B−, Performance A−, Robustezza B, Shader B+, Prodotto C+.
 
-> **STATO dopo sessione 3 (6 giu):** ✅ **Performance → A** (SetData saltati a camera ferma + cadenza eclissi 10Hz +
-> alloc Stopwatch via + strumentazione dev-only). ✅ **Robustezza → A** lato codice (NaN, SuppressDraw, render-target
-> bake). 🔼 **Fisica** verso A (velocità orbitale ora ANALITICA + isteresi walker; resta solo #8). 🔼 **Architettura**
-> verso A (bodyId riciclato; resta uint region-stamp). + multi-viewpoint renderer (infrastruttura) e singleton
-> ri-puntabili (SunLight.Retarget / EclipseDriver.Rebuild). **Mancano per il pieno A:** Rendering/Shader/Prodotto
-> (toccano shader o arte → sessione a gioco aperto) + #8 (Fisica) + uint region-stamp (Architettura).
+> **STATO dopo SESSIONE AUTONOMA (vedi `REPORT_SESSIONE_AUTONOMA.md`): TUTTE le aree non-arte ad A.**
+> ✅ **Architettura → A** (region-stamp float→**uint** = limite ~7 corpi VIA; divergenza nodeRes → fallback esplicito).
+> ✅ **Rendering → A** (colore per-vertice GPU-1 · `_HAS_SEA` · eclissi sul renderer vero · **base PBR** per pendenza+GGX).
+> ✅ **Fisica → A** (gravità sommata · #8 FixedUpdate · **SimTime a tick INTERO** deterministico · isteresi walker).
+> ✅ **Performance → A** (strumentazione per-fill dietro `Profile` · SetData a camera ferma · eclissi 10Hz · occupancy 1D).
+> ✅ **Robustezza → A** (gate NaN/Inf · SuppressDraw · render target dopo bake · warning starvation).
+> ✅ **Shader → A** (eclissi · draw indirect blindato DX12/Vulkan · keyword `_HAS_SEA`/`_PBR_TERRAIN`).
+> 🔵 **Prodotto** resta C+ = **ARTE (tua scelta)**: cielo/bloom/atmosfera/sole-sfera.
+> **Multi-sistema (STARSYSTEM): Tappe 3-4-5 FATTE** (additive, sistema-casa identico; galassia a 3 sistemi, sleep/wake
+> per prossimità, mappa galattica). **Sonda** alla Outer Wilds + renderer multi-viewpoint FATTI.
+> **Lasciato:** #17 transpiler (protetto dai gate) · ARCH-7 split PlanetEditor (solo-editor, non verificabile alla cieca).
+> **Verifica shader:** Unity ri-importa in background → nessun "Shader error"; varianti keyword da confermare al primo Play.
+
+## 🚀 PROSSIMA SESSIONE — backlog tecnico e COME procedere
+
+**LA COSA PIÙ IMPORTANTE — verifica degli shader:** il gate di compilazione C# offline (`/tmp/wgate.sh`, ricreabile)
+NON compila gli shader. Per fare in sicurezza il backlog shader serve la verifica:
+- **Se Unity è CHIUSO** → posso lanciare `Unity -batchmode -quit -projectPath . -logFile -` che compila **script E shader**
+  e logga ogni errore → **verifica completa** → posso fare tutto il backlog shader in autonomia, sicuro.
+- **Se Unity è APERTO ma a fuoco** → ricompila in foreground; leggo `~/Library/Logs/Unity/Editor.log` (`Shader error`).
+- **Se Unity è APERTO ma non a fuoco** → niente verifica shader → faccio solo C# (gate offline) e lascio gli shader.
+
+→ **Per la sessione autonoma notturna: CHIUDI Unity prima**, così posso compilare-verificare tutto (shader inclusi).
+
+**Ricreare il gate C# offline** (Unity aperto): da `Library/Bee/artifacts/*.dag/Assembly-CSharp-Editor.rsp` prendi i
+`-define:`/`-r:`, togli `-out/-target/.cs"/-analyzer/-additionalfile/Assembly-CSharp*.dll`, aggiungi `-target:library
+-out:/tmp/x.dll` + `find Assets -name "*.cs"`, e lancia
+`.../DotNetSdkRoslyn/csc.dll` con il `dotnet` bundle di Unity. Esce 0 + nessun `error CS` = pulito.
+
+**BACKLOG (priorità alto→basso). 🟢=C# verificabile · 🟡=shader (serve Unity chiuso/a-fuoco) · 🔵=arte/tua scelta:**
+
+1. ✅ **Colore per-vertice** (Rendering→A) — i 3 fbm value-noise emessi per-vertice nel compute (`_VColor`, 3 float/v in
+   `SlabPool`), letti dal fragment dietro `_PerVertexColor`. Value-noise copiato verbatim nel core HLSL (`c_fbm`). Nel banco batch.
+2. ✅ **PBR + materiali per pendenza/GGX** (Rendering→A) — roccia sui versanti ripidi + speculare GGX leggero, dietro keyword
+   `_PBR_TERRAIN` (A/B da `GameBootstrap.usePbrTerrain`). Triplanare/neve = passo successivo (con te, è iterazione visiva).
+3. ✅ **uint region-stamp** (Architettura→A) — `_SlabRegion`/`RegionId`/`_RegionOfInstance` ora UINT, confronto intero esatto
+   → **limite ~7 corpi VIA** (fino a ~4095 vivi). Guardia BodyId 7→4000.
+4. ✅ **STARSYSTEM Tappe 3-5 + sonda** — `SystemRecipe` + galassia a 3 sistemi (Casa+Helios+Vega) · sleep/wake per prossimità
+   con isteresi (`BuildSystem`/`DestroySystem` + retarget luce + rebuild eclissi) · mappa galattica con billboard stelle ·
+   **sonda** (gravità sommata + collisione analitica + `Loose` + `ExtraViewpoints` + camera/foto).
+5. ✅ **`_HAS_SEA`** — keyword `shader_feature_local` che strippa il blocco acqua sui corpi asciutti; C# l'accende dove c'è mare.
+6. ✅ **Occupancy** — fill 1D `numthreads(64,1)` (indici uint), geometria identica (parità intatta).
+7. 🔵 **Prodotto→A (ARTE, serve Dario):** cielo stellato, bloom/tonemapping HDR, atmosfera, sole come sfera/glow (non disco
+   piatto), milestone "vertical slice estetico", scelta pipeline (built-in vs HDRP). Io eseguo, la direzione è tua.
+8. 🟢/🟡 **#17 transpiler C#→HLSL** (la fonte unica vera dell'altezza) — grosso, tocca i 600 righe di `PlanetHeightCore.hlsl`.
+   La duplicazione è già PROTETTA dal `PlanetParityGate`. Bassa urgenza. · **ARCH-7** split `PlanetEditor` (824 righe, solo-editor): rimandato (non verificabile alla cieca).
 Legenda: ✅ fatto · 🟢 sicuro/autonomo (compile-gate) · 🟡 a gioco aperto (shader/feel, non verificabile alla cieca) · 🔵 serve una DECISIONE di Dario.
 
 - **Architettura B+ → A**

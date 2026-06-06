@@ -104,6 +104,14 @@ Rinviata come feature, ma il design è già non-precluso. È una **promozione/re
 
 ## ROADMAP A TAPPE
 
+> **STATO: Tappe 1-2-3-4-5 IMPLEMENTATE** (vedi `REPORT_SESSIONE_AUTONOMA.md`). Differenza voluta dal design originale:
+> il **limite di corpi è sparito** (region-stamp uint), quindi il sistema-CASA resta **residente** invece di essere
+> distrutto/ricostruito — i sistemi DISTANTI si svegliano/addormentano additivamente per prossimità (`BuildSystem`/
+> `DestroySystem` in `SolarSystemSetup`, interest in `SolarSystem.UpdateInterstellar`, isteresi ×1.4). Più semplice e
+> robusto del "un-solo-attivo" stretto, e round-trip senza ricostruire la casa. Galassia = `SolarSystemSetup.Galaxy`
+> (Casa + Helios + Vega). Tappa 5: billboard delle stelle distanti in `MapMode` a zoom galattico. Da collaudare a
+> gioco aperto (la transizione interstellare è ora costruibile e testabile: vola verso Helios/Vega).
+
 Ogni tappa è piccola, additiva, verificabile, e dà valore. Le prime due sono `risk: low` e non cambiano il comportamento; la galassia vera nasce solo dalla Tappa 4.
 
 ### Tappa 1 — `StarSystem` come contenitore, N=1 = identità  · risk: low

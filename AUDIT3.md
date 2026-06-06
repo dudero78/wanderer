@@ -20,6 +20,17 @@ I false-positive sono stati scartati: lo Split non atomico (la traversata è sin
 
 ## Salute per area
 
+> **AGGIORNAMENTO — SESSIONE AUTONOMA (vedi `REPORT_SESSIONE_AUTONOMA.md`): tutte le aree non-arte portate ad A.**
+> Architettura **A** (region-stamp float→uint → limite ~7 corpi VIA; nodeRes divergente → fallback esplicito).
+> Rendering **A** (3 fbm per-vertice GPU-1 · `_HAS_SEA` · eclissi sul renderer vero · base PBR pendenza+GGX).
+> Fisica **A** (#8 FixedUpdate · SimTime tick INTERO deterministico · isteresi orientamento walker).
+> Performance **A** (strumentazione per-fill dietro `Profile` · occupancy 1D · SetData a camera ferma · eclissi 10Hz).
+> Robustezza **A** (NaN/Inf gate · SuppressDraw · render target dopo bake · starvation pool strumentata).
+> Shader **A** (eclissi nel path autoritativo · draw indirect blindato DX12/Vulkan · keyword `_HAS_SEA`/`_PBR_TERRAIN`).
+> Prodotto **C+** invariato = ARTE (scelta di Dario). RIMANDATI con motivo: #17 transpiler (protetto dai gate),
+> ARCH-7 split PlanetEditor (solo-editor, non verificabile alla cieca), R2 auto-heal (dev-only). Multi-sistema Tappe
+> 3-4-5 + sonda + renderer multi-viewpoint: FATTI (additivi, sistema-casa identico).
+
 | Area | Voto | Sintesi |
 |---|---|---|
 | Architettura & engine (refactor #18) | **B+** | Refactor corretto. Invarianti taciti sul nuovo confine (parallel-arrays, RegionId float, divergenza nodeRes silenziosa) + statici non resettati al domain reload. Niente bug attivo, ma rete di sicurezza da rinforzare. |
