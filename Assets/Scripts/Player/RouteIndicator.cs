@@ -146,13 +146,12 @@ public class RouteIndicator : MonoBehaviour
             else DrawTex(crossTex, new Vector2(Screen.width * 0.5f, Screen.height * 0.5f), cs, cs, 0f, A(White, 0.5f));
         }
 
-        // TRACKER della SONDA (triangolo ambra): indipendente dal corpo selezionato → prima del return su Destination nullo.
+        // TRACKER della SONDA (triangolo ambra): indipendente dal bersaglio → prima del return su bersaglio nullo.
         DrawProbeTracker(Mathf.Max(1f, Screen.height / 1080f));
-        // WAYPOINT del SISTEMA distante selezionato (stella ★): anch'esso indipendente dal corpo.
-        DrawSystemDestination(Mathf.Max(1f, Screen.height / 1080f));
 
-        var target = solar.Destination;
-        if (target == null) return;
+        // BERSAGLIO UNIFICATO (corpo O sistema distante): un solo reticolo per tutto → la stella selezionata eredita
+        // automaticamente parentesi/nome/distanza/velocità/centraggio, come un pianeta. Niente più codice separato.
+        if (!solar.TryGetTarget(out var tgt)) return;
 
         // Camera ATTIVA: in mappa il reticolo segue la camera della mappa → vedi quale corpo è selezionato.
         // Altrimenti la camera del giocatore (se spenta e non in mappa, niente da disegnare).
@@ -166,11 +165,11 @@ public class RouteIndicator : MonoBehaviour
         label.fontSize = Mathf.RoundToInt(14f * ui);
 
         Vector3 camPos = view.transform.position;
-        Vector3 tp = target.transform.position;
+        Vector3 tp = tgt.scenePos;
         Vector2 gui = ToGui(tp, out bool behind, out bool onScreen);
 
         float dist = Vector3.Distance(camPos, tp);
-        Vector3 relVel = RelativeVelocity(target);
+        Vector3 relVel = walker != null ? walker.Velocity - tgt.sceneVelocity : Vector3.zero;
         float relSpeed = relVel.magnitude;
         bool airborne = walker != null && walker.HasJetpack && walker.Altitude > AirborneAlt;
         bool synced = airborne && relSpeed < SyncSpeed;
@@ -189,10 +188,10 @@ public class RouteIndicator : MonoBehaviour
         {
             Vector3 toTb = (tp - camPos).normalized;
             float closingB = Vector3.Dot(relVel, toTb);          // + = ti avvicini
-            float stopDist = dist - (float)target.Radius;        // distanza dalla SUPERFICIE del bersaglio
+            float stopDist = dist - tgt.radius;        // distanza dalla SUPERFICIE del bersaglio
             if (closingB > WarnMinClosing && stopDist > 0f)
             {
-                float gSurf = (float)target.SurfaceGravity;
+                float gSurf = tgt.surfaceGravity;
                 float aEff = Mathf.Max(walker.brakeAccel - gSurf, walker.brakeAccel * 0.3f);
                 float tReact = walker.brakeRampTime + ReactionTime;
                 float dReq = closingB * tReact + closingB * closingB / (2f * aEff);
@@ -203,7 +202,7 @@ public class RouteIndicator : MonoBehaviour
 
         // raggio VERO a schermo (per la dissolvenza ravvicinata) e raggio CLAMPATO (per il disegno leggibile).
         float focal = Screen.height / (2f * Mathf.Tan(view.fieldOfView * 0.5f * Mathf.Deg2Rad));
-        float trueRad = focal * (float)target.Radius / Mathf.Max(dist, 1f);
+        float trueRad = focal * tgt.radius / Mathf.Max(dist, 1f);
         // quando il corpo riempie lo schermo svanisce: sei arrivato, non intralcia.
         float fade = 1f - Smooth(0.85f, 1.3f, trueRad / (Screen.height * 0.5f));
         if (fade <= 0.001f) return;
@@ -274,7 +273,7 @@ public class RouteIndicator : MonoBehaviour
             float tx = Mathf.Min(gui.x + ring * 0.5f + 12f * ui, Screen.width - 150f * ui), ty = gui.y - 16f * ui;
             if (mapActive)
             {
-                Shadowed(new Rect(tx, ty, 220f * ui, 22f * ui), target.gameObject.name, White, fade, TextAnchor.UpperLeft);
+                Shadowed(new Rect(tx, ty, 220f * ui, 22f * ui), tgt.name, White, fade, TextAnchor.UpperLeft);
             }
             else
             {
@@ -303,7 +302,7 @@ public class RouteIndicator : MonoBehaviour
             DrawTex(chevronTex, edge, 26f * ui, 26f * ui, ang, baseCol, fade);
             // in mappa la distanza dalla camera non significa nulla: solo la freccia, niente numero.
             Shadowed(new Rect(edge.x - 60f * ui, edge.y + 18f * ui, 120f * ui, 20f * ui),
-                mapActive ? target.gameObject.name : FmtDist(dist), White, fade, TextAnchor.UpperCenter);
+                mapActive ? tgt.name : FmtDist(dist), White, fade, TextAnchor.UpperCenter);
         }
     }
 
@@ -343,52 +342,6 @@ public class RouteIndicator : MonoBehaviour
             float ang = Mathf.Atan2(dir.x, -dir.y) * Mathf.Rad2Deg;   // triangolo: apice in su → ruota verso dir
             DrawTex(triTex, edge, 24f * ui, 24f * ui, ang, pcol);
             Shadowed(new Rect(edge.x - 180f * ui, edge.y + 20f * ui, 360f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.UpperCenter);
-        }
-    }
-
-    // Reticolo verso il SISTEMA distante selezionato (waypoint galattico): stella + nome + distanza, freccia al bordo
-    // se fuori vista. Punta la SystemOrigin in scena → ci voli verso (arrivando, il sistema si sveglia, Tappa 4).
-    void DrawSystemDestination(float ui)
-    {
-        var sys = solar.DestinationSystem;
-        if (sys == null || (map != null && map.Active)) return;
-        if (cam == null || !cam.enabled) return;
-        view = cam;
-        if (label == null) label = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
-        label.fontSize = Mathf.RoundToInt(14f * ui);
-
-        Vector3 wp = (sys.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
-        Vector2 g = ToGui(wp, out _, out bool onScreen);
-        float dist = Vector3.Distance(cam.transform.position, wp);
-        string txt = "★ " + sys.Name + " · " + FmtDist(dist);
-        Color sc = Color.Lerp(sys.StarColor, Color.white, 0.35f);
-
-        // VELOCITÀ DI AVVICINAMENTO (come per i corpi): col segno (+ ti avvicini, − ti allontani). Usa il bersaglio
-        // unificato (TargetInfo.sceneVelocity) → ereditata "gratis" dal sistema di targeting.
-        string vtxt = null;
-        if (walker != null && walker.HasJetpack && solar.TryGetTarget(out var ti))
-        {
-            Vector3 toT = (wp - cam.transform.position).normalized;
-            float closing = Vector3.Dot(walker.Velocity - ti.sceneVelocity, toT);
-            vtxt = closing.ToString("+0;-0;0") + " m/s";
-        }
-
-        if (onScreen)
-        {
-            DrawTex(discTex, g, 13f * ui, 13f * ui, 0f, sc);
-            Shadowed(new Rect(g.x - 180f * ui, g.y + 12f * ui, 360f * ui, 20f * ui), txt, sc, 1f, TextAnchor.UpperCenter);
-            if (vtxt != null) Shadowed(new Rect(g.x - 180f * ui, g.y + 32f * ui, 360f * ui, 20f * ui), vtxt, sc, 1f, TextAnchor.UpperCenter);
-        }
-        else
-        {
-            Vector2 ctr = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
-            Vector2 dir = g - ctr; if (dir.sqrMagnitude < 1e-4f) dir = new Vector2(0f, -1f); dir.Normalize();
-            float m = 64f * ui;
-            Vector2 edge = ClampToRect(ctr, dir, new Rect(m, m, Screen.width - 2f * m, Screen.height - 2f * m));
-            float ang = Mathf.Atan2(dir.x, -dir.y) * Mathf.Rad2Deg;
-            DrawTex(chevronTex, edge, 26f * ui, 26f * ui, ang, sc);
-            Shadowed(new Rect(edge.x - 180f * ui, edge.y + 20f * ui, 360f * ui, 20f * ui), txt, sc, 1f, TextAnchor.UpperCenter);
-            if (vtxt != null) Shadowed(new Rect(edge.x - 180f * ui, edge.y + 40f * ui, 360f * ui, 20f * ui), vtxt, sc, 1f, TextAnchor.UpperCenter);
         }
     }
 
