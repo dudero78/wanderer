@@ -29,5 +29,10 @@ public static class UiSetup
         // Schermata impostazioni (à): facilitazioni opzionali (es. autopilota stazionario), tarature live.
         var settings = host.AddComponent<SettingsMenu>();
         settings.Init(rig.Walker, rig.Cam);
+
+        // Sonda alla Outer Wilds (P lancia · V guarda attraverso · K richiama · G foto): oggetto fisico veloce con
+        // gravità sommata + collisione analitica, registrato in Loose + ExtraViewpoints (il renderer le dà dettaglio).
+        var probe = host.AddComponent<ProbeController>();
+        probe.Init(rig.Cam, rig.CamTransform, rig.Walker, solar);
     }
 }

@@ -1,0 +1,176 @@
+using UnityEngine;
+
+/// <summary>
+/// SONDA alla Outer Wilds (entro un sistema). Un piccolo oggetto fisico che LANCI: vola sotto la gravità RADIALE
+/// SOMMATA di tutti i corpi (stessa contabilità del <see cref="PlanetWalker"/>) e COLLIDE in modo ANALITICO col
+/// terreno (quota della sonda vs <see cref="PlanetTerrain.SampleHeight"/> nella sua direzione, ogni FixedUpdate —
+/// niente collider mesh). Entro un sistema (~130 km) la doppia precisione + floating origin reggono benissimo.
+///
+/// È ADDITIVA, non tocca le fondamenta:
+///  - si registra in <see cref="SolarSystem.Loose"/> → trasla con l'origine al cambio d'ancora (niente salti);
+///  - si registra in <see cref="GpuPlanetRenderer.ExtraViewpoints"/> → il renderer dà DETTAGLIO LOD ai corpi che la
+///    sonda guarda da vicino e NON li culla (la "foto da lontano" mostra terreno vero, non una sfera liscia);
+///  - ha una camera propria per la FOTO.
+/// La gestione input (lancio/vista/richiamo/foto) sta in <see cref="ProbeController"/>.
+/// </summary>
+public class Probe : MonoBehaviour
+{
+    Rigidbody rb;
+    SolarSystem solar;
+    Camera cam;
+    Renderer bodyRenderer;
+    bool landed;
+    CelestialBody landedOn;
+
+    public Camera Cam => cam;
+    public bool Landed => landed;
+    public CelestialBody LandedOn => landedOn;
+    public Renderer BodyRenderer => bodyRenderer;
+    // FreezeOrient: mentre guardi ATTRAVERSO la sonda, NON la riorientare lungo la velocità → il frame resta fermo e
+    // il free-look del mouse (che ruota la camera-figlia) non "combatte" con la rotazione della sonda.
+    public bool FreezeOrient;
+
+    const float ProbeRadius = 0.6f;   // mezza taglia della sonda (per la collisione e la mesh visiva)
+
+    public static Probe Spawn(SolarSystem s)
+    {
+        var go = new GameObject("Sonda");
+        var p = go.AddComponent<Probe>();
+        p.solar = s;
+
+        p.rb = go.AddComponent<Rigidbody>();
+        p.rb.useGravity = false;                 // gravità a mano (radiale sommata), come il walker
+        p.rb.mass = 1f;
+        p.rb.interpolation = RigidbodyInterpolation.Interpolate;
+        p.rb.collisionDetectionMode = CollisionDetectionMode.Discrete;
+
+        // mesh visiva: piccola sfera emissiva (Unlit/Color → niente variante strippata in build)
+        var mesh = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        var col = mesh.GetComponent<Collider>(); if (col != null) Destroy(col);   // niente collisione fisica: è analitica
+        mesh.transform.SetParent(go.transform, false);
+        mesh.transform.localScale = Vector3.one * (ProbeRadius * 2f);
+        p.bodyRenderer = mesh.GetComponent<Renderer>();
+        var unlit = Shader.Find("Unlit/Color");
+        if (unlit != null) p.bodyRenderer.material = new Material(unlit) { color = new Color(0.6f, 0.9f, 1f) };
+
+        // camera della sonda (per la foto): spenta finché non guardi attraverso di lei. NON taggata MainCamera, così
+        // Camera.main e il LOD del renderer continuano a usare la camera del giocatore (la sonda dà dettaglio via
+        // ExtraViewpoints). PRIMA PERSONA: al CENTRO della sonda, un filo verso l'alto-locale (resta sopra il suolo
+        // anche da posata → niente clipping sottoterra). La mesh si spegne mentre guardi (non vedi la tua stessa sonda).
+        // GRANDANGOLO spinto (FOV alto) → vista d'insieme, capisci dove sei. Il free-look (mouse) lo guida ProbeController.
+        var camGo = new GameObject("SondaCam");
+        camGo.transform.SetParent(go.transform, false);
+        camGo.transform.localPosition = new Vector3(0f, 0.35f, 0f);
+        camGo.transform.localRotation = Quaternion.identity;
+        p.cam = camGo.AddComponent<Camera>();
+        p.cam.nearClipPlane = 0.2f;
+        p.cam.farClipPlane = 200000f;
+        p.cam.clearFlags = CameraClearFlags.SolidColor;
+        p.cam.backgroundColor = new Color(0.01f, 0.01f, 0.03f);
+        p.cam.fieldOfView = 95f;   // grandangolo spinto
+        p.cam.enabled = false;
+
+        go.SetActive(false);   // dormiente finché non viene lanciata
+        return p;
+    }
+
+    /// <summary>Lancia la sonda da una posizione con una velocità iniziale (di solito = velocità del giocatore +
+    /// muso×spinta). Si registra come oggetto sciolto e come viewpoint extra del renderer.</summary>
+    public void Launch(Vector3 pos, Vector3 vel, Vector3 lookDir)
+    {
+        gameObject.SetActive(true);
+        transform.position = pos;
+        if (lookDir.sqrMagnitude > 1e-6f) transform.rotation = Quaternion.LookRotation(lookDir.normalized, Vector3.up);
+        rb.position = pos;
+        rb.linearVelocity = vel;
+        rb.angularVelocity = Vector3.zero;
+        landed = false; landedOn = null;
+
+        if (solar != null && !solar.Loose.Contains(transform)) solar.Loose.Add(transform);
+        if (!GpuPlanetRenderer.ExtraViewpoints.Contains(transform)) GpuPlanetRenderer.ExtraViewpoints.Add(transform);
+    }
+
+    /// <summary>Richiama la sonda: la toglie dalla scena e dai registri (Loose + viewpoint). Riusabile con Launch.</summary>
+    public void Recall()
+    {
+        if (solar != null) solar.Loose.Remove(transform);
+        GpuPlanetRenderer.ExtraViewpoints.Remove(transform);
+        landed = false; landedOn = null;
+        if (cam != null) cam.enabled = false;
+        gameObject.SetActive(false);
+    }
+
+    void OnDestroy()
+    {
+        if (solar != null) solar.Loose.Remove(transform);
+        GpuPlanetRenderer.ExtraViewpoints.Remove(transform);
+    }
+
+    void FixedUpdate()
+    {
+        if (landed || rb == null) return;
+
+        // corpo più vicino (riferimento di gravità/collisione): argmin sulla distanza, niente baricentri.
+        CelestialBody planet = Nearest(out Vector3 toCenter, out float r);
+        if (planet == null) return;
+
+        // GRAVITÀ = somma vettoriale 1/r² di tutti i corpi (come il walker): in un binario niente salto di "giù".
+        Vector3 up = r > 1e-3f ? -toCenter / r : transform.up;   // up = via dal centro (toCenter punta al centro)
+        float rEff = Mathf.Max(r, (float)planet.Radius);
+        Vector3 gravAccel = -up * (float)(planet.Mu / ((double)rEff * rEff));
+        for (int i = 0; i < solar.Bodies.Count; i++)
+        {
+            var b = solar.Bodies[i];
+            if (b == null || b == planet || b.Massless) continue;
+            Vector3 toB = b.transform.position - rb.position;
+            float rB = toB.magnitude;
+            if (rB < 1e-3f) continue;
+            float rEffB = Mathf.Max(rB, (float)b.Radius);
+            gravAccel += (toB / rB) * (float)(b.Mu / ((double)rEffB * rEffB));
+        }
+        rb.AddForce(gravAccel, ForceMode.Acceleration);
+
+        // orienta il muso lungo la velocità (per la camera) finché vola — MA non mentre la guardi (free-look fermo)
+        Vector3 v = rb.linearVelocity;
+        if (!FreezeOrient && v.sqrMagnitude > 1f) transform.rotation = Quaternion.LookRotation(v.normalized, up);
+
+        // COLLISIONE ANALITICA: quota della sonda vs altezza del terreno nella sua direzione (come il walker, ma per
+        // sapere SE ha toccato, non per camminarci). Campiono il rilievo solo vicino alla superficie (altrove i bump
+        // sono irrilevanti e la pipeline crateri girerebbe per niente).
+        float surface = (float)planet.Radius;
+        double band = System.Math.Max(60.0, planet.Radius * 0.5);
+        if (r < planet.Radius + band && planet.TryGetComponent<PlanetTerrain>(out var terr))
+        {
+            float s = terr.SampleHeight(up);
+            if (!float.IsNaN(s) && !float.IsInfinity(s)) surface = s;
+        }
+        if (r <= surface + ProbeRadius)
+        {
+            // impatto/aggancio: posa la sonda sul suolo e ferma il moto (stilizzato: si pianta dove tocca).
+            Vector3 rest = planet.transform.position + up * (surface + ProbeRadius);
+            rb.position = rest; transform.position = rest;
+            rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero;
+            if (!FreezeOrient)   // mentre la guardi, non scattare l'orientamento di atterraggio (il free-look resta stabile)
+            {
+                Vector3 flat = Vector3.ProjectOnPlane(transform.forward, up);
+                if (flat.sqrMagnitude > 1e-6f) transform.rotation = Quaternion.LookRotation(flat.normalized, up);
+            }
+            landed = true; landedOn = planet;
+        }
+    }
+
+    CelestialBody Nearest(out Vector3 toCenter, out float r)
+    {
+        CelestialBody best = null; float bd = float.MaxValue; toCenter = Vector3.zero; r = 0f;
+        for (int i = 0; i < solar.Bodies.Count; i++)
+        {
+            var b = solar.Bodies[i];
+            if (b == null || b.Massless) continue;
+            Vector3 tc = b.transform.position - rb.position;
+            float d2 = tc.sqrMagnitude;
+            if (d2 < bd) { bd = d2; best = b; toCenter = tc; }
+        }
+        if (best != null) r = toCenter.magnitude;
+        return best;
+    }
+}
