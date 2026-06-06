@@ -166,7 +166,10 @@ public class MapMode : MonoBehaviour
             var b = solar.Bodies[i];
             if (b == null) continue;
             bool isStar = b.Orbit == null;
-            Color col = isStar ? new Color(1f, 0.85f, 0.45f) : new Color(0.7f, 0.78f, 0.9f);
+            // la stella usa il COLORE del suo sistema (Vega = blu, ecc.), non un giallo fisso (prima la stella
+            // svegliata diventava gialla anche se il suo billboard dormiente era blu).
+            Color col = isStar ? (b.System != null ? b.System.StarColor : new Color(1f, 0.85f, 0.45f))
+                               : new Color(0.7f, 0.78f, 0.9f);
 
             if (!b.Massless)   // il baricentro di un binario non è un bersaglio (niente marker/proxy), ma l'orbita sì
             {

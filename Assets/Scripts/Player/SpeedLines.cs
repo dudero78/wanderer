@@ -40,49 +40,53 @@ public class SpeedLines : MonoBehaviour
         float hot = Mathf.InverseLerp(fullSpeed, thickSpeed, speed);   // regime iperveloce (0..1)
 
         float ui = Mathf.Max(1f, Screen.height / 1080f);
-        // PUNTO DI FUGA = direzione di MOTO proiettata a schermo. Guardando AVANTI le righe EMANANO da lì verso fuori;
-        // guardando INDIETRO il prograde è dietro → uso il retrograde (davanti) e le righe CONVERGONO verso di esso
-        // (come guardare dal lunotto: i raggi rincorrono il punto che lasci). Niente sparizione, direzione corretta.
-        Vector2 center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
-        bool inward = false;
-        Vector3 vel = walker.Velocity;
-        if (vel.sqrMagnitude > 1f)
-        {
-            Vector3 vd = vel.normalized;
-            float facing = Vector3.Dot(cam.transform.forward, vd);
-            Vector3 anchorDir = facing >= 0f ? vd : -vd;   // il punto di fuga DAVANTI alla camera
-            inward = facing < 0f;
-            Vector3 sp = cam.WorldToScreenPoint(cam.transform.position + anchorDir * 1000f);
-            if (sp.z > 0f)
-            {
-                float sx = cam.pixelWidth > 0 ? sp.x * Screen.width / cam.pixelWidth : sp.x;
-                float sy = cam.pixelHeight > 0 ? sp.y * Screen.height / cam.pixelHeight : sp.y;
-                center = new Vector2(sx, Screen.height - sy);   // GUI: y in giù
-            }
-        }
+        Vector2 screenC = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+        Vector3 vd = walker.Velocity.sqrMagnitude > 1f ? walker.Velocity.normalized : cam.transform.forward;
+        float facing = Vector3.Dot(cam.transform.forward, vd);
+
+        // DUE passate PESATE che si fondono → nessun "buco" a 90°. AVANTI: le righe emanano dal PROGRADE (dove vai).
+        // INDIETRO: convergono verso il RETROGRADE (dove eri). A 90° entrambe ~0.5 → si sovrappongono, sempre visibili.
+        float wF = Mathf.SmoothStep(-0.45f, 0.45f, facing);   // peso passata "avanti"
+        Vector2 pro = ProjectVanish(vd, screenC);              // prograde a schermo (o centro se dietro)
+        Vector2 retro = ProjectVanish(-vd, screenC);           // retrograde a schermo
 
         float maxR = Mathf.Sqrt((float)Screen.width * Screen.width + (float)Screen.height * Screen.height);
-        float innerFrac = Mathf.Lerp(0.5f, 0.04f, intensity);   // lento: parte PERIFERICO; veloce: parte dal CENTRO
+        float innerFrac = Mathf.Lerp(0.5f, 0.04f, intensity);
         float baseLen = Mathf.Lerp(40f, 190f, intensity) + 120f * hot;
         float thick = (2.4f + 3.2f * hot) * ui;
         float t = Time.unscaledTime;
+
+        DrawPass(pro, false, intensity * wF, innerFrac, baseLen, thick, maxR, t, ui);          // avanti: emana
+        DrawPass(retro, true, intensity * (1f - wF), innerFrac, baseLen, thick, maxR, t, ui);   // indietro: converge
+    }
+
+    // Proietta una direzione-mondo (da camPos) in coordinate GUI; se è dietro la camera, ripiega sul centro schermo.
+    Vector2 ProjectVanish(Vector3 dir, Vector2 fallback)
+    {
+        Vector3 sp = cam.WorldToScreenPoint(cam.transform.position + dir * 1000f);
+        if (sp.z <= 0f) return fallback;
+        float sx = cam.pixelWidth > 0 ? sp.x * Screen.width / cam.pixelWidth : sp.x;
+        float sy = cam.pixelHeight > 0 ? sp.y * Screen.height / cam.pixelHeight : sp.y;
+        return new Vector2(sx, Screen.height - sy);
+    }
+
+    void DrawPass(Vector2 center, bool inward, float intensity, float innerFrac, float baseLen, float thick, float maxR, float t, float ui)
+    {
+        if (intensity <= 0.01f) return;
         Matrix4x4 m0 = GUI.matrix;
         Color prev = GUI.color;
-
         for (int i = 0; i < N; i++)
         {
-            float phase = Mathf.Repeat(t * Rate + off[i], 1f);
-            // AVANTI: dal centro verso l'esterno; INDIETRO: dall'esterno verso il centro (convergono) → direzione corretta.
+            float phase = Mathf.Repeat(t * Rate + off[i] + (inward ? 0.5f : 0f), 1f);   // sfasate → le due passate si interlacciano
             float r = inward ? Mathf.Lerp(maxR * 1.05f, maxR * innerFrac, phase)
                              : Mathf.Lerp(maxR * innerFrac, maxR * 1.05f, phase);
             float len = baseLen * (0.35f + phase) * ui;
-            float a = intensity * Mathf.Sin(phase * Mathf.PI) * 0.9f;   // appare e svanisce ai capi
+            float a = intensity * Mathf.Sin(phase * Mathf.PI) * 0.9f;
             if (a <= 0.004f) continue;
-
             Vector2 dir = new Vector2(Mathf.Cos(ang[i]), Mathf.Sin(ang[i]));
             Vector2 p = center + dir * r;
             GUI.matrix = m0;
-            GUIUtility.RotateAroundPivot(ang[i] * Mathf.Rad2Deg, p);   // allinea la riga lungo il raggio
+            GUIUtility.RotateAroundPivot(ang[i] * Mathf.Rad2Deg, p);
             GUI.color = new Color(0.82f, 0.9f, 1f, a);
             GUI.DrawTexture(new Rect(p.x - len * 0.5f, p.y - thick * 0.5f, len, thick), tex);
         }

@@ -325,12 +325,13 @@ public class RouteIndicator : MonoBehaviour
 
         if (onScreen)
         {
-            // marker SOPRA la sonda (non sovrapposto): triangolo apice in GIÙ che la indica, etichetta SOPRA con un
-            // buon distacco. Scostamento ampio così, da MOLTO lontano (sonda ≈ sole di quel sistema sullo schermo),
-            // resta APPENA SOPRA e non copre la stella. Rect LARGO (360) → la distanza non si tronca mai.
-            Vector2 mk = new Vector2(g.x, g.y - 62f * ui);
+            // SCOSTAMENTO del marker ADATTIVO: da VICINO sta quasi SULLA sonda (la indica da presso); da MOLTO LONTANO
+            // (sonda ≈ pianeta/sole sullo schermo) si SOLLEVA per non coprire la stella. Triangolo apice in GIÙ.
+            float far01 = Mathf.InverseLerp(60000f, 3000000f, dist);
+            float off = Mathf.Lerp(16f, 70f, far01) * ui;
+            Vector2 mk = new Vector2(g.x, g.y - off);
             DrawTex(triTex, mk, 20f * ui, 20f * ui, 180f, pcol);   // 180° → apice verso il basso, punta la sonda
-            Shadowed(new Rect(mk.x - 180f * ui, mk.y - 34f * ui, 360f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.LowerCenter);
+            Shadowed(new Rect(mk.x - 180f * ui, mk.y - 30f * ui, 360f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.LowerCenter);
         }
         else
         {
