@@ -15,20 +15,26 @@ public class PlayerAvatar : MonoBehaviour
     public void Init(Color color)
     {
         bodyColor = color;
-        Rebuild(OminoBuilder.HeadKind.GlowSphere, 0.85f);   // testa nuda luminosa, più magro
+        // NUDO: magro, arti sottili, testa-sfera luminosa, NIENTE bombole (non può ancora volare).
+        Rebuild(new OminoBuilder.Style
+        {
+            bodyColor = bodyColor, metallic = false, head = OminoBuilder.HeadKind.GlowSphere,
+            accent = Accent, thin = 0.80f, limbBulk = 0.78f, tanks = false,
+        });
     }
 
-    /// <summary>Raccolta la tuta: il modello "indossa la tuta" → casco e proporzioni piene, MA resta del colore del
-    /// giocatore (non diventa metallico).</summary>
-    public void OnSuitEquipped() => Rebuild(OminoBuilder.HeadKind.Helmet, 1.0f);
+    /// <summary>Raccolta la tuta: il modello "indossa la tuta" → CASCO, corpo pieno, arti CICCIOTTI e ZAINO-bombole,
+    /// MA resta del COLORE del giocatore (non diventa metallico).</summary>
+    public void OnSuitEquipped() => Rebuild(new OminoBuilder.Style
+    {
+        bodyColor = bodyColor, metallic = false, head = OminoBuilder.HeadKind.Helmet,
+        accent = Accent, thin = 1.0f, limbBulk = 1.30f, tanks = true,
+    });
 
-    void Rebuild(OminoBuilder.HeadKind head, float thin)
+    void Rebuild(OminoBuilder.Style style)
     {
         for (int i = transform.childCount - 1; i >= 0; i--) Destroy(transform.GetChild(i).gameObject);
-        OminoBuilder.Build(transform, new OminoBuilder.Style
-        {
-            bodyColor = bodyColor, metallic = false, head = head, accent = Accent, thin = thin
-        });
+        OminoBuilder.Build(transform, style);
         SetLayer(transform, HideLayer);
     }
 

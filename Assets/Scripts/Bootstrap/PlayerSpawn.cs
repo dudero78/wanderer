@@ -67,7 +67,8 @@ public static class PlayerSpawn
         OminoBuilder.Build(suitGo.transform, new OminoBuilder.Style
         {
             bodyColor = new Color(0.55f, 0.58f, 0.62f), metallic = true,
-            head = OminoBuilder.HeadKind.Helmet, accent = new Color(0.4f, 0.95f, 1f), thin = 1.0f,
+            head = OminoBuilder.HeadKind.Helmet, accent = new Color(0.4f, 0.95f, 1f),
+            thin = 1.0f, limbBulk = 1.30f, tanks = true,   // tuta pesante: arti cicciotti + zaino-bombole
         });
 
         var glowGo = new GameObject("Glow");

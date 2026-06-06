@@ -17,13 +17,16 @@ public static class OminoBuilder
         public bool metallic;     // true = acciaio metallico (tuta) · false = materiale "liscio" del giocatore
         public HeadKind head;     // sfera luminosa (testa nuda) o casco
         public Color accent;      // colore glow: testa-sfera, visiera del casco, ugelli
-        public float thin;        // 1 = pieno (tuta) · <1 = più magro (giocatore)
+        public float thin;        // raggio del CORPO (torso): 1 = pieno · <1 = più magro (giocatore nudo)
+        public float limbBulk;    // raggio ASSOLUTO di braccia/gambe (indipendente da thin): tuta più cicciotta del corpo
+        public bool tanks;        // zaino-BOMBONE + ugelli: SOLO chi può volare (tuta). Il giocatore nudo non le ha.
     }
 
     /// <summary>Costruisce l'omino come figli di <paramref name="parent"/> secondo lo stile dato.</summary>
     public static void Build(Transform parent, Style s)
     {
         float t = Mathf.Clamp(s.thin, 0.4f, 1.5f);
+        float lb = s.limbBulk > 0.01f ? s.limbBulk : t;   // spessore arti (assoluto); default = thin se non impostato
 
         // TORSO (lathe): più corto delle versioni precedenti, spalle ~0.35 a y≈0.68, top troncato-arrotondato a ~0.83.
         // I raggi del profilo sono moltiplicati per 'thin' (giocatore più magro). Le altezze NO (stessa statura).
@@ -36,21 +39,22 @@ public static class OminoBuilder
         for (int i = 0; i < torso.Length; i++) torso[i].x *= t;
         Lathe(parent, "Torso", torso, s);
 
-        // GAMBE lunghe e cicciotte: dai fianchi (y≈0) ai piedi (y≈−1.0).
-        Part(parent, PrimitiveType.Capsule, "GambaSx", new Vector3(-0.15f, -0.50f, 0.02f), new Vector3(0.20f * t, 0.50f, 0.20f * t), Vector3.zero, s);
-        Part(parent, PrimitiveType.Capsule, "GambaDx", new Vector3(0.15f, -0.50f, 0.02f), new Vector3(0.20f * t, 0.50f, 0.20f * t), Vector3.zero, s);
+        // GAMBE lunghe (dai fianchi y≈0 ai piedi y≈−1.0). Spessore = limbBulk (la tuta è più cicciotta del corpo).
+        Part(parent, PrimitiveType.Capsule, "GambaSx", new Vector3(-0.15f, -0.50f, 0.02f), new Vector3(0.20f * lb, 0.50f, 0.20f * lb), Vector3.zero, s);
+        Part(parent, PrimitiveType.Capsule, "GambaDx", new Vector3(0.15f, -0.50f, 0.02f), new Vector3(0.20f * lb, 0.50f, 0.20f * lb), Vector3.zero, s);
 
         // BRACCIA lunghe (la mano arriva ~all'alta coscia), agganciate alle SPALLE e aperte a V (~12° per lato).
-        Part(parent, PrimitiveType.Capsule, "BraccioSx", new Vector3(-0.46f, 0.16f, 0.02f), new Vector3(0.16f * t, 0.54f, 0.16f * t), new Vector3(0f, 0f, -12f), s);
-        Part(parent, PrimitiveType.Capsule, "BraccioDx", new Vector3(0.46f, 0.16f, 0.02f), new Vector3(0.16f * t, 0.54f, 0.16f * t), new Vector3(0f, 0f, 12f), s);
+        Part(parent, PrimitiveType.Capsule, "BraccioSx", new Vector3(-0.46f, 0.16f, 0.02f), new Vector3(0.16f * lb, 0.54f, 0.16f * lb), new Vector3(0f, 0f, -12f), s);
+        Part(parent, PrimitiveType.Capsule, "BraccioDx", new Vector3(0.46f, 0.16f, 0.02f), new Vector3(0.16f * lb, 0.54f, 0.16f * lb), new Vector3(0f, 0f, 12f), s);
 
-        // BOMBOLE centrali e spesse, fino a TOCCARSI (centri a ±0.16, raggio 0.26 → si compenetrano).
-        Part(parent, PrimitiveType.Capsule, "BombolaSx", new Vector3(-0.16f, 0.45f, -0.28f), new Vector3(0.26f * t, 0.42f, 0.26f * t), Vector3.zero, s);
-        Part(parent, PrimitiveType.Capsule, "BombolaDx", new Vector3(0.16f, 0.45f, -0.28f), new Vector3(0.26f * t, 0.42f, 0.26f * t), Vector3.zero, s);
-
-        // UGELLI dei motori: palline luminose in fondo alle bombole.
-        GlowBall(parent, "UgelloSx", new Vector3(-0.16f, 0.05f, -0.28f), 0.20f * t, s.accent);
-        GlowBall(parent, "UgelloDx", new Vector3(0.16f, 0.05f, -0.28f), 0.20f * t, s.accent);
+        // ZAINO-BOMBOLE + UGELLI dei motori: SOLO sulla tuta (chi può volare). Centrali e spesse, fino a TOCCARSI.
+        if (s.tanks)
+        {
+            Part(parent, PrimitiveType.Capsule, "BombolaSx", new Vector3(-0.16f, 0.45f, -0.28f), new Vector3(0.26f * lb, 0.42f, 0.26f * lb), Vector3.zero, s);
+            Part(parent, PrimitiveType.Capsule, "BombolaDx", new Vector3(0.16f, 0.45f, -0.28f), new Vector3(0.26f * lb, 0.42f, 0.26f * lb), Vector3.zero, s);
+            GlowBall(parent, "UgelloSx", new Vector3(-0.16f, 0.05f, -0.28f), 0.20f * lb, s.accent);
+            GlowBall(parent, "UgelloDx", new Vector3(0.16f, 0.05f, -0.28f), 0.20f * lb, s.accent);
+        }
 
         // TESTA: leggermente STACCATA dal torso (top ≈ 0.83). Sfera luminosa (testa nuda) o CASCO.
         if (s.head == HeadKind.Helmet) BuildHelmet(parent, new Vector3(0f, 1.05f, 0f), 0.50f, s);
