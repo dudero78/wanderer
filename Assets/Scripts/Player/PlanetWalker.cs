@@ -91,7 +91,7 @@ public class PlanetWalker : MonoBehaviour
     float thrustSpool01;   // regime dei motori newtoniani, 0..1: prendono gradualmente
     float brakeSpool01;    // rampa di potenza del freno X, 0..1: parte dolce → sale rapidissimo (anti-tap)
     float autoTransitTime;          // secondi di volo autopilota sullo STESSO bersaglio: alza l'accelerazione sui viaggi lunghi
-    CelestialBody autoLastTarget;   // bersaglio dell'autopilota al frame scorso: se cambia, azzera la rampa di accelerazione
+    object autoLastTarget;          // bersaglio dell'autopilota al frame scorso (corpo O sistema): se cambia, azzera la rampa
     bool autoAligned;               // l'autopilota ha completato l'allineamento iniziale del muso → camera LIBERA (la rotta non dipende dalla vista)
 
     public void EquipJetpack()
@@ -126,20 +126,19 @@ public class PlanetWalker : MonoBehaviour
         // inserisce passa a Newtoniano, così alla disinserzione resti in volo libero (no scatto di assetto).
         if (HasJetpack && Input.GetKeyDown(autopilotKey))
         {
-            var dest = SolarSystem.Instance != null ? SolarSystem.Instance.Destination : null;
+            var t = ResolveAutoTarget();   // corpo selezionato O sistema distante (waypoint galattico)
             bool wasAuto = Autopilot;
-            Autopilot = !Autopilot && dest != null;
+            Autopilot = !Autopilot && t.valid && Altitude > 3f;
             AutoHolding = false;
             if (Autopilot) { Model = FlightModel.Newtonian; autoTransitTime = 0f; autoLastTarget = null; autoAligned = false; SoftStopping = false; }
             else if (wasAuto) SoftStopping = GameSettings.AutopilotSoftStop;   // interrotto a mano → frena fino a v≈0 (se l'opzione è ON)
-            // DIAGNOSI (compare anche nel Player.log della BUILD): perché T non aggancia? Requisiti: destinazione
-            // selezionata sulla mappa (M) + essere IN VOLO (altitudine > soglia di decollo). Mostra anche un hint a schermo.
+            // DIAGNOSI + hint a schermo: perché T non aggancia? Requisiti: destinazione selezionata (M) + essere IN VOLO.
             if (!Autopilot && !wasAuto)
             {
-                ActionHint = dest == null ? "Autopilota: seleziona una destinazione sulla mappa (M)"
-                                          : (Altitude <= 3f ? "Autopilota: decolla prima (tieni Space)" : "Autopilota non disponibile ora");
+                ActionHint = !t.valid ? "Autopilota: seleziona una destinazione sulla mappa (M)"
+                                      : (Altitude <= 3f ? "Autopilota: decolla prima (tieni Space)" : "Autopilota non disponibile ora");
                 ActionHintUntil = Time.unscaledTime + 3f;
-                Debug.Log($"[autopilota] T: HasJetpack={HasJetpack} dest={(dest != null ? dest.name : "null")} altitudine={Altitude:F1} modello={Model} → non agganciato");
+                Debug.Log($"[autopilota] T: HasJetpack={HasJetpack} target={(t.valid ? t.id : "null")} altitudine={Altitude:F1} modello={Model} → non agganciato");
             }
         }
 
@@ -255,9 +254,9 @@ public class PlanetWalker : MonoBehaviour
 
         // AUTOPILOTA attivo solo in volo e con una destinazione selezionata. A terra non c'è nulla da agganciare:
         // se atterri (o perdi la destinazione) si disinserisce da solo.
-        var dest = SolarSystem.Instance != null ? SolarSystem.Instance.Destination : null;
-        if (Autopilot && (!airborne || dest == null)) { Autopilot = false; AutoHolding = false; }
-        bool autoActive = Autopilot && HasJetpack && airborne && dest != null;
+        var at = ResolveAutoTarget();   // corpo O sistema distante
+        if (Autopilot && (!airborne || !at.valid)) { Autopilot = false; AutoHolding = false; }
+        bool autoActive = Autopilot && HasJetpack && airborne && at.valid;
 
         Quaternion look;
         if (autoActive && !autoAligned)
@@ -269,7 +268,7 @@ public class PlanetWalker : MonoBehaviour
             // guidato. La ROTTA dell'autopilota non dipende dalla camera (spinge lungo la direzione-mondo verso il
             // target), quindi guardarti intorno non la cambia. Spegni/riaccendi o cambi meta → si ri-allinea.
             float kTurn = 1f - Mathf.Exp(-Time.fixedDeltaTime / Mathf.Max(autoTurnTau, 0.01f));
-            Vector3 toDest = dest.transform.position - rb.position;
+            Vector3 toDest = at.pos - rb.position;
             if (toDest.sqrMagnitude > 1e-4f)
             {
                 Quaternion want = Quaternion.LookRotation(toDest.normalized, up);
@@ -328,7 +327,7 @@ public class PlanetWalker : MonoBehaviour
 
             if (autoActive)
             {
-                AutopilotControl(dest, g);
+                AutopilotControl(at, g);
                 boost01 = 0f;
                 thrustSpool01 = 0f;
             }
@@ -500,9 +499,43 @@ public class PlanetWalker : MonoBehaviour
     // un cambio di velocità è identico in qualunque riferimento inerziale, quindi non importa a chi è ancorata
     // l'origine. La gravità (AddForce sopra) tira ogni frame; l'autopilota la ricorregge al frame dopo (residuo
     // = g·dt, trascurabile) → tiene il sorvolo stabile anche contro la stella (cap accel ≥ 1.6·g).
-    void AutopilotControl(CelestialBody target, float g)
+    // Bersaglio dell'autopilota astratto: un CORPO selezionato O un SISTEMA distante (waypoint galattico). Così
+    // l'autopilota vola sia verso un pianeta sia verso una stella lontana (arrivando, il sistema si sveglia).
+    struct AutoTarget
     {
-        Vector3 toDest = target.transform.position - rb.position;
+        public bool valid;
+        public Vector3 pos;       // posizione in scena
+        public float radius;      // raggio del bersaglio (per il punto di sorvolo)
+        public float mu, surfaceG;// parametri gravitazionali (0 per un punto vuoto = sistema)
+        public Vector3 sceneVel;  // velocità del bersaglio in scena (per la velocità relativa)
+        public object id;         // identità (corpo o sistema): se cambia, azzera la rampa
+    }
+
+    AutoTarget ResolveAutoTarget()
+    {
+        var s = SolarSystem.Instance;
+        if (s == null) return default;
+        float ts = (float)s.TimeScale;
+        if (s.Destination != null)
+        {
+            var b = s.Destination;
+            Vector3 sv = s.Reference != null ? (b.UniverseVelocity - s.Reference.UniverseVelocity).ToVector3() * ts : Vector3.zero;
+            return new AutoTarget { valid = true, pos = b.transform.position, radius = (float)b.Radius, mu = (float)b.Mu, surfaceG = (float)b.SurfaceGravity, sceneVel = sv, id = b };
+        }
+        if (s.DestinationSystem != null)
+        {
+            var sys = s.DestinationSystem;
+            Vector3 pos = (sys.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
+            // punto FISSO nell'universo (UniverseVelocity=0) → in scena si muove come −(velocità del riferimento)·TimeScale
+            Vector3 sv = s.Reference != null ? (Vector3d.Zero - s.Reference.UniverseVelocity).ToVector3() * ts : Vector3.zero;
+            return new AutoTarget { valid = true, pos = pos, radius = sys.StarRadius > 0f ? sys.StarRadius : 2000f, mu = 0f, surfaceG = 0f, sceneVel = sv, id = sys };
+        }
+        return default;
+    }
+
+    void AutopilotControl(AutoTarget target, float g)
+    {
+        Vector3 toDest = target.pos - rb.position;
         float dist = toDest.magnitude;
         if (dist < 0.001f) { Autopilot = false; AutoHolding = false; return; }
         Vector3 toT = toDest / dist;
@@ -511,7 +544,7 @@ public class PlanetWalker : MonoBehaviour
         // vicino un corpo interessante), poi sale da autoAccel a autoAccelMax in autoAccelRampTime → finché
         // resti sullo STESSO bersaglio l'autopilota "capisce" che è un viaggio lungo e spinge sempre più forte.
         // Cambiare destinazione (o disinserire) azzera la rampa: la prossima tratta riparte di nuovo gentile.
-        if (target != autoLastTarget) { autoTransitTime = 0f; autoLastTarget = target; autoAligned = false; }
+        if (target.id != autoLastTarget) { autoTransitTime = 0f; autoLastTarget = target.id; autoAligned = false; }
         autoTransitTime += Time.fixedDeltaTime;
         float accelRamp = Mathf.Clamp01((autoTransitTime - autoAccelGentle) / Mathf.Max(autoAccelRampTime, 0.01f));
         float effAccel = Mathf.Lerp(autoAccel, autoAccelMax, accelRamp);
@@ -520,12 +553,12 @@ public class PlanetWalker : MonoBehaviour
         // e la distanza a cui la gravità LOCALE scende a autoHoverG (√(μ/autoHoverG)). Su un corpo pesante (la
         // stella) ti fermi molto più in alto, dove g è dolce → quando l'autopilota molla hai TEMPO di manovrare
         // prima di cadere, invece di trovarti incollato a una superficie ad alta gravità.
-        float standoffByRadius = (float)target.Radius * (1f + Mathf.Max(0f, autoHoverRadii));
-        float standoffByGravity = autoHoverG > 0.01f ? Mathf.Sqrt((float)target.Mu / autoHoverG) : 0f;
+        float standoffByRadius = target.radius * (1f + Mathf.Max(0f, autoHoverRadii));
+        float standoffByGravity = autoHoverG > 0.01f ? Mathf.Sqrt(target.mu / autoHoverG) : 0f;
         float standoff = Mathf.Max(standoffByRadius, standoffByGravity);
         float dtg = dist - standoff;   // distanza dal punto di sorvolo: >0 fuori (avvicìnati), <0 dentro (allontànati)
 
-        Vector3 relVel = RelativeVelocityTo(target);
+        Vector3 relVel = rb.linearVelocity - target.sceneVel;   // velocità relativa al bersaglio (corpo o punto-sistema)
         float closing = Vector3.Dot(relVel, toT);   // + = ti avvicini
 
         // Velocità RADIALE desiderata BIDIREZIONALE: profilo "frena in tempo" √(2·a·|dtg|), col SEGNO di dtg.
@@ -537,7 +570,7 @@ public class PlanetWalker : MonoBehaviour
         // discesa). Tuffandoti verso un corpo pesante la gravità erode la frenata reale (decel netta = freno − g):
         // se il profilo usasse il freno pieno freneresti troppo tardi e SFONDERESTI sulla superficie (era il bug
         // sul sole). Con aProfile = freno − g_superficie la frenata è sempre realizzabile (la decel reale ≥ aProfile).
-        float gSurf = (float)target.SurfaceGravity;
+        float gSurf = target.surfaceG;
         float aProfile = Mathf.Max(autoBrakeAccel - gSurf, autoBrakeAccel * 0.3f);
         float mag = Mathf.Min(autoMaxSpeed, Mathf.Sqrt(2f * aProfile * Mathf.Abs(dtg)));
         float vWant = (dtg >= 0f ? 1f : -1f) * mag;
