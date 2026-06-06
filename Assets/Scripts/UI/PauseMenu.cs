@@ -16,7 +16,7 @@ public class PauseMenu : MonoBehaviour
     MapMode map;
     enum Page { None, Main, Commands }
     Page page = Page.None;
-    GUIStyle title, btn, btnOff, item, hint;
+    GUIStyle title, btn, btnOff, item, hint, secStyle, keyStyle;
 
     public bool IsOpen => page != Page.None;
 
@@ -66,35 +66,59 @@ public class PauseMenu : MonoBehaviour
         if (GUI.Button(new Rect(x, y, w, bh), "Esci", btn)) Quit();
     }
 
+    struct Cmd { public string keys, desc; public Cmd(string k, string d) { keys = k; desc = d; } }
+    struct Section { public string title; public Cmd[] cmds; public Section(string t, Cmd[] c) { title = t; cmds = c; } }
+
+    // Comandi organizzati in SEZIONI su DUE colonne (stile schermata controlli da gioco): tasto a "chip" + azione.
+    static readonly Section[] ColLeft =
+    {
+        new Section("A TERRA", new[] { new Cmd("WASD", "cammina"), new Cmd("Mouse", "guarda intorno"), new Cmd("Space", "salta") }),
+        new Section("VOLO (con la tuta)", new[] {
+            new Cmd("WASD", "spinta"), new Cmd("Space / Shift", "sali / scendi"), new Cmd("Q / E", "rollio"),
+            new Cmd("N", "cambia volo (Crociera / Newtoniano)"), new Cmd("X", "freno (match velocity)"),
+            new Cmd("T", "autopilota (serve destinazione + in volo)") }),
+    };
+    static readonly Section[] ColRight =
+    {
+        new Section("STRUMENTI", new[] { new Cmd("F", "torcia"), new Cmd("M", "mappa"), new Cmd("O", "orbite a schermo") }),
+        new Section("SONDA", new[] { new Cmd("P", "lancia"), new Cmd("V", "guarda attraverso"), new Cmd("K", "richiama"), new Cmd("G", "scatta una foto") }),
+        new Section("MAPPA", new[] { new Cmd("Trascina sx / WASD", "sposta"), new Cmd("Trascina dx", "ruota"), new Cmd("Rotella", "zoom"), new Cmd("Click", "seleziona") }),
+        new Section("INTERFACCIA", new[] { new Cmd("à", "impostazioni"), new Cmd("è", "perf. on/off"), new Cmd("ESC", "questo menu") }),
+    };
+
     void DrawCommands(float ui)
     {
-        float w = 760f * ui, h = 560f * ui;
+        float w = 900f * ui, h = 620f * ui;
         float x = (Screen.width - w) * 0.5f, y = (Screen.height - h) * 0.5f;
-        GUI.Label(new Rect(x, y, w, 40f * ui), "COMANDI", title);
-        GUILayout.BeginArea(new Rect(x, y + 56f * ui, w, h - 110f * ui));
-        foreach (var line in CommandLines) GUILayout.Label(line, item);
-        GUILayout.EndArea();
-        if (GUI.Button(new Rect(x, y + h - 46f * ui, 200f * ui, 40f * ui), "Indietro", btn)) page = Page.Main;
+        GUI.Box(new Rect(x, y, w, h), GUIContent.none);
+        GUI.Label(new Rect(x, y + 18f * ui, w, 40f * ui), "COMANDI", title);
+
+        float pad = 40f * ui, colW = (w - 3f * pad) * 0.5f, top = y + 78f * ui;
+        DrawColumn(new Rect(x + pad, top, colW, h), ColLeft, ui);
+        DrawColumn(new Rect(x + 2f * pad + colW, top, colW, h), ColRight, ui);
+
+        if (GUI.Button(new Rect(x + (w - 200f * ui) * 0.5f, y + h - 54f * ui, 200f * ui, 40f * ui), "Indietro", btn)) page = Page.Main;
     }
 
-    // Elenco completo dei comandi (spostato qui dall'HUD). Una riga = "tasto — azione".
-    static readonly string[] CommandLines =
+    void DrawColumn(Rect r, Section[] sections, float ui)
     {
-        "Movimento a terra",
-        "   WASD — cammina · Mouse — guarda · Space — salta",
-        "Volo (con la tuta)",
-        "   WASD — spinge · Space — sale · Shift — scende · Q/E — rollio",
-        "   N — cambia modello di volo (Crociera / Newtoniano) · X — freno (match velocity)",
-        "   T — autopilota verso la destinazione (serve una destinazione + essere in volo)",
-        "Strumenti",
-        "   F — torcia · M — mappa · O — orbite a schermo · P — lancia la sonda",
-        "Sonda",
-        "   V — guarda attraverso la sonda · K — richiama · G — scatta una foto",
-        "Mappa",
-        "   Trascina SINISTRO o WASD — sposta · Trascina DESTRO — ruota · Rotella — zoom · Click — seleziona",
-        "Interfaccia",
-        "   à — impostazioni · è — mostra/nascondi performance · ESC — questo menu",
-    };
+        GUILayout.BeginArea(r);
+        foreach (var sec in sections)
+        {
+            GUILayout.Label(sec.title, secStyle);
+            GUILayout.Space(2f * ui);
+            foreach (var c in sec.cmds)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(c.keys, keyStyle, GUILayout.Width(150f * ui));
+                GUILayout.Label(c.desc, item, GUILayout.Width(r.width - 162f * ui));
+                GUILayout.EndHorizontal();
+                GUILayout.Space(3f * ui);
+            }
+            GUILayout.Space(14f * ui);
+        }
+        GUILayout.EndArea();
+    }
 
     void Quit()
     {
@@ -112,12 +136,16 @@ public class PauseMenu : MonoBehaviour
             title = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0.55f, 0.85f, 1f) } };
             btn = new GUIStyle(GUI.skin.button);
             btnOff = new GUIStyle(GUI.skin.button) { normal = { textColor = new Color(0.5f, 0.5f, 0.55f) } };   // voce disattivata
-            item = new GUIStyle(GUI.skin.label) { normal = { textColor = Color.white }, wordWrap = true };
+            item = new GUIStyle(GUI.skin.label) { normal = { textColor = new Color(0.86f, 0.9f, 0.96f) }, wordWrap = true };
             hint = new GUIStyle(GUI.skin.label) { normal = { textColor = new Color(0.7f, 0.74f, 0.8f) } };
+            secStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.55f, 0.85f, 1f) } };
+            keyStyle = new GUIStyle(GUI.skin.box) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0.9f, 0.96f, 1f) } };
         }
-        title.fontSize = Mathf.RoundToInt(24f * ui);
+        title.fontSize = Mathf.RoundToInt(26f * ui);
         btn.fontSize = btnOff.fontSize = Mathf.RoundToInt(16f * ui);
         item.fontSize = Mathf.RoundToInt(15f * ui);
         hint.fontSize = Mathf.RoundToInt(13f * ui);
+        secStyle.fontSize = Mathf.RoundToInt(15f * ui);
+        keyStyle.fontSize = Mathf.RoundToInt(13f * ui);
     }
 }
