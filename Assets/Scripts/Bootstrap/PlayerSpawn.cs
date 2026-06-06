@@ -49,27 +49,33 @@ public static class PlayerSpawn
         if (playerCol) playerCol.enabled = false;   // a terra col vincolo analitico: il collider fisico non serve
         var playerMr = playerGo.GetComponent<MeshRenderer>(); if (playerMr) playerMr.enabled = false;   // niente capsula: il modello è l'avatar (omino)
 
-        // MODELLO del giocatore = OMINO del COLORE del giocatore (testa-sfera luminosa, un filo più magro). Su un
-        // LAYER nascosto alla SUA camera (prima persona pulita), visibile alle altre (sonda). Raccolta la tuta diventa
-        // l'omino col CASCO (resta del colore del giocatore) — vedi SuitPickup → PlayerAvatar.OnSuitEquipped.
-        var avatarGo = new GameObject("Avatar");
-        avatarGo.transform.SetParent(playerGo.transform, false);   // piedi dell'omino (y≈−1) ai piedi del giocatore (capsula r=1)
-        var avatar = avatarGo.AddComponent<PlayerAvatar>();
-        avatar.Init(new Color(0.85f, 0.35f, 0.3f));
+        // MODELLO del giocatore via il sistema intercambiabile (ModelHost + CharacterModel): omino del COLORE del
+        // giocatore, su un LAYER NOMINATO nascosto alla SUA camera (prima persona pulita), visibile alle altre (sonda).
+        // NUDO = testa-sfera, magro, niente bombole. Raccolta la tuta → modello col CASCO + zaino (stesso colore).
+        int avatarLayer = LayerMask.NameToLayer(ModelHost.AvatarLayer);
+        if (avatarLayer < 0) avatarLayer = 31;   // fallback se il layer nominato non c'è (EnsureLayers lo crea in editor)
+        var avatarHostGo = new GameObject("Avatar");
+        avatarHostGo.transform.SetParent(playerGo.transform, false);   // piedi dell'omino (y≈−1) ai piedi del giocatore (capsula r=1)
+        var avatarHost = avatarHostGo.AddComponent<ModelHost>();
+        avatarHost.HideLayer = avatarLayer;
+        var playerColor = new Color(0.85f, 0.35f, 0.3f);
+        var accent = new Color(0.4f, 0.95f, 1f);
+        var nakedModel = ProceduralOminoModel.Create(playerColor, false, OminoBuilder.HeadKind.GlowSphere, accent, 0.80f, 0.78f, false);
+        var suitedModel = ProceduralOminoModel.Create(playerColor, false, OminoBuilder.HeadKind.Helmet, accent, 1.0f, 1.30f, true);
+        playerGo.AddComponent<PlayerAvatar>().Init(avatarHost, nakedModel, suitedModel);
 
         // Tuta-jetpack: faro-pilastro, ~8 m DAVANTI al giocatore (= verso il sole, già tangente al suolo), sul terreno.
         Vector3 suitDir = (playerSpawnPos + sunDir * 8f - bodyGo.transform.position).normalized;
         Vector3 suitGround = bodyGo.transform.position + suitDir * terrain.SampleHeight(suitDir);
 
-        // TUTA = OMINO metallico col CASCO (modello condiviso OminoBuilder). Parent vuoto: lo SuitPickup lo fa
-        // ondeggiare e lo orienta verso il giocatore. +Z davanti (verso di te), bombole dietro (−Z).
+        // TUTA = OMINO metallico col CASCO, via il sistema intercambiabile (ModelHost figlio, separato dalla luce
+        // glow). Parent suitGo: lo SuitPickup lo fa ondeggiare e lo orienta verso il giocatore. +Z davanti, bombole dietro.
         var suitGo = new GameObject("Tuta");
-        OminoBuilder.Build(suitGo.transform, new OminoBuilder.Style
-        {
-            bodyColor = new Color(0.55f, 0.58f, 0.62f), metallic = true,
-            head = OminoBuilder.HeadKind.Helmet, accent = new Color(0.4f, 0.95f, 1f),
-            thin = 1.0f, limbBulk = 1.30f, tanks = true,   // tuta pesante: arti cicciotti + zaino-bombole
-        });
+        var suitModelGo = new GameObject("Model");
+        suitModelGo.transform.SetParent(suitGo.transform, false);
+        suitModelGo.AddComponent<ModelHost>().SetModel(ProceduralOminoModel.Create(
+            new Color(0.55f, 0.58f, 0.62f), true, OminoBuilder.HeadKind.Helmet, new Color(0.4f, 0.95f, 1f),
+            1.0f, 1.30f, true));   // tuta pesante: metallica, arti cicciotti + zaino-bombole
 
         var glowGo = new GameObject("Glow");
         glowGo.transform.SetParent(suitGo.transform, false);
@@ -96,7 +102,7 @@ public static class PlayerSpawn
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = new Color(0.01f, 0.01f, 0.03f);
         camGo.AddComponent<RenderScaler>();   // risoluzione dinamica (tiene gli fps abbassando i pixel quando serve)
-        cam.cullingMask &= ~(1 << PlayerAvatar.HideLayer);   // la camera del giocatore NON vede il proprio corpo (prima persona pulita)
+        cam.cullingMask &= ~(1 << avatarLayer);   // la camera del giocatore NON vede il proprio corpo (prima persona pulita)
         camGo.transform.SetParent(playerGo.transform, false);
         camGo.transform.localPosition = new Vector3(0f, 0.6f, 0f);
         walker.cameraPivot = camGo.transform;

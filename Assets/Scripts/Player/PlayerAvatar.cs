@@ -1,46 +1,21 @@
 using UnityEngine;
 
 /// <summary>
-/// MODELLO 3D del GIOCATORE (omino), figlio del Player. Prima della tuta: testa-sfera luminosa, un filo più magro,
-/// del COLORE del giocatore. Raccolta la tuta: stesso modello ma con CASCO (resta del colore del giocatore).
-/// Sta su un LAYER nascosto alla camera del giocatore (prima persona pulita) ma visibile alle altre (sonda, ecc.).
+/// Glue del MODELLO del giocatore: tiene i due modelli (NUDO e IN TUTA) e li scambia sull'<see cref="ModelHost"/>
+/// alla raccolta della tuta. Tutta la logica di costruzione/scambio sta nel sistema generico (ModelHost +
+/// CharacterModel): qui c'è solo "quale modello quando". Espandibile (altri stati/equipaggiamenti = altri modelli).
 /// </summary>
 public class PlayerAvatar : MonoBehaviour
 {
-    public const int HideLayer = 9;   // layer dell'avatar: escluso dalla culling mask della camera del giocatore
+    ModelHost host;
+    CharacterModel naked, suited;
 
-    Color bodyColor;
-    static readonly Color Accent = new Color(0.4f, 0.95f, 1f);
-
-    public void Init(Color color)
+    public void Init(ModelHost host, CharacterModel naked, CharacterModel suited)
     {
-        bodyColor = color;
-        // NUDO: magro, arti sottili, testa-sfera luminosa, NIENTE bombole (non può ancora volare).
-        Rebuild(new OminoBuilder.Style
-        {
-            bodyColor = bodyColor, metallic = false, head = OminoBuilder.HeadKind.GlowSphere,
-            accent = Accent, thin = 0.80f, limbBulk = 0.78f, tanks = false,
-        });
+        this.host = host; this.naked = naked; this.suited = suited;
+        host.SetModel(naked);
     }
 
-    /// <summary>Raccolta la tuta: il modello "indossa la tuta" → CASCO, corpo pieno, arti CICCIOTTI e ZAINO-bombole,
-    /// MA resta del COLORE del giocatore (non diventa metallico).</summary>
-    public void OnSuitEquipped() => Rebuild(new OminoBuilder.Style
-    {
-        bodyColor = bodyColor, metallic = false, head = OminoBuilder.HeadKind.Helmet,
-        accent = Accent, thin = 1.0f, limbBulk = 1.30f, tanks = true,
-    });
-
-    void Rebuild(OminoBuilder.Style style)
-    {
-        for (int i = transform.childCount - 1; i >= 0; i--) Destroy(transform.GetChild(i).gameObject);
-        OminoBuilder.Build(transform, style);
-        SetLayer(transform, HideLayer);
-    }
-
-    static void SetLayer(Transform t, int layer)
-    {
-        t.gameObject.layer = layer;
-        for (int i = 0; i < t.childCount; i++) SetLayer(t.GetChild(i), layer);
-    }
+    /// <summary>Raccolta la tuta: il giocatore "la indossa" → modello con casco/zaino (stesso COLORE del giocatore).</summary>
+    public void OnSuitEquipped() { if (host != null && suited != null) host.SetModel(suited); }
 }
