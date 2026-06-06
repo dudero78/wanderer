@@ -29,8 +29,8 @@ public class SettingsMenu : MonoBehaviour
     int activeTab;
     bool open;
     Vector2 scroll;
-    GUIStyle title, head, val, hint, tabStyle, toggleStyle, toggleBtn, thumbStyle;
-    Texture2D trackTex;
+    GUIStyle title, head, val, hint, tabStyle, toggleStyle, toggleBtn;
+    Texture2D trackTex, thumbTex;
 
     public void Init(PlanetWalker w, Camera c)
     {
@@ -192,12 +192,15 @@ public class SettingsMenu : MonoBehaviour
         else
         {
             float v = k.get();
-            // Rect ESPLICITO per lo slider: disegno la TRACCIA grigia centrata verticalmente e poi lo slider (senza
-            // groove) nello STESSO rect → maniglia e traccia sono allineate (prima la maniglia stava sopra la riga).
-            Rect sr = GUILayoutUtility.GetRect(300f * ui, 30f * ui, GUILayout.Width(300f * ui));
-            float th = 6f * ui;
-            GUI.DrawTexture(new Rect(sr.x, sr.y + (sr.height - th) * 0.5f, sr.width, th), trackTex);
-            float nv = GUI.HorizontalSlider(sr, v, k.min, k.max, GUIStyle.none, thumbStyle);
+            // Traccia e maniglia DISEGNATE A MANO, entrambe centrate sulla stessa linea (cy) → allineate di sicuro.
+            // Lo slider Unity sta sotto INVISIBILE (GUIStyle.none) solo per il trascinamento.
+            Rect sr = GUILayoutUtility.GetRect(300f * ui, 28f * ui, GUILayout.Width(300f * ui));
+            float cy = sr.y + sr.height * 0.5f, th = 6f * ui, tr = 11f * ui;
+            GUI.DrawTexture(new Rect(sr.x, cy - th * 0.5f, sr.width, th), trackTex);
+            float nv = GUI.HorizontalSlider(sr, v, k.min, k.max, GUIStyle.none, GUIStyle.none);
+            float frac = Mathf.InverseLerp(k.min, k.max, nv);
+            float tx = sr.x + frac * sr.width;
+            GUI.DrawTexture(new Rect(tx - tr, cy - tr, tr * 2f, tr * 2f), thumbTex);   // maniglia centrata su cy
             GUILayout.Space(16f * ui);
             GUILayout.Label(Fmt(nv), val, GUILayout.Width(90f * ui));
             if (!Mathf.Approximately(nv, v))
@@ -235,10 +238,20 @@ public class SettingsMenu : MonoBehaviour
             tabStyle = new GUIStyle(GUI.skin.button);
             toggleStyle = new GUIStyle(GUI.skin.toggle) { normal = { textColor = Color.white }, onNormal = { textColor = Color.white } };
             toggleBtn = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
-            thumbStyle = new GUIStyle(GUI.skin.horizontalSliderThumb);
-            // TRACCIA VISIBILE: barretta grigia disegnata a mano (lo slot di default è quasi invisibile su nero).
+            // TRACCIA grigia (1x1) + MANIGLIA a disco (cerchio sfumato): disegnate a mano, sempre allineate.
             trackTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
             trackTex.SetPixel(0, 0, new Color(0.5f, 0.55f, 0.62f, 1f)); trackTex.Apply();
+            int n = 32; thumbTex = new Texture2D(n, n, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+            var px = new Color32[n * n];
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float dx = (x + 0.5f) / n - 0.5f, dy = (y + 0.5f) / n - 0.5f;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy) * 2f;          // 0 centro, 1 bordo
+                    byte a = (byte)(Mathf.Clamp01((1f - d) / 0.12f) * 255f); // disco pieno con bordo morbido
+                    px[y * n + x] = new Color32(210, 220, 235, a);
+                }
+            thumbTex.SetPixels32(px); thumbTex.Apply();
         }
         title.fontSize = Mathf.RoundToInt(22f * ui);
         head.fontSize = Mathf.RoundToInt(16f * ui);
@@ -247,8 +260,5 @@ public class SettingsMenu : MonoBehaviour
         tabStyle.fontSize = Mathf.RoundToInt(15f * ui);
         toggleStyle.fontSize = Mathf.RoundToInt(14f * ui);
         toggleBtn.fontSize = Mathf.RoundToInt(15f * ui);
-        // MANIGLIA dello slider INGRANDITA (la default è minuscola su schermi ad alta densità).
-        thumbStyle.fixedWidth = 22f * ui;
-        thumbStyle.fixedHeight = 22f * ui;
     }
 }
