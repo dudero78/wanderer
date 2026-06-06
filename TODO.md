@@ -1,28 +1,33 @@
 # Wanderer — TODO
 
-Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **5 giugno 2026** (sessioni: acqua-superficie, mappa,
-batch fill, geomorph GPU, VRAM, **AUDIT #2**, spuntone, overdraw). Dettaglio tecnico nel `CLAUDE.md`.
+Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **6 giugno 2026** (sessione: CDLOD pulito crack-free,
+guardie C0 nelle pipeline, strumenti di diagnosi, rimozione skirt). Dettaglio tecnico nel `CLAUDE.md`.
 
-> ## 🟢 PARTI DA QUI (6 giu+) — `AUDIT2.md` È L'AUTORITÀ DELLA ROADMAP, leggilo a freddo
-> Motore **6.6→~8/10**, Audit #1 ~90% chiuso, **spuntone CHIUSO**, overdraw dimezzato. La roadmap prioritizzata è in
-> **`AUDIT2.md`**. Ordine deciso con Dario: **#18 spaccare il god-object** (`SlabPool`+`PlanetLodTree` dal
-> `GpuPlanetRenderer` — refactor BASE, spostamento puro, abilita gli altri) → **#14 quadtree 2:1** (niente skirt,
-> Cull Back unico — visivo, con verifica Dario) → **#15 fisica in FixedUpdate + tick intero** (determinismo, timing)
-> → **#16 layer `StarSystem`** (additivo, per i sistemi solari multipli) → **#17 fonte unica della funzione altezza**
-> (genera l'HLSL dal C#, chiude il rischio "fluttua/sprofonda"). RIMANDATI con motivo: colore per-vertice (+120MB
-> VRAM, riprendere col PBR), gating `_HAS_SEA` (zero risparmio se la scena ha un mare). Molti commit locali non pushati.
+> ## 🟢 PARTI DA QUI (6 giu+)
+> **Motore terreno = CDLOD PURO, crack-free.** Le "crepe/tagli" di Valentina2, inseguite per settimane, sono RISOLTE
+> alla FONTE — e NON erano il LOD: erano la ricetta. Catena di toppe sbagliate (skirt → morph-stitch → two-mask) tutte
+> **rimosse**: il crack-free viene dal **morph continuo + `mergeHysteresis=1`** (confini netti). `trav` ~0.1ms.
+> Cause vere chiuse in HLSL+C# identici (parità):
+> 1. **CRATERI** — duplicati radiali del peso-a-guscio fuori dalla finestra ±2 celle (ottave fini) → pop ~0.5m. Fix:
+>    `shellHalf = min(0.6, 1.7/gscale)`. Crateri piccoli MANTENUTI.
+> 2. **TETTONICA** — 3 soglie-skip (`contW>0.01`, `mtn>0.001`, `boundary·gate>0.001`) accendevano il termine non-nullo
+>    → gradino. Fix: sfumatura `Smooth01` (C1).
 >
-> ### 🔴 APERTO — spuntoni nei crateri profondi da LONTANO (Valentina2)
-> Tutto REVERTITO al baseline (parità OK, mare OK, spuntoni come prima). Segnale decisivo: **PEGGIORANO con più
-> tassellatura** → NON è sotto-tassellatura → **skirt / cuciture ai confini di LOD** sulle pareti ripide. Probabile:
-> `skirtDrop` non tiene conto del salto di morph del bordo + albero non 2:1. **Cura vera = quadtree 2:1 bilanciato (#14).**
-> PRIMA di ricodare: diagnosticare coi toggle (`UseGeomorph` on/off, skirt off). 3 fix SBAGLIATI revertiti (mipmap-in-fetta
-> → rompe parità; LOD slope-aware → peggiora; soft-floor → sparisce il mare). Dettaglio in CLAUDE.md "🔴 APERTO — spuntoni".
+> **PRINCIPIO (guardia universale):** ogni processo di `SampleHeight` dev'essere **C0-continuo** (mai un salto di valore).
+> **Skirt geometria RIMOSSA** (vertsPerSlab=n², niente kernel skirt, un draw). Il **#14 "quadtree 2:1" è OBSOLETO**.
 >
-> ### ✅ RISOLTI — i 3 bug editor di prima (storico, non più PARTI DA QUI)
-> (1) mare-non-allaga → **maschera "sotto il pelo = acqua"** (gestisce crateri-dopo-mare); (2) trasparenza "al
-> contrario" → **modello trasparenza ripensato** (tinta separata dalla luminosità); (3) bake fa sparire il pianeta →
-> **auto-heal** in `GpuPlanetSurface`. Dettaglio storico qui sotto.
+> **STRUMENTI DI DIAGNOSI (costo zero in gioco):** `DebugView` 0–5 (off/radiale/normale/livello-LOD/faccia/fetta) dietro
+> keyword `multi_compile PLANET_DEBUG_VIEW`, da GameBootstrap (`debugView`) e menu **à → "Diagnosi"** live. **Disabilita-
+> pipeline** `PlanetRecipe.DebugDisableTypes` (bitmask 1/2/4, GameBootstrap `debugDisablePipelines`, GPU+CPU, parità ok).
+>
+> **ROADMAP (riconciliata; AUDIT2.md storico, il 2:1 è morto):** **#18 spaccare il god-object** (`SlabPool`+`PlanetLodTree`
+> da `GpuPlanetRenderer`) → **#17 fonte unica altezza** (gen HLSL dal C# — la parità a mano è error-prone, ha morso tutta
+> la sessione) → **#15 fisica FixedUpdate+tick** → **#16 layer StarSystem**. Rimandato: colore per-vertice (col PBR).
+>
+> ### 🔴 ANCORA APERTI — 3 bug nell'EDITOR di pianeti (separati dal gioco)
+> (1) il livello del mare non allaga in palla d'acqua al max (sospetto ordine TETTONICA→MARE→CRATERI); (2) trasparenza
+> "al contrario" + obiettivo "limpidezza max = TUTTI i fondali visibili anche profondi"; (3) Bake da editor → il pianeta
+> SPARISCE. La RESA in gioco usa la RICETTA (non il bake) → ribakare non serve per forma/colore.
 
 > ## (storico) 🔴 i 3 BUG dell'EDITOR — RISOLTI (vedi sopra)
 > Tutti e tre nell'**editor di pianeti** (scena "Apri editor pianeti"), su Valentina2 (mare + tettonica + crateri):

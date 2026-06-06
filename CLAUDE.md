@@ -15,6 +15,31 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 
 ## Stato attuale (vedi git log per il dettaglio)
 
+> **AGGIORNAMENTO 6 giu 2026 (PREVALE su tutto ciò che segue su LOD/crepe/skirt):**
+> - **Motore terreno = CDLOD PURO, crack-free.** Il crack-free viene dal **morph continuo** (mf = funzione continua
+>   della distanza, completa alla distanza di MERGE ≈2·splitDist) + **`mergeHysteresis=1`** (confini netti). `trav` ~0.1ms.
+>   **RIMOSSI per sempre come toppe sbagliate: skirt (geometria E codice), bilanciamento 2:1, edge-stitch, edge-mask.**
+>   Il **#14 "quadtree 2:1" della roadmap è OBSOLETO** (il morph fa meglio). vertsPerSlab=n² (pool più piccolo), un draw,
+>   solo i kernel `CSNodeSlab`/`CSNodeSlabBatch`.
+> - **Le "crepe/tagli/venuzze" di Valentina2 — RISOLTE, e NON erano il LOD: erano la RICETTA.** Settimane di ipotesi
+>   sbagliate (skirt/morph/isteresi/cuciture-facce). Cause vere, chiuse alla fonte (HLSL+C# identici, parità):
+>   (1) **CRATERI** — il peso-a-guscio del campo crateri faceva contribuire **duplicati radiali**; per le ottave fini il
+>   guscio (`CR_SHELL_HALF=0.6`) sforava la finestra ±2 celle → un duplicato alla STESSA direzione (= al suo centro,
+>   scavo pieno) poppava muovendosi → gradino ~0.5m. Fix: `shellHalf = min(0.6, 1.7/gscale)` (guscio dentro la finestra).
+>   Crateri piccoli MANTENUTI. (2) **TETTONICA** — 3 soglie-skip (`contW>0.01`, `mtn>0.001`, `boundary·gate>0.001`)
+>   accendevano il termine a un valore non-nullo → gradino lungo le linee-contorno. Fix: sfumatura `Smooth01` (C1).
+> - **PRINCIPIO confermato e rinforzato:** ogni processo di `SampleHeight` dev'essere **C0-continuo** (mai un salto di
+>   VALORE). Le creste affilate dei crateri sono *creste* (salti di pendenza voluti), non tagli.
+> - **STRUMENTI DI DIAGNOSI (costo zero in gioco):** `GpuPlanetRenderer.DebugView` 0–5 (off/radiale/normale/livello-LOD/
+>   faccia-cubo/fetta) dietro keyword `multi_compile PLANET_DEBUG_VIEW`; da GameBootstrap (`debugView`) e menu **à →
+>   "Diagnosi"** live. **Disabilita-pipeline** `PlanetRecipe.DebugDisableTypes` (bitmask 1=crateri 2=mare 4=tettonica,
+>   GameBootstrap `debugDisablePipelines`, salta su GPU+CPU → parità verde) per isolare il colpevole senza editor.
+> - **Metodo (lezione DURA ripetuta):** per un artefatto visivo, **costruisci subito il debug-view che lo localizza**
+>   (colora per fetta/livello/faccia) invece di teorizzare. ~15 turni persi a inseguire teorie; la svolta è arrivata
+>   solo col "colora ogni fetta" (taglio DENTRO un colore = geometria/ricetta, non LOD).
+> - **PROSSIMO (roadmap riconciliata):** #18 spaccare god-object (`SlabPool`+`PlanetLodTree`) → #17 fonte unica altezza
+>   (gen HLSL dal C# — la parità a mano è error-prone) → #15 fisica FixedUpdate → #16 StarSystem. Il #14 è morto.
+>
 > **AGGIORNAMENTO 5 giu 2026 (delta sulle sezioni sotto, che possono essere datate):**
 > - **Resa GPU in gioco (B1) GIRA**: quadtree CDLOD su GPU + 1 draw indirect + colore procedurale + **BATCH FILL**
 >   (`CSNodeSlabBatch/Skirt` + buffer `_Jobs`, parità multi-job 0, ON di default con auto-fallback) + **AA della normale
@@ -531,9 +556,10 @@ vicino all'origine di Unity → la precisione non degrada mai.
   positivo** (`max(h, base·0.2)`), NaN/Inf→base. **VA MESSO IN ENTRAMBE le implementazioni dell'altezza** (HLSL
   `SampleHeightD` + C# `PlanetTerrain.SampleHeight`) o walker e resa divergono (esempio vivo del rischio #17 dell'audit:
   fonte altezza duplicata a mano). La causa a monte è una RICETTA che scava oltre il raggio (l'engine ora lo regge).
-- **Spuntoni neri nei crateri PROFONDI da LONTANO (Valentina2) = SKIRT (CONFERMATO col toggle `DrawSkirts=false`: spenti
-  gli skirt, spuntoni VIA).** Il segnale che ha smascherato la diagnosi sbagliata: **PEGGIORAVANO con PIÙ tassellatura** (il
-  LOD slope-aware li moltiplicava) → NON è sotto-tassellatura/aliasing (più triangoli li ridurrebbe) → è un artefatto che
+- **[STORICO — SUPERATO dal blocco "6 giu" in cima: gli spuntoni/crepe NON erano skirt né 2:1, erano la RICETTA
+  (crateri/tettonica), e il LOD è ora CDLOD puro senza skirt. Tieni questo solo come cronaca della diagnosi sbagliata.]**
+  Spuntoni neri nei crateri PROFONDI da LONTANO (Valentina2): a lungo attribuiti agli SKIRT (toggle `DrawSkirts=false`),
+  con il segnale "**PEGGIORAVANO con PIÙ tassellatura**" → si pensava a un artefatto che
   **scala col NUMERO di nodi** = gli **skirt** ai confini di LOD. (Da vicino, LOD uniforme, niente confini in vista →
   spariscono.) Perché spuntano: lo skirt è una tendina abbassata RADIALMENTE (`sp = p − dir·worldSize·0.5`); su una parete
   di cratere RIPIDA la tendina radiale non si nasconde dietro il vicino (grossolano, a quota molto diversa) → **spunta fuori
