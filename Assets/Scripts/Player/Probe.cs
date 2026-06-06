@@ -57,50 +57,27 @@ public class Probe : MonoBehaviour
         var bcol = body.GetComponent<Collider>(); if (bcol != null) Destroy(bcol);   // collisione analitica, niente collider
         body.transform.SetParent(vis.transform, false);
         body.transform.localScale = Vector3.one * (ProbeRadius * 2f);
+        // SOLCHI come CUCITURE pulite (stile pokeball, Image #13), non incisione faccettata: sfera LISCIA metallica +
+        // texture con BANDE SCURE alle 3 latitudini (equatore + tropici) → la cucitura legge come scavata senza
+        // faccettare la mesh. La tinta del corpo viene dalla texture (grigio acciaio + bande scure).
         var std = Shader.Find("Standard");
         if (std != null)
         {
             var bm = new Material(std);
-            bm.color = new Color(0.22f, 0.24f, 0.27f);   // acciaio scuro
-            bm.SetFloat("_Metallic", 0.9f);
-            bm.SetFloat("_Glossiness", 0.62f);
+            bm.color = Color.white;
+            bm.mainTexture = SeamTexture();
+            bm.SetFloat("_Metallic", 0.85f);
+            bm.SetFloat("_Glossiness", 0.6f);
             body.GetComponent<Renderer>().material = bm;
         }
 
-        // SOLCHI SCAVATI (non sporgenti): INCIDO la mesh del corpo verso l'INTERNO a 3 latitudini — equatore + i due
-        // tropici (±23.4°). I vertici nella banda di latitudine vengono spinti verso il centro → canali reali, le cui
-        // pareti metalliche catturano la luce ("scavato"). Copio la mesh del primitive (non modifico quella condivisa).
-        var bmf = body.GetComponent<MeshFilter>();
-        if (bmf != null && bmf.sharedMesh != null)
-        {
-            var carved = Instantiate(bmf.sharedMesh);
-            var verts = carved.vertices;
-            float[] gLat = { 0f, 23.4f * Mathf.Deg2Rad, -23.4f * Mathf.Deg2Rad };
-            float halfW = 8f * Mathf.Deg2Rad, depth = 0.16f;
-            for (int i = 0; i < verts.Length; i++)
-            {
-                Vector3 q = verts[i]; float len = q.magnitude; if (len < 1e-5f) continue;
-                float lat = Mathf.Asin(Mathf.Clamp(q.y / len, -1f, 1f));
-                float prof = 0f;
-                for (int k = 0; k < gLat.Length; k++)
-                {
-                    float t = (lat - gLat[k]) / halfW;
-                    if (Mathf.Abs(t) < 1f) prof = Mathf.Max(prof, Mathf.Cos(t * Mathf.PI * 0.5f));   // notch liscio
-                }
-                if (prof > 0f) verts[i] = q * (1f - depth * prof);
-            }
-            carved.vertices = verts;
-            carved.RecalculateNormals();
-            bmf.mesh = carved;
-        }
-
-        // Linea LUMINOSA RECESSA nel fondo di ogni solco (Unlit ciano → glow; widthFactor<1 = sta DENTRO il canale,
-        // non sporge). Unlit/Color = niente variante _EMISSION strippata in build.
+        // Linea luminosa SOTTILE a filo nella cucitura (Unlit ciano → glow nella banda scura). widthFactor ~1 + molto
+        // sottile → niente protrusione vistosa. Unlit/Color = niente variante _EMISSION strippata in build.
         var unlit = Shader.Find("Unlit/Color");
         Color glow = new Color(0.55f, 0.95f, 1f);
-        MakeGroove(vis.transform, unlit, ProbeRadius, 0f, 0.90f, 0.05f, glow);      // equatore
-        MakeGroove(vis.transform, unlit, ProbeRadius, 23.4f, 0.90f, 0.05f, glow);   // tropico nord
-        MakeGroove(vis.transform, unlit, ProbeRadius, -23.4f, 0.90f, 0.05f, glow);  // tropico sud
+        MakeGroove(vis.transform, unlit, ProbeRadius, 0f, 1.004f, 0.022f, glow);     // equatore
+        MakeGroove(vis.transform, unlit, ProbeRadius, 23.4f, 1.004f, 0.022f, glow);  // tropico nord
+        MakeGroove(vis.transform, unlit, ProbeRadius, -23.4f, 1.004f, 0.022f, glow); // tropico sud
 
         // LUCE EMESSA: point light ciano → la sonda è una piccola lampada (illumina oggetti Standard vicini e si
         // legge come sorgente luminosa). NB: il terreno GPU usa luce MANUALE (sole+torcia) e non la cattura ancora.
@@ -133,6 +110,31 @@ public class Probe : MonoBehaviour
 
         go.SetActive(false);   // dormiente finché non viene lanciata
         return p;
+    }
+
+    // texture delle CUCITURE: grigio acciaio con BANDE SCURE alle 3 latitudini (equatore v=0.5, tropici v=0.5±0.13).
+    // Una sola copia condivisa. Varia solo in latitudine (v) → larghezza minima (8 px). Pulita, niente faccette.
+    static Texture2D sSeamTex;
+    static Texture2D SeamTexture()
+    {
+        if (sSeamTex != null) return sSeamTex;
+        const int W = 8, H = 256;
+        var t = new Texture2D(W, H, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear };
+        Color steel = new Color(0.26f, 0.28f, 0.32f), dark = new Color(0.04f, 0.045f, 0.05f);
+        float[] bands = { 0.5f, 0.63f, 0.37f };
+        float hw = 0.016f;
+        var px = new Color32[W * H];
+        for (int y = 0; y < H; y++)
+        {
+            float v = (y + 0.5f) / H, d = 1f;
+            for (int b = 0; b < bands.Length; b++) d = Mathf.Min(d, Mathf.Abs(v - bands[b]) / hw);
+            float band = Mathf.Clamp01(1f - d); band = band * band * (3f - 2f * band);   // smoothstep
+            Color32 c = Color.Lerp(steel, dark, band);
+            for (int x = 0; x < W; x++) px[y * W + x] = c;
+        }
+        t.SetPixels32(px); t.Apply(true);
+        sSeamTex = t;
+        return t;
     }
 
     /// <summary>Un SOLCO luminoso a una latitudine data: disco sottile (sfera schiacciata su Y) che sporge appena dal
