@@ -7,6 +7,7 @@ using UnityEngine;
 /// infine proietta tutto nello spazio di rendering — in quest'ordine preciso,
 /// così non c'è mai uno scarto di un frame tra fisica e grafica.
 /// </summary>
+[DefaultExecutionOrder(-100)]   // lo Step (tempo + posizioni + ri-ancoraggio) gira PRIMA della fisica del walker
 public class SolarSystem : MonoBehaviour
 {
     public static SolarSystem Instance;
@@ -55,9 +56,14 @@ public class SolarSystem : MonoBehaviour
         if (b != null && !Bodies.Contains(b)) Bodies.Add(b);
     }
 
-    void Update()
+    // #8 DETERMINISMO: tempo + posizioni + ri-ancoraggio nel TICK FISSO, sullo stesso ritmo della fisica del walker
+    // (input in Update, fisica in FixedUpdate). SimTime avanza di un passo COSTANTE (fixedDeltaTime) → deterministico,
+    // niente straddle dello shift d'ancora in un frame lento. DefaultExecutionOrder(-100) garantisce che giri PRIMA
+    // del walker, che legge le posizioni-corpo aggiornate. NB: i corpi non-ancora si muovono ora a ritmo fisso (50 Hz):
+    // sono lontani/piccoli, l'eventuale micro-stutter è trascurabile; se desse fastidio si aggiunge l'interpolazione.
+    void FixedUpdate()
     {
-        SimTime += Time.deltaTime * TimeScale;
+        SimTime += Time.fixedDeltaTime * TimeScale;
         Step();
     }
 
