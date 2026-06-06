@@ -42,7 +42,7 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 >
 > **AGGIORNAMENTO 5 giu 2026 (delta sulle sezioni sotto, che possono essere datate):**
 > - **Resa GPU in gioco (B1) GIRA**: quadtree CDLOD su GPU + 1 draw indirect + colore procedurale + **BATCH FILL**
->   (`CSNodeSlabBatch/Skirt` + buffer `_Jobs`, parità multi-job 0, ON di default con auto-fallback) + **AA della normale
+>   (`CSNodeSlabBatch` + buffer `_Jobs`, parità multi-job 0, ON di default con auto-fallback) + **AA della normale
 >   a distanza** (`fwidth`). `GpuPlanetRenderer`/`PlanetSurfaceGPU`. Walker analitico intatto.
 > - **ACQUA = SUPERFICIE** (shader condiviso `PlanetProceduralShade.cginc`): il pelo arriva **per-vertice** (`_VSurf`,
 >   maschera ESATTA — NON si ricostruisce più dal rumore nel fragment); **increspatura animata** (`WaterRippleNormal`,
@@ -54,28 +54,22 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 > - **MAPPA**: proxy proporzionali, **camera orbitale** (destro=ruota, WASD=pan, rotella=zoom), superficie GPU sospesa
 >   in mappa (`GpuPlanetRenderer.SuppressDraw`).
 > - **Editor Salva** scrive ANCHE in `Resources/Planets/` → il gioco usa la **ricetta**, non il bake (ribakare non serve).
-> - **AUDIT #2 fatto** (`AUDIT2.md` = AUTORITÀ DELLA ROADMAP, leggilo). Motore **6.6→~8/10**. Chiusi: geomorph GPU,
->   VRAM condiviso (459 MB, nodeRes 96 PARI), parità runtime, gravità binario, wall-stop, acqua (maschera+ripple-LOD),
->   **horizon culling height-aware** (`lodPeakAngle`, niente nero all'orizzonte), **overdraw dimezzato** (cull-split a
->   DUE MATERIALI, `interiorCull=1`/Front), **SPUNTONE chiuso** (rete direzione-aware `_DirOfInstance`), early-out
->   per-corpo, ring buffer scia. **PROSSIMO (roadmap AUDIT2):** #18 spaccare god-object (`SlabPool`+`PlanetLodTree`)
->   → #14 quadtree 2:1 (niente skirt, Cull Back unico) → #15 fisica FixedUpdate+tick → #16 layer StarSystem (multi-
->   sistema) → #17 fonte unica altezza (C#↔HLSL). Rimandati con motivo: colore per-vertice (+120MB), `_HAS_SEA`.
+> - Chiusi (audit #2): geomorph GPU, VRAM condiviso (nodeRes 96 PARI), parità runtime, gravità binario, wall-stop,
+>   acqua (maschera+ripple-LOD), **horizon culling height-aware** (`lodPeakAngle`), **overdraw dimezzato** (`_Cull` del
+>   materiale), early-out per-corpo, ring buffer scia. (Roadmap aggiornata nel blocco 6 giu sopra.)
 
 Funziona: floating origin + doppia precisione, orbita Kepleriana, **gravità radiale**,
 **volo col jetpack** (tuta da raccogliere), **torcia** (F), ciclo giorno/notte.
 
 **Renderer dei corpi rocciosi (gerarchia decisa — audit #2).** Quello AUTORITATIVO in gioco è
-**`GpuPlanetRenderer`**: quadtree CDLOD calcolato e disegnato **sulla GPU** (1 draw indirect per corpo, pool VRAM
-**CONDIVISO** fra i corpi, colore procedurale nel fragment) con **GEOMORPH** nel vertex shader (transizioni di LOD
-lisce, niente pop né "lamelle nere" ai confini — legge i vicini da `_VPos`, toggle `useGeomorph`) + skirt + horizon
-culling + cache LRU + LOD predittivo. **`PlanetQuadtree`** (stesso CDLOD su CPU, mesh per nodo, geomorph via UV2) è
-il **FALLBACK ESPLICITO** se la GPU non regge i compute — non è morto, è la garanzia "niente pianeta invisibile".
-**`SingleMeshPlanet`** (res fissa) = fallback finale + proxy della mappa. DISCIPLINA: le feature di RESA nuove
-(materiali PBR, eclissi GPU...) vanno SOLO sul renderer autoritativo, i fallback restano congelati. Walker/gravità/
-collisione NON dipendono dal renderer: leggono `PlanetTerrain.SampleHeight` (una sola verità; il morph è puramente
-visivo e vale 0 da vicino, dove mesh e collisione combaciano). Il **CDLOD bilanciato 2:1** (toglierebbe gli skirt →
-Cull Back gratis, dimezza il fragment) resta una miglioria possibile, non urgente.
+**`GpuPlanetRenderer`**: quadtree **CDLOD puro** calcolato e disegnato **sulla GPU** (1 draw indirect per corpo, pool
+VRAM **CONDIVISO** fra i corpi, colore procedurale nel fragment) con **MORPH CONTINUO** nel vertex shader (crack-free,
+legge i vicini da `_VPos`, toggle `useGeomorph`) + horizon culling + cache LRU + LOD predittivo. **`PlanetQuadtree`**
+(stesso CDLOD su CPU, mesh per nodo) è il **FALLBACK ESPLICITO** se la GPU non regge i compute — non è morto, è la
+garanzia "niente pianeta invisibile". **`SingleMeshPlanet`** (res fissa) = fallback finale + proxy della mappa.
+DISCIPLINA: le feature di RESA nuove (materiali PBR, eclissi GPU...) vanno SOLO sul renderer autoritativo, i fallback
+restano congelati. Walker/gravità/collisione NON dipendono dal renderer: leggono `PlanetTerrain.SampleHeight` (una
+sola verità; il morph è puramente visivo e vale 0 da vicino, dove mesh e collisione combaciano).
 
 **Crateri: geometria vera nell'heightfield** (`CraterTerrainLayer`: composizione additiva, griglia 3D hashata
 seam-free, profilo a **legge di potenza** con bordo netto regolabile `rimSharpness` 1=cono…4=quasi tagliente)
@@ -107,8 +101,8 @@ geometria+normali calcolate in `PlanetHeight.compute` e disegnate **dai buffer s
 sub-mm col walker. **COLORE calcolato nel fragment dalla ricetta** (NON texture bakate; vedi [[wanderer-rendering-roadmap]]):
 suolo/macro/minerali/vette/bacini/mare; maria/vette seguono la quota di BASE (non i crateri). **Normali ANALITICHE**.
 Cuciture agli spigoli del cubo chiuse facendo **sovrapporre le facce di una cella** (lo snap a lattice terrazzava i
-versanti dei crateri → rimosso). **PROSSIMO:** resa GPU IN GIOCO (B1) · materiali per pendenza/quota + triplanare + PBR
-(look SC/ED) · il GIOCO (teletrasporto, VERBO). Vedi `TODO.md`, [[wanderer-rendering-roadmap]], [[wanderer-terreno-strategia]].
+versanti dei crateri → rimosso). **PROSSIMO:** materiali per pendenza/quota + triplanare + PBR (look SC/ED) · il
+GIOCO (teletrasporto, VERBO). Vedi `TODO.md`, [[wanderer-rendering-roadmap]], [[wanderer-terreno-strategia]].
 
 **Rifiniture editor (sessione 3 giu):**
 - **Modo luce, tasto `L`** (`EditorLightMode`): **ancorata** (default — sole fisso, il pianeta non gira → orbiti
@@ -315,7 +309,7 @@ non mesh. I rocciosi usano il **quadtree CDLOD** (vedi "Stato attuale").
 
 **PRIORITÀ ATTUALE (5 giu 2026, esplicita di Dario): resa grafica + qualità + performance.** Il **VERBO /
 mini-loop di gioco è IN FONDO alla lista** (resta l'MVP a tendere, ma NON è la priorità ora). Ordine: (1)
-ottimizzazioni di resa/qualità (es. quadtree 2:1 → niente skirt → Cull Back) → (2) materiali PBR / look SC-ED
+ottimizzazioni di resa/qualità (es. spaccare il god-object, fonte unica altezza) → (2) materiali PBR / look SC-ED
 → (… molto dopo) il GIOCO. **Le migliorie di MARGINE/perf chiaramente utili si fanno PROATTIVAMENTE** (dopo le
 priorità più alte), non si rimandano in attesa che "la macchina soffra" — il "misura prima" vale solo per la
 DIAGNOSI del collo e per non ri-architettare su un'intuizione.
@@ -327,7 +321,7 @@ FATTO: hand-off di gravità, mappa+selezione, **viaggio fra corpi + match-veloci
 **autopilota**, **editor RICCO (processi ordinati: crateri/mari geometrici/tettonica)**, **quadtree CDLOD**, **corpi
 (Pianeta, Cetra, Luna6, Valentina2) astratti in SolarSystemSetup**, **GPU per l'editor Tappe 1-3 (anteprima GPU completa: geometria+colore+normali a parità)** —
 puoi volare da un corpo all'altro, atterrare, ripartire. MANCANO: il teletrasporto, il VERBO, altri corpi diversi.
-**PROSSIMO:** resa GPU IN GIOCO (B1) · materiali per pendenza/quota + PBR (SC/ED) · il GIOCO. Vedi `TODO.md` / [[wanderer-rendering-roadmap]].
+**PROSSIMO:** spaccare il god-object (`SlabPool`+`PlanetLodTree`) · fonte unica altezza · materiali per pendenza/quota + PBR (SC/ED) · il GIOCO. Vedi `TODO.md` / [[wanderer-rendering-roadmap]].
 
 ## Come si avvia
 
@@ -353,7 +347,7 @@ World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di Terrain
            CraterTerrainLayer— processo "bombardamento": crateri additivi, griglia 3D hashata; profilo a legge di potenza (rimSharpness)
            Noise3D           — gradient noise (Perlin) CPU per la forma della mesh
            PlanetMeshBuilder — cube-sphere; ComputeFaceData (thread-safe) + CreateMesh (main thread); FaceAxes/ParamToDir
-           PlanetQuadtree    — RENDERER attivo: chunked LOD CDLOD (geomorph, skirt, cache LRU, async). Init(terrain, faceMats, cam)
+           PlanetQuadtree    — FALLBACK CPU: chunked LOD CDLOD (geomorph, cache LRU, async). Init(terrain, faceMats, cam)
            SingleMeshPlanet  — 6 facce, niente LOD, build su thread + proxy. FALLBACK (useQuadtree=OFF)
            GpuHeightBaker    — calcola le altezze sulla GPU (PlanetHeight.compute) per il quadtree. Parità col walker
            GpuShapeBuffers   — UNICA fonte dei parametri GPU: pipeline ORDINATA (buffer (tipo,indice) + buffer per-tipo crateri/mari/tettonica+placche). Build(cs,terrain,kernels)
@@ -522,30 +516,19 @@ vicino all'origine di Unity → la precisione non degrada mai.
   quadtree LOD. Nota di coerenza: il walker segue `SampleHeight` (Noise3D, CPU)
   mentre il displacement userebbe `fbmRelief` (HLSL) → il giocatore "fluttua" sui
   bump nuovi finché le due altezze non si uniscono.
-- **Quadtree CDLOD: è il renderer GIUSTO per i corpi rocciosi (era accantonato per errore).** La mesh singola a
-  res fissa ha un MURO di risoluzione: da vicino i crateri si sfaccettano e non puoi avere bordi nitidi
-  calpestabili. Il quadtree (chunked LOD + geomorph + skirt) dà geometria vera view-dependent → look Elite/Star
-  Citizen. Era stato tolto pensando "a questa scala la mesh singola basta": sbagliato appena servono crateri
-  nitidi a terra. Lo shader teneva già il geomorph nel vert → riesumarlo (`git show d798107:.../PlanetQuadtree.cs`)
-  è stato il 90% del lavoro. NON ri-accantonarlo.
-- **Geomorph: il vertice COMPLETA la morph verso il genitore entro la PROPRIA distanza di split**, non a quella di
-  merge. `mf = saturate((d − splitDist·(1−range))/(splitDist·range))`. Così quando una patch arriva al suo limite —
-  dove può confinare con una più grossa — è già sulla forma del genitore (= la forma della vicina) → i gradini si
-  chiudono. Se completa più tardi (1.4·splitDist) resta di dettaglio dove la vicina è già grossa → scalino.
-- **Skirt: la profondità NON è arbitraria, è il salto di morph del bordo.** Il gap massimo a un confine di LOD è
-  `|delta di morph|` del vertice dispari (scarto fra forma fine e forma del genitore), l'unica cosa che muove quei
-  vertici. `skirtDrop = max(worldSize·skirtFactor, maxEdgeMorphDelta·2)`, clamp [3, worldSize] → niente fessure per
-  costruzione. Lo skirt deve anche **morfare col bordo** (stesso delta) e avere **normale radiale** (verso l'alto),
-  o: crepa sopra lo skirt durante il morph, e lametta verticale scura ai confini.
-- **Stitch di LOD (transizioni di shading ai confini): ACCANTONATO.** Niente fessure/buchi, ma restano "scalini" di
-  shading dove due livelli si toccano (peggio coi salti di 2+ livelli: l'albero non è bilanciato). Il fix definitivo
-  è il **quadtree bilanciato 2:1** (vicini ≤ 1 livello → il morph di un livello basta; si possono togliere gli skirt).
-  Deciso ma RIMANDATO: ci si è persi troppo tempo, si va avanti col gioco.
-- **`MaterialPropertyBlock` NON guida lo stato fisso `Cull [_Cull]` in built-in (5 giu 2026).** Tentato il cull-split
-  (interno Cull Back + skirt Cull Off in 2 draw) impostando `_Cull` via MPB per-draw: NON funziona (verificato — con
-  `interiorCull=1`/Front il pianeta restava visibile, segno che il Cull non cambiava). Il `_Cull` lo guida solo il
-  **MATERIALE** → servono DUE MATERIALI (stessi buffer/uniform, `_Cull` diverso). L'MPB resta valido per gli UNIFORM,
-  non per lo stato fisso. `interiorCull=1` (l'interno è Front-facing; con 2/Back le geometrie si ribaltano).
+- **Quadtree CDLOD: è il renderer GIUSTO per i corpi rocciosi.** La mesh singola a res fissa ha un MURO di
+  risoluzione (da vicino i crateri si sfaccettano, niente bordi nitidi calpestabili); il quadtree dà geometria
+  view-dependent → look Elite/SC. NON ri-accantonarlo.
+- **Crack-free = MORPH CONTINUO; skirt/2:1/stitch tutti provati e RIMOSSI (6 giu).** Il vertice completa la morph
+  verso il genitore alla distanza di **MERGE** (`mergeDist = 2·splitDist`): `mf = saturate((d − mergeDist·(1−range))/
+  (mergeDist·range))`. Al confine la foglia fine è sulla forma del genitore = quella del vicino grosso → niente
+  gradino. RICHIEDE confini netti (**`mergeHysteresis=1`**): una banda morta farebbe morfare i due lati a misure
+  diverse → crepe. (Errore storico, non rifare: il morph completava alla PROPRIA distanza di split → ogni foglia
+  stava sempre sulla forma del genitore = crepe; e skirt/stitch/2:1 erano toppe che combattevano l'architettura.
+  Le crepe che restavano NON erano il LOD ma la RICETTA — vedi blocco 6 giu + principio C0.)
+- **`MaterialPropertyBlock` NON guida lo stato fisso `Cull [_Cull]` in built-in.** Verificato: il `_Cull` via MPB
+  per-draw NON cambia (l'MPB vale per gli UNIFORM, non per lo stato fisso) → il `_Cull` lo guida solo il **MATERIALE**.
+  Ora un solo materiale col suo `_Cull` (`interiorCull=1`/Front: l'interno è Front-facing; con 2/Back si ribalta).
 - **Spuntoni rari in volo veloce = fetta del pool con la geometria di una REGIONE PRECEDENTE (churn evict→refill).**
   Il vertice ha lunghezza ~giusta ma DIREZIONE sbagliata → una rete sola-magnitudine non lo vede. Cura: rete
   **direzione-aware** (`_DirOfInstance` = direzione-centro del nodo per istanza; il vertex collassa chi devia in
@@ -556,28 +539,13 @@ vicino all'origine di Unity → la precisione non degrada mai.
   positivo** (`max(h, base·0.2)`), NaN/Inf→base. **VA MESSO IN ENTRAMBE le implementazioni dell'altezza** (HLSL
   `SampleHeightD` + C# `PlanetTerrain.SampleHeight`) o walker e resa divergono (esempio vivo del rischio #17 dell'audit:
   fonte altezza duplicata a mano). La causa a monte è una RICETTA che scava oltre il raggio (l'engine ora lo regge).
-- **[STORICO — SUPERATO dal blocco "6 giu" in cima: gli spuntoni/crepe NON erano skirt né 2:1, erano la RICETTA
-  (crateri/tettonica), e il LOD è ora CDLOD puro senza skirt. Tieni questo solo come cronaca della diagnosi sbagliata.]**
-  Spuntoni neri nei crateri PROFONDI da LONTANO (Valentina2): a lungo attribuiti agli SKIRT (toggle `DrawSkirts=false`),
-  con il segnale "**PEGGIORAVANO con PIÙ tassellatura**" → si pensava a un artefatto che
-  **scala col NUMERO di nodi** = gli **skirt** ai confini di LOD. (Da vicino, LOD uniforme, niente confini in vista →
-  spariscono.) Perché spuntano: lo skirt è una tendina abbassata RADIALMENTE (`sp = p − dir·worldSize·0.5`); su una parete
-  di cratere RIPIDA la tendina radiale non si nasconde dietro il vicino (grossolano, a quota molto diversa) → **spunta fuori
-  a sega**, e più nodi = più tendine. Lo `skirtDrop` più profondo PEGGIORA (sporge di più), quindi NON è "skirt troppo
-  corto". **CURA VERA = quadtree 2:1 bilanciato (#14 roadmap): vicini ≤1 livello → il geomorph (che morfa 1 livello) chiude
-  i gap da solo → skirt RIMOSSI del tutto → niente spuntoni e niente fessure, + Cull Back unico (perf).** Il verde nei fondi
-  = **mare acido** di Valentina2, non un bug.
-  - **DUE TENTATIVI FALLITI (revertiti, NON ri-fare).** (1) **"mipmap geometrico" nelle posizioni della fetta** — attenuava
-    le feature sub-cella in `Accumulate` con un `detail(lodCell)`. Sbagliato perché (a) il **ternario `(lodCell>0)?…/lodCell…:1`
-    su Metal NON corto-circuita**: il path di parità passa `0.0` LETTERALE → `2.5*0.0=0` costant-foldato → divisione per zero
-    valutata → `detail` spazzatura → parità ROTTA + warning (regola: **mai una /0 in un ramo del `?:`**, guarda il denom con
-    `max(x,eps)`); (b) ERRORE DI FONDO: band-limitare nelle POSIZIONI della fetta viola "la fetta È la verità esatta" → il
-    test di parità (`VerifyParityRuntime` legge `posBuf` vs walker) diverge PER COSTRUZIONE a LOD grossolano. **Gli effetti
-    solo-visivi vanno nel vertex shader / nel LOD (come il geomorph), MAI cotti nelle posizioni della fetta.** (2) **LOD
-    slope-aware** (boost di `splitDist` sul rilievo) — premessa sbagliata (non era sotto-tassellatura): ha aggiunto nodi →
-    PIÙ skirt/confini → spuntoni PEGGIORI. (3) **soft-floor** (smooth-max al posto di `max(h,0.2·base)`) — un raccordo
-    morbido aggiunge un BIAS di ~0.5m ovunque → sfalsa la maschera del mare (il pelo `seaSurf` è catturato PRIMA del clamp)
-    → **il mare spariva**. Il clamp resta DURO (no-op esatto sopra il fondo).
+- **Effetti SOLO-VISIVI nel vertex shader / LOD, MAI cotti nelle posizioni della fetta (trappole revertite, NON ri-fare).**
+  (1) **"mipmap geometrico" nelle posizioni** (attenuare le feature sub-cella in `Accumulate`): band-limitare nelle
+  POSIZIONI viola "la fetta È la verità esatta" → `VerifyParityRuntime` (posBuf vs walker) diverge PER COSTRUZIONE a LOD
+  grossolano. + trappola Metal: il **ternario `(x>0)?…/x…:1` NON corto-circuita** → il `0.0` LETTERALE del path parità →
+  div-by-zero valutata → spazzatura (regola: **mai una /0 in un ramo del `?:`**, denom con `max(x,eps)`). (2) **soft-floor**
+  (smooth-max al posto di `max(h,0.2·base)`): aggiunge un BIAS ~0.5m ovunque → sfalsa la maschera del mare (il pelo `seaSurf`
+  è catturato PRIMA del clamp) → **il mare spariva**. Il clamp resta DURO (no-op esatto sopra il fondo).
 - **Colore dalla ricetta.** `PlanetBaker.BuildMaterial` DEVE impostare `_SoilMean/_MariaColor/_MariaScale/_MariaStr`
   da `terrain.Recipe`, o un corpo marziano esce grigio (lo shader resta sul default lunare). L'editor li spingeva a
   mano; in gioco serve qui.
