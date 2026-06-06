@@ -1,7 +1,16 @@
 # Wanderer — TODO
 
-Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **6 giugno 2026** (sessione: CDLOD pulito crack-free,
-guardie C0 nelle pipeline, strumenti di diagnosi, rimozione skirt). Dettaglio tecnico nel `CLAUDE.md`.
+Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **6 giugno 2026** (sessioni UX: sonda, modelli
+intercambiabili, menu ESC, multi-sistema/interstellare, mappa, effetto velocità, loading). Dettaglio tecnico nel `CLAUDE.md`.
+
+> ## 🔴 PROSSIMA SESSIONE → vedi **`NEXT_SESSION_PROMPT.md`** (piano dettagliato, concordato con Dario)
+> **Direttiva di fase:** basi ULTRA solide → si **riscrive liberamente** per la perfezione, niente pezze (memoria
+> `riscrivere-per-perfezione`). Due blocchi, in ordine:
+> 1. **Mappa multi-sistema** con SPAZIO-MAPPA LOCALE (precisione a qualunque distanza) + proxy STATICI di tutti i sistemi
+>    dai `SystemRecipe` (Keplero) + centra/scala sul sistema in vista + **camera a ORBITA LIBERA** (no snap).
+> 2. **Architettura a SCENE + PREFAB + loading ASYNC** (risolve il loading da ~1 min e dà la "scena con asset"):
+>    Loading scene leggera → `LoadSceneAsync` in background + warm-up shader. Il compile COMPUTE su Metal resta l'unico
+>    pezzo sincrono irriducibile.
 
 > ## 🟢 PARTI DA QUI (6 giu+)
 > **Motore terreno = CDLOD PURO, crack-free.** Le "crepe/tagli" di Valentina2, inseguite per settimane, sono RISOLTE

@@ -265,3 +265,46 @@ Sessione di riordino strutturale e robustezza (priorità: resa/qualità/performa
 - **Restano per la sessione a gioco aperto** (shader/feel non verificabili offline): Rendering/Shader/Prodotto ad A
   (colore per-vertice, `_HAS_SEA`, eclissi GPU, PBR, cielo/bloom/atmosfera), #8, uint region-stamp (toglie il limite
   ~15 corpi), occupancy, e le Tappe 3-5 del multi-sistema. Piani in `AUDIT3.md`, `STARSYSTEM_DESIGN.md`, `TODO.md`.
+
+---
+
+## 6 giugno 2026 (pomeriggio/sera) — sessioni UX: sonda, modelli, menu, multi-sistema, mappa, interstellare
+
+Tante sessioni interattive di rifinitura visiva/UX (commit logici incrementali). In ordine tematico:
+
+### Sonda alla Outer Wilds + sistema MODELLI intercambiabili
+- **Sonda** (`Probe`/`ProbeController`): P lancia · V vista 1ª persona grandangolo+free-look (mesh spenta, orientamento
+  persistente tra i toggle) · K richiama · G foto. Gravità sommata + collisione analitica + `Loose`+`ExtraViewpoints`;
+  posata = kinematica e ri-derivata dal corpo ogni FixedUpdate (niente sprofondamento). Corpo = sfera ad alta-res con
+  **solchi veri incisi** (equatore + tropici) + **luce** che illumina il TERRENO GPU (luce ausiliaria manuale nel
+  terrain shader, come la torcia: profilo morbido con plateau, meno blu, niente hotspot) + **alone** additivo (billboard).
+  La luce resta accesa anche in vista sonda (illumina l'ambiente che guardi). Foto in `Documenti/Wanderer/Foto`.
+- **Sistema modelli** (`CharacterModel` ScriptableObject astratto + `ProceduralOminoModel`/`PrefabCharacterModel` +
+  `ModelHost`): modelli **autorabili e INTERCAMBIABILI a runtime** (`SetModel`). Giocatore = omino del suo colore (NUDO
+  senza bombole, non vola); raccolta la tuta → modello col casco + zaino. Avatar su **layer nominato** (`EnsureLayers`)
+  escluso dalla camera del giocatore (1ª persona pulita). Torcia disponibile da subito. Mirino a inversione del fondo.
+
+### Menu, HUD, effetto velocità
+- **Menu di PAUSA (ESC)**: Riprendi/Opzioni/Comandi/Esci, ESC torna indietro a livelli, conferma su Esci, flag in
+  Diagnosi per spegnerlo (screenshot). HUD nascosto coi menu aperti. Schermata Comandi a sezioni + tasti-chip. Slider
+  con traccia e maniglia disegnate a mano (allineate). Slider/flag grandi e leggibili.
+- **Effetto "velocità della luce"** (`SpeedLines`): righe radiali dalla DIREZIONE DI MOTO (non la vista), da 13 km/s,
+  che si attenuano (non si invertono) rallentando, convergono guardando indietro, senza buco a 90°; solo camera giocatore.
+
+### Multi-sistema, interstellare, mappa, navigazione
+- **Targeting UNIFICATO** (`SolarSystem.TryGetTarget` → `TargetInfo`): UN solo reticolo per corpo O sistema distante →
+  Vega/Helios ereditano parentesi/nome/distanza/velocità/centraggio/autopilota. Autopilota anche verso un SISTEMA (frena
+  forte, tetto alto per la crociera). `SolarSystem` è il gestore GLOBALE (non il sistema-casa; nome legacy).
+- **Precisione interstellare**: floating origin VERA — in crociera verso un sistema l'origine si **ri-centra sul
+  giocatore** oltre ~50 km → pos-scena sempre piccola (niente jitter né errori di proiezione a milioni di metri).
+- **Mappa**: stelle distanti cliccabili (waypoint), pan col trascinamento sinistro, zoom verso il cursore, rotazione
+  senza snap, rebuild visuali al risveglio di un sistema, dimensione corpi in scala (rimpiccioliscono zoomando), colore
+  stella corretto. **Stella sempre visibile** oltre il far-clip (`StarRenderClamp`: avvicinata otticamente, dimensione
+  minima). *(La mappa multi-sistema completa — proxy statici di tutti i sistemi + spazio-mappa locale + camera a orbita
+  libera — è il primo blocco della prossima sessione, vedi `NEXT_SESSION_PROMPT.md`.)*
+
+### Loading
+- Schermata di caricamento (`LoadingScreen`): spinner + messaggi buffi, costruzione in coroutine; verifiche di parità
+  GPU per-corpo (readback sincroni) spostate dietro `GpuPlanetRenderer.VerifyGpu` (default OFF) → niente più stallo da
+  readback. **Residuo onesto:** la compilazione della pipeline COMPUTE su Metal è sincrona sul main thread → la vera
+  soluzione (loading animato durante il caricamento) è l'architettura a scene+async, prossima sessione.

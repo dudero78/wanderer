@@ -15,6 +15,23 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 
 ## Stato attuale (vedi git log per il dettaglio)
 
+> **AGGIORNAMENTO 6 giu 2026 — sessioni UX (PREVALE; piano prossimi passi in `NEXT_SESSION_PROMPT.md`, dettaglio in `CHANGELOG.md`):**
+> - **DIRETTIVA DI FASE:** basi ULTRA solide → si **riscrive liberamente** per la perfezione, **niente pezze** (solo molto
+>   più avanti si preserverà l'esistente). Vale per ogni modifica ora.
+> - **Sonda OW** (P/V/K/G) + **sistema MODELLI intercambiabili a runtime** (`CharacterModel` SO astratto + `ModelHost`:
+>   procedurale oggi, prefab autorato domani; giocatore↔tuta). Avatar su **layer nominato** (1ª persona pulita).
+> - **Menu ESC** (`PauseMenu`: Riprendi/Opzioni/Comandi/Esci, indietro-a-livelli, flag Diagnosi). Effetto **velocità**
+>   (`SpeedLines`, dai 13 km/s, ancorato al moto). Sonda **illumina il terreno GPU** (luce ausiliaria manuale nel shader).
+> - **TARGETING UNIFICATO** `SolarSystem.TryGetTarget`→`TargetInfo` (corpo O sistema distante): autopilota/reticolo/HUD
+>   ereditano tutto → Vega/Helios selezionabili come i pianeti. **`SolarSystem` = gestore GLOBALE** (non il sistema-casa).
+> - **Interstellare:** floating origin VERA (origine RI-CENTRATA sul giocatore in crociera, `SwitchAnchor`/deepMode →
+>   pos-scena sempre piccola, niente jitter/errori a milioni di metri). Autopilota anche verso un SISTEMA.
+> - **Stella sempre visibile** oltre il far-clip (`StarRenderClamp`). **Loading:** verifiche parità GPU dietro
+>   `GpuPlanetRenderer.VerifyGpu` (default OFF). Il freeze residuo = compile pipeline COMPUTE su Metal (sincrono, main thread).
+> - **PROSSIMA SESSIONE (concordata):** (1) **mappa multi-sistema** = riscrittura con spazio-mappa LOCALE (precisione) +
+>   proxy STATICI di tutti i sistemi dai `SystemRecipe` + camera a ORBITA LIBERA; (2) **scene + prefab + loading async**
+>   (risolve il loading da ~1 min e dà la "scena con asset"). Vedi `NEXT_SESSION_PROMPT.md`.
+
 > **AGGIORNAMENTO — SESSIONE AUTONOMA (PREVALE; dettaglio in `REPORT_SESSIONE_AUTONOMA.md`):**
 > - **LIMITE DI ~7 CORPI VIVI: TOLTO.** Il region-stamp anti-spuntone è ora **uint** (era float, mantissa 24 bit):
 >   `PlanetLodTree.RegionId`→uint, buffer `_RegionOfInstance` (uint) dedicato + `_SlabRegion` uint, confronto INTERO
