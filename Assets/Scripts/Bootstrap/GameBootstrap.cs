@@ -78,6 +78,7 @@ public class GameBootstrap : MonoBehaviour
         GpuPlanetRenderer.CullSplit = useCullSplit;      // overdraw: interno Cull Back + skirt Cull Off (2 materiali)
         GpuPlanetRenderer.InteriorCull = interiorCull;
         GpuPlanetRenderer.DebugView = debugView;          // diagnosi superficie (poi pilotabile live dal menu à)
+        GpuPlanetRenderer.SuppressDraw = false;           // la mappa lo mette true: con domain-reload OFF sopravvivrebbe fra le sessioni Play → pianeta GPU muto. Azzera all'avvio scena
         PlanetRecipe.DebugDisableTypes = debugDisablePipelines;   // diagnosi: salta tipi di pipeline (build-time, GPU+CPU)
         var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody);
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);

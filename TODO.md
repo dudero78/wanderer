@@ -20,14 +20,21 @@ guardie C0 nelle pipeline, strumenti di diagnosi, rimozione skirt). Dettaglio te
 > keyword `multi_compile PLANET_DEBUG_VIEW`, da GameBootstrap (`debugView`) e menu **à → "Diagnosi"** live. **Disabilita-
 > pipeline** `PlanetRecipe.DebugDisableTypes` (bitmask 1/2/4, GameBootstrap `debugDisablePipelines`, GPU+CPU, parità ok).
 >
-> **ROADMAP (riconciliata; AUDIT2.md storico, il 2:1 è morto):** **#18 spaccare il god-object** (`SlabPool`+`PlanetLodTree`
-> da `GpuPlanetRenderer`) → **#17 fonte unica altezza** (gen HLSL dal C# — la parità a mano è error-prone, ha morso tutta
-> la sessione) → **#15 fisica FixedUpdate+tick** → **#16 layer StarSystem**. Rimandato: colore per-vertice (col PBR).
+> **ROADMAP (aggiornata 6 giu — vedi `AUDIT3.md`):** ✅ **#18 god-object SPACCATO** (`SlabPool` + `PlanetLodTree` +
+> `GpuPlanetRenderer` orchestratore). ✅ **#17 parità altezza resa SICURA** (`PlanetParityGate` automatico a ogni
+> ricompila su tutte le ricette; il transpiler C#→HLSL vero resta da fare). ✅ **#15 era già fatto** (fisica in
+> FixedUpdate). **#16 layer multi-sistema** → piano a tappe in `STARSYSTEM_DESIGN.md`. **PROSSIMO = RESA:** colore
+> per-vertice (3 fbm residui nel fragment = prerequisito PBR) + keyword `_HAS_SEA` + eclissi nel renderer autoritativo
+> → materiali per pendenza/quota + PBR. I 3 toccano shader: vanno landati con UN controllo a gioco aperto (vedi `AUDIT3.md`).
 >
-> ### 🔴 ANCORA APERTI — 3 bug nell'EDITOR di pianeti (separati dal gioco)
-> (1) il livello del mare non allaga in palla d'acqua al max (sospetto ordine TETTONICA→MARE→CRATERI); (2) trasparenza
-> "al contrario" + obiettivo "limpidezza max = TUTTI i fondali visibili anche profondi"; (3) Bake da editor → il pianeta
-> SPARISCE. La RESA in gioco usa la RICETTA (non il bake) → ribakare non serve per forma/colore.
+> ### 🔴 3 bug nell'EDITOR di pianeti (separati dal gioco)
+> (1) **APERTO** — il livello del mare non allaga in palla d'acqua al max (sospetto ordine TETTONICA→MARE→CRATERI).
+> (2) **PARZIALE** — trasparenza "al contrario" + obiettivo "limpidezza max = TUTTI i fondali visibili anche profondi";
+> lo slider "limpidezza" ora si grigia in anteprima CPU (la trasparenza è solo GPU), ma il modello Beer-Lambert va
+> ripensato a clarity max (shader, da fare a gioco aperto). (3) **FIX CANDIDATO APPLICATO (da verificare)** — Bake da
+> editor faceva sparire il pianeta: il bake non ripristinava il render target (`PlanetBaker` lasciava la GPU legata a
+> una RT poi rilasciata) → aggiunto `cb.SetRenderTarget(CameraTarget)`. Verifica: apri editor, premi Bake.
+> La RESA in gioco usa la RICETTA (non il bake) → ribakare non serve per forma/colore.
 
 > ## (storico) 🔴 i 3 BUG dell'EDITOR — RISOLTI (vedi sopra)
 > Tutti e tre nell'**editor di pianeti** (scena "Apri editor pianeti"), su Valentina2 (mare + tettonica + crateri):

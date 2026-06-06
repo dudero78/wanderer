@@ -213,3 +213,32 @@ confini di LOD (far morfare il bordo fine verso il nodo grosso vicino).
 **Più avanti:** materiali per pendenza/quota/curvatura + triplanare + PBR (look Star Citizen / Elite); il
 **VERBO** del gioco (atterra · cammina · raccogli · vai altrove · puoi fallire); altri corpi diversi;
 teletrasporto. Giganti gassosi e stelle come volumi (secondo renderer volumetrico).
+
+---
+
+## 2026-06-06 — Refactor #18, gate di parità #17, Audit #3
+
+Sessione di riordino strutturale e robustezza (priorità: resa/qualità/performance).
+
+- **#18 — spaccato il god-object.** `GpuPlanetRenderer` (874 righe) diviso in tre classi a responsabilità unica:
+  **`SlabPool`** (memoria VRAM condivisa + bookkeeping degli slot: free-list, cache LRU, refcount),
+  **`PlanetLodTree`** (quadtree CDLOD + selezione LOD + horizon culling + raccolta foglie visibili), e
+  `GpuPlanetRenderer` ridotto a orchestratore (compute via `ISlabFiller` + draw + luce + gate di parità).
+  Spostamento puro, behavior-preserving (confronto metodo-per-metodo con l'originale). Tolto il morto
+  `BindSurfaceBuffers`; chiuso un leak latente (`sSlabRegion` rilasciato ma non azzerato).
+- **#17 — parità altezza GPU↔CPU resa SICURA.** `PlanetParityGate` (nuovo): a ogni ricompila, in editor, confronta
+  l'altezza C# con quella GPU su **tutte le ricette ufficiali** + casi-limite → la divergenza C#↔HLSL si vede
+  subito in console, non più solo entrando in Play. Il test manuale (`PlanetGpuParityTest`) ora copre le ricette
+  ufficiali. Il single-source vero (transpiler C#→HLSL) resta in lista; la duplicazione ora è protetta.
+- **#15 — verificato già fatto:** `PlanetWalker` legge input in `Update` e fa tutta la fisica in `FixedUpdate`.
+- **Audit #3** (tavolo di esperti, 7 lenti → verifica avversariale → riconciliazione → sintesi, in `AUDIT3.md`).
+  Correzioni sicure applicate: reset di `SuppressDraw` all'avvio scena; il gate di parità ora pesca NaN/Inf;
+  log del frame-pesante solo in sviluppo (non amplifica più lo stutter in ship); rimossa un'alloc per-frame
+  (`Stopwatch`→`GetTimestamp`); `SunLight.OnDestroy` azzera `Instance`; la torcia si cerca una volta sola;
+  **ripristino del render target dopo il bake** (probabile causa del bug editor "il pianeta sparisce dopo il
+  Bake"); **isteresi sul corpo di riferimento del walker** (niente più sobbalzo d'inquadratura fra i gemelli);
+  slider "limpidezza" grigio in anteprima CPU.
+- **Multi-sistema (#16):** mandato a un secondo tavolo ristretto → piano a tappe additivo in `STARSYSTEM_DESIGN.md`
+  (la Tappa 1 non cambia il comportamento del sistema singolo).
+- **Lasciati pronti ma non applicati** (toccano gli shader, non verificabili offline): keyword `_HAS_SEA`, colore
+  per-vertice (prerequisito PBR), eclissi nel renderer autoritativo. Dettagli in `AUDIT3.md`.

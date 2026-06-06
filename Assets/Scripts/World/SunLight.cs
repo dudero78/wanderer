@@ -16,6 +16,7 @@ public class SunLight : MonoBehaviour
     public Transform planet;
 
     void Awake() { Instance = this; }
+    void OnDestroy() { if (Instance == this) Instance = null; }   // dopo un domain reload evita un Instance stale → RefreshLighting cadrebbe su luce di default
 
     void LateUpdate()
     {

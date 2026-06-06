@@ -567,6 +567,8 @@ public class PlanetWalker : MonoBehaviour
         return pv - tvs;
     }
 
+    CelestialBody nearestSticky;   // isteresi del riferimento (anti flip-flop fra corpi gemelli)
+
     CelestialBody Nearest()
     {
         var s = SolarSystem.Instance;
@@ -580,6 +582,15 @@ public class PlanetWalker : MonoBehaviour
             float d = (b.transform.position - rb.position).sqrMagnitude;
             if (d < bd) { bd = d; best = b; }
         }
+        // ISTERESI come SolarSystem.NearestBody: fra due gemelli equidistanti (terra-test3/Valentina2) l'argmin puro
+        // oscilla ogni frame → up/restHeight/Altitude/FromToRotation sobbalzano. Si cambia riferimento solo se il nuovo
+        // è più vicino di ≥10%. La FORZA di gravità (somma vettoriale su tutti i corpi) è calcolata altrove → invariata.
+        if (nearestSticky != null && best != nearestSticky)   // != null è false anche se il corpo è stato distrutto (Unity)
+        {
+            float ds = (nearestSticky.transform.position - rb.position).sqrMagnitude;
+            if (bd > ds * 0.81f) best = nearestSticky;   // 0.9² → banda morta del 10% sulla distanza
+        }
+        nearestSticky = best;
         return best;
     }
 }

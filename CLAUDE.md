@@ -37,8 +37,14 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 > - **Metodo (lezione DURA ripetuta):** per un artefatto visivo, **costruisci subito il debug-view che lo localizza**
 >   (colora per fetta/livello/faccia) invece di teorizzare. ~15 turni persi a inseguire teorie; la svolta è arrivata
 >   solo col "colora ogni fetta" (taglio DENTRO un colore = geometria/ricetta, non LOD).
-> - **PROSSIMO (roadmap riconciliata):** #18 spaccare god-object (`SlabPool`+`PlanetLodTree`) → #17 fonte unica altezza
->   (gen HLSL dal C# — la parità a mano è error-prone) → #15 fisica FixedUpdate → #16 StarSystem. Il #14 è morto.
+> - **FATTO (6 giu, Audit #3):** **#18 god-object SPACCATO** → `SlabPool` (memoria VRAM + bookkeeping slot) +
+>   `PlanetLodTree` (quadtree CDLOD + selezione LOD) + `GpuPlanetRenderer` orchestratore (compute via `ISlabFiller`
+>   + draw + luce). Spostamento puro, verificato metodo-per-metodo. **#17 reso SICURO**: `PlanetParityGate` gira la
+>   parità altezza GPU↔CPU su tutte le ricette ufficiali **a ogni ricompila** (il transpiler C#→HLSL resta da fare,
+>   ma la duplicazione a mano ora è protetta). **#15 era già fatto** (walker: input in Update, fisica in FixedUpdate).
+> - **PROSSIMO (roadmap Audit #3, vedi `AUDIT3.md`):** la RESA — keyword `_HAS_SEA`, **colore per-vertice** (3 fbm
+>   residui nel fragment = prerequisito PBR), eclissi nel renderer autoritativo → poi materiali pendenza/quota + PBR.
+>   In parallelo il **#16 layer multi-sistema** (piano a tappe additivo in `STARSYSTEM_DESIGN.md`). Il #14 è morto.
 >
 > **AGGIORNAMENTO 5 giu 2026 (delta sulle sezioni sotto, che possono essere datate):**
 > - **Resa GPU in gioco (B1) GIRA**: quadtree CDLOD su GPU + 1 draw indirect + colore procedurale + **BATCH FILL**
@@ -64,7 +70,10 @@ Funziona: floating origin + doppia precisione, orbita Kepleriana, **gravità rad
 **Renderer dei corpi rocciosi (gerarchia decisa — audit #2).** Quello AUTORITATIVO in gioco è
 **`GpuPlanetRenderer`**: quadtree **CDLOD puro** calcolato e disegnato **sulla GPU** (1 draw indirect per corpo, pool
 VRAM **CONDIVISO** fra i corpi, colore procedurale nel fragment) con **MORPH CONTINUO** nel vertex shader (crack-free,
-legge i vicini da `_VPos`, toggle `useGeomorph`) + horizon culling + cache LRU + LOD predittivo. **`PlanetQuadtree`**
+legge i vicini da `_VPos`, toggle `useGeomorph`) + horizon culling + cache LRU + LOD predittivo. **Spaccato in tre (#18,
+Audit #3):** `SlabPool` (memoria VRAM condivisa + free-list/cache LRU/refcount), `PlanetLodTree` (quadtree + selezione
+LOD + horizon culling + foglie visibili), e `GpuPlanetRenderer` orchestratore (compute via `ISlabFiller` + draw + luce
++ gate di parità). **`PlanetQuadtree`**
 (stesso CDLOD su CPU, mesh per nodo) è il **FALLBACK ESPLICITO** se la GPU non regge i compute — non è morto, è la
 garanzia "niente pianeta invisibile". **`SingleMeshPlanet`** (res fissa) = fallback finale + proxy della mappa.
 DISCIPLINA: le feature di RESA nuove (materiali PBR, eclissi GPU...) vanno SOLO sul renderer autoritativo, i fallback
@@ -321,7 +330,7 @@ FATTO: hand-off di gravità, mappa+selezione, **viaggio fra corpi + match-veloci
 **autopilota**, **editor RICCO (processi ordinati: crateri/mari geometrici/tettonica)**, **quadtree CDLOD**, **corpi
 (Pianeta, Cetra, Luna6, Valentina2) astratti in SolarSystemSetup**, **GPU per l'editor Tappe 1-3 (anteprima GPU completa: geometria+colore+normali a parità)** —
 puoi volare da un corpo all'altro, atterrare, ripartire. MANCANO: il teletrasporto, il VERBO, altri corpi diversi.
-**PROSSIMO:** spaccare il god-object (`SlabPool`+`PlanetLodTree`) · fonte unica altezza · materiali per pendenza/quota + PBR (SC/ED) · il GIOCO. Vedi `TODO.md` / [[wanderer-rendering-roadmap]].
+**PROSSIMO (Audit #3):** colore per-vertice (prerequisito PBR) + keyword `_HAS_SEA` + eclissi nel renderer autoritativo → materiali per pendenza/quota + PBR (SC/ED) · layer multi-sistema (`STARSYSTEM_DESIGN.md`) · il GIOCO. Vedi `AUDIT3.md` / `TODO.md` / [[wanderer-rendering-roadmap]].
 
 ## Come si avvia
 
@@ -349,6 +358,9 @@ World/     PlanetTerrain     — SampleHeight/SurfaceNormal: pipeline di Terrain
            PlanetMeshBuilder — cube-sphere; ComputeFaceData (thread-safe) + CreateMesh (main thread); FaceAxes/ParamToDir
            PlanetQuadtree    — FALLBACK CPU: chunked LOD CDLOD (geomorph, cache LRU, async). Init(terrain, faceMats, cam)
            SingleMeshPlanet  — 6 facce, niente LOD, build su thread + proxy. FALLBACK (useQuadtree=OFF)
+           GpuPlanetRenderer — RENDERER AUTORITATIVO in gioco: orchestratore (compute via ISlabFiller + draw indirect + luce + gate parità). Spaccato in #18
+           SlabPool          — pool VRAM CONDIVISO refcountato fra i corpi + bookkeeping slot (free-list, cache LRU, region-stamp). Estratto in #18
+           PlanetLodTree     — quadtree CDLOD su GPU: split/merge per distanza + horizon culling + morph + raccolta foglie visibili. Estratto in #18
            GpuHeightBaker    — calcola le altezze sulla GPU (PlanetHeight.compute) per il quadtree. Parità col walker
            GpuShapeBuffers   — UNICA fonte dei parametri GPU: pipeline ORDINATA (buffer (tipo,indice) + buffer per-tipo crateri/mari/tettonica+placche). Build(cs,terrain,kernels)
            GpuPlanetSurface  — anteprima GPU dell'editor: geometria+normali+colore sulla GPU, RenderPrimitivesIndexed dai buffer, NO readback (Tappe 1-3). Toggle G nell'editor

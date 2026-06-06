@@ -438,7 +438,13 @@ public class PlanetEditor : MonoBehaviour
                 p.seaClear = Toggle("Trasparente", "Limpido: si vede il fondale sommerso, TINTO dal colore dell'acqua (più scuro/saturo = meno visibile). Indipendente da Liquido (vale anche per il ghiaccio).", p.seaClear, ui, geometry: false, changed: out bool clearChg);
                 if (clearChg) colorDirty = true;
                 if (p.seaClear)
-                    p.seaClarity = Slider("  limpidezza (m)", "Quanto in PROFONDITÀ vedi il fondo: BASSA = torbida (solo le secche), ALTA = cristallina (anche il fondo profondo). Per più trasparenza ALZALA. Nota: anche un colore scuro/saturo nasconde il fondo.", p.seaClarity, 1f, 150f, ui, ref colorDirty);
+                {
+                    // la trasparenza (profondità per-vertice) si vede SOLO in anteprima GPU (tasto G); in anteprima CPU
+                    // il pelo è opaco → grigia lo slider lì, così l'UI non promette ciò che il path CPU non mostra.
+                    bool ge = GUI.enabled; GUI.enabled = gpuPreview;
+                    p.seaClarity = Slider(gpuPreview ? "  limpidezza (m)" : "  limpidezza (m) — solo in anteprima GPU (G)", "Quanto in PROFONDITÀ vedi il fondo: BASSA = torbida (solo le secche), ALTA = cristallina (anche il fondo profondo). Per più trasparenza ALZALA. Nota: anche un colore scuro/saturo nasconde il fondo.", p.seaClarity, 1f, 150f, ui, ref colorDirty);
+                    GUI.enabled = ge;
+                }
             }
             GUILayout.Space(8f * ui);
         }

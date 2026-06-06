@@ -185,6 +185,7 @@ public static class PlanetBaker
         cb.SetRenderTarget(rt);
         cb.ClearRenderTarget(true, true, Color.clear);
         cb.DrawMesh(bakeMesh, Matrix4x4.identity, maskMat, 0, 0);
+        cb.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);   // ripristina il target: senza, dopo il bake la GPU resta legata alla RT (poi rilasciata) → in editor la superficie sparisce (bug #3)
         Graphics.ExecuteCommandBuffer(cb);
         cb.Release();
         rt.GenerateMips();
@@ -212,6 +213,7 @@ public static class PlanetBaker
         cb.SetRenderTarget(rt);
         cb.ClearRenderTarget(true, true, new Color(0.5f, 0.5f, 1f, 1f));   // normale piatta di default
         cb.DrawMesh(mesh, Matrix4x4.identity, craterMat, 0, 0);
+        cb.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);   // ripristina il target: senza, dopo il bake la GPU resta legata alla RT (poi rilasciata) → in editor la superficie sparisce (bug #3)
         Graphics.ExecuteCommandBuffer(cb);
         cb.Release();
         rt.GenerateMips();
@@ -245,6 +247,7 @@ public static class PlanetBaker
         cb.SetRenderTarget(rt);
         cb.ClearRenderTarget(true, true, Color.clear);
         cb.Blit(null, rt, mat);
+        cb.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);   // ripristina il target: senza, dopo il bake la GPU resta legata alla RT (poi rilasciata) → in editor la superficie sparisce (bug #3)
         Graphics.ExecuteCommandBuffer(cb);
         cb.Release();
         rt.GenerateMips();
