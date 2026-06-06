@@ -44,6 +44,9 @@ public class SuitPickup : MonoBehaviour
         if ((player.position - groundPoint).sqrMagnitude <= pickupRadius * pickupRadius)
         {
             walker.EquipJetpack();
+            // il modello del giocatore "indossa la tuta": omino col CASCO (resta del colore del giocatore).
+            var avatar = player.GetComponentInChildren<PlayerAvatar>();
+            if (avatar != null) avatar.OnSuitEquipped();
             // Nascondi SUBITO: Destroy è differito a fine frame, senza questo la capsula ciano
             // emissiva (e la sua luce) renderizzerebbero un frame a distanza ravvicinata,
             // inondando lo schermo di ciano (il "rettangolo" alla raccolta).
