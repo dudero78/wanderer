@@ -103,10 +103,11 @@ int   _NN;            // vertici per lato del nodo (nodeRes+1)
 int   _NSlabOff;      // offset (in vertici) del primo vertice della fetta nel pool condiviso
 // REGION-STAMP: il fill scrive l'id REGIONE nella fetta (insieme alla geometria) → il vertex shader smaschera una fetta
 // che tiene ancora la geometria di una regione vecchia (churn). _SlabRegion[indice fetta] = id; per-nodo da uniform,
-// batch da job.misc (z = indice fetta, w = id). float per la fetta = id esatto (≤ 2^23).
-RWStructuredBuffer<float> _SlabRegion;
-int   _SlabIndex;      // indice della fetta da marchiare (path per-nodo)
-float _SlabRegionId;   // id regione da scrivere (path per-nodo)
+// batch da job.misc (z = indice fetta, w = id reinterpretato nei bit del float → asuint). UINT = id esatto fino a 2^32
+// → niente più limite ~7 corpi vivi (era float, mantissa 24 bit). Confronto INTERO esatto nel vertex shader.
+RWStructuredBuffer<uint> _SlabRegion;
+int  _SlabIndex;      // indice della fetta da marchiare (path per-nodo)
+uint _SlabRegionId;   // id regione UINT da scrivere (path per-nodo; SetInt ne passa i bit)
 
 // ---- LOD BATCH (un SOLO dispatch per molti nodi): invece di settare gli uniform e fare 1 dispatch PER NODO
 // (~centinaia di chiamate API/frame nel churn), i parametri per-nodo stanno in un buffer e si dispatcha una

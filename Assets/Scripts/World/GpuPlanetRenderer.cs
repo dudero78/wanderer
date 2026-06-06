@@ -63,7 +63,8 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     GraphicsBuffer idxBuf;                 // topologia di UNA fetta (griglia interna), condivisa
     GraphicsBuffer slabOfInstance;         // istanza visibile → indice di fetta
     GraphicsBuffer splitDistOfInstance;    // geomorph: splitDist per istanza, parallelo a slabOfInstance
-    GraphicsBuffer dirOfInstance;          // ANTI-SPUNTONE: direzione-centro del nodo per istanza (float4, w = id regione)
+    GraphicsBuffer dirOfInstance;          // ANTI-SPUNTONE: direzione-centro del nodo per istanza (float4, w inutilizzato)
+    GraphicsBuffer regionOfInstance;       // REGION-STAMP: id regione UINT atteso per istanza (confronto esatto col marchio della fetta → limite corpi via)
     GraphicsBuffer argsBuf;
     GraphicsBuffer.IndirectDrawIndexedArgs[] argsData = new GraphicsBuffer.IndirectDrawIndexedArgs[1];
     GpuShapeBuffers shape;
@@ -142,6 +143,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         slabOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         splitDistOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);
         dirOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 16);   // float4 (16B): evita la trappola Metal float3
+        regionOfInstance = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);  // uint per istanza (region-stamp)
         argsBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
 
         mat = new Material(sh);
@@ -154,6 +156,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         mat.SetBuffer("_SlabOfInstance", slabOfInstance);
         mat.SetBuffer("_SplitDistOfInstance", splitDistOfInstance);
         mat.SetBuffer("_DirOfInstance", dirOfInstance);
+        mat.SetBuffer("_RegionOfInstance", regionOfInstance);
         mat.SetBuffer("_SlabRegion", pool.Region);
         mat.SetInt("_VertsPerSlab", vertsPerSlab);
         mat.SetFloat("_PerVertexFields", 1f);   // in gioco: usa baseN per-vertice (fragment più economico)
@@ -249,7 +252,9 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     {
         faceUp = nd.up, axisA = nd.axisA, axisB = nd.axisB,
         uv = new Vector4(nd.u0, nd.v0, nd.size / nodeRes, nd.slab * vertsPerSlab),
-        misc = new Vector4(0f, 0f, nd.slab, tree.RegionId(nd)),   // misc.z = indice fetta, misc.w = id regione (region-stamp)
+        // misc.z = indice fetta; misc.w = id regione UINT REINTERPRETATO nei bit del float (asuint nel compute lo
+        // recupera esatto): così l'id passa nel buffer float4 dei job senza la perdita di precisione del vecchio cast.
+        misc = new Vector4(0f, 0f, nd.slab, System.BitConverter.Int32BitsToSingle(unchecked((int)tree.RegionId(nd)))),
     };
 
     /// <summary>Fill PER-NODO immediato (1 dispatch, uniform per-nodo). Path classico, sicuro.</summary>
@@ -265,7 +270,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         cs.SetFloat(ID_Step, nd.size / nodeRes);
         cs.SetInt(ID_NSlabOff, nd.slab * vertsPerSlab);
         cs.SetInt("_SlabIndex", nd.slab);             // region-stamp (path per-nodo): il fill marchia questa fetta
-        cs.SetFloat("_SlabRegionId", tree.RegionId(nd));
+        cs.SetInt("_SlabRegionId", unchecked((int)tree.RegionId(nd)));   // id regione UINT (i bit passano via SetInt; il compute lo legge come uint)
         int g = (n + 7) / 8;
         cs.Dispatch(kSlab, g, g, 1);
         fillTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
@@ -407,6 +412,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
             slabOfInstance.SetData(tree.VisibleSlabs, 0, 0, tree.VisibleCount);
             splitDistOfInstance.SetData(tree.VisibleSplitDist, 0, 0, tree.VisibleCount);   // geomorph: parallelo a slabOfInstance
             dirOfInstance.SetData(tree.VisibleDirs, 0, 0, tree.VisibleCount);              // anti-spuntone: parallelo a slabOfInstance
+            regionOfInstance.SetData(tree.VisibleRegions, 0, 0, tree.VisibleCount);        // region-stamp uint: parallelo a slabOfInstance
             argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
             argsData[0].instanceCount = (uint)tree.VisibleCount;
             argsData[0].startIndex = 0;
@@ -513,7 +519,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         tree?.ReturnSlabs();   // streaming-safe: rendi le fette di questo corpo PRIMA di mollare il riferimento al pool
         pool?.Release();       // i buffer geometria sono CONDIVISI e refcountati: liberati solo quando muore l'ultimo corpo
         jobsBuf?.Release();
-        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); dirOfInstance?.Release(); argsBuf?.Release();
+        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); dirOfInstance?.Release(); regionOfInstance?.Release(); argsBuf?.Release();
         shape?.Dispose();
         if (mat != null) Destroy(mat);
         if (cs != null) Destroy(cs);   // l'istanza propria del compute

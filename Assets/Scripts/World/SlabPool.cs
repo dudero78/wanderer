@@ -84,7 +84,7 @@ public class SlabPool
             sDepth = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
             sField = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
             sSurf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
-            sSlabRegion = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);   // marchio di regione per fetta
+            sSlabRegion = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);   // marchio di regione per fetta (UINT, 4 byte)
             sFreeSlabs.Clear();
             for (int i = maxSlabs - 1; i >= 0; i--) sFreeSlabs.Push(i);
             sCacheSlab.Clear(); sLru.Clear(); sLruNode.Clear();
@@ -97,11 +97,13 @@ public class SlabPool
         Region = sSlabRegion;
         freeSlabs = sFreeSlabs; cacheSlab = sCacheSlab; lru = sLru; lruNode = sLruNode;
         // BodyId RICICLATO: uno slot riusabile, non un contatore monotono. Così l'occupazione è "corpi VIVI
-        // contemporaneamente" (≤ corpi del sistema attivo), non il totale storico → il vincolo float di RegionId
-        // (≤7 corpi vivi, region-stamp anti-spuntone nel vertex shader) regge anche con lo streaming sonno/risveglio.
-        // A N=1 (tutti i corpi nascono all'avvio, nessuno muore) pesca 0,1,2,… in ordine = identico al contatore di prima.
+        // contemporaneamente" (≤ corpi del sistema attivo), non il totale storico → niente leak di cache da identità
+        // monotona con lo streaming sonno/risveglio. A N=1 (tutti i corpi nascono all'avvio, nessuno muore) pesca
+        // 0,1,2,… in ordine = identico al contatore di prima. Il LIMITE DI 7 CORPI È VIA: il region-stamp è ora UINT
+        // (PlanetLodTree.RegionId + _SlabRegion + _RegionOfInstance), esatto fino a 2^32 → bodyId×2^20 regge ~4095
+        // corpi vivi. La guardia resta solo come paracadute di sanità a un valore lontanissimo dall'uso reale.
         BodyId = sFreeBodyIds.Count > 0 ? sFreeBodyIds.Pop() : sNextBodyId++;
-        if (BodyId >= 7) Debug.LogWarning($"SlabPool: BodyId {BodyId} ≥ 7 → RegionId (float, region-stamp) rischia collisioni. Riduci i corpi VIVI contemporanei o allarga RegionId.");
+        if (BodyId >= 4000) Debug.LogWarning($"SlabPool: BodyId {BodyId} ≥ 4000 → RegionId (uint, bodyId×2^20) vicino al tetto 4095. Sono TANTISSIMI corpi vivi insieme: probabilmente un leak di lifecycle, non un caso reale.");
     }
 
     /// <summary>Slot libero: dalla free-list, o sfrattando in O(1) la regione meno recente (fronte LRU). -1 se vuoto.</summary>

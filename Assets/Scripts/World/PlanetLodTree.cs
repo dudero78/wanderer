@@ -58,7 +58,8 @@ public class PlanetLodTree
     // foglie visibili del frame (riempite in AddVisible, le carica il renderer su GraphicsBuffer)
     public uint[] VisibleSlabs { get; private set; }
     public float[] VisibleSplitDist { get; private set; }   // geomorph: splitDist (worldSize·lodFactor) per istanza
-    public Vector4[] VisibleDirs { get; private set; }       // anti-spuntone: direzione-centro del nodo (.w = id regione)
+    public Vector4[] VisibleDirs { get; private set; }       // anti-spuntone: direzione-centro del nodo (.w inutilizzato)
+    public uint[] VisibleRegions { get; private set; }       // region-stamp: id regione UINT atteso per istanza (confronto esatto col marchio della fetta)
     public int VisibleCount { get; private set; }
     public int SplitsThisFrame { get; private set; }
     // true se la SELEZIONE è cambiata in questo frame (split/merge/flip d'orizzonte): solo allora il set visibile
@@ -92,6 +93,7 @@ public class PlanetLodTree
         VisibleSlabs = new uint[maxSlabs];
         VisibleSplitDist = new float[maxSlabs];
         VisibleDirs = new Vector4[maxSlabs];
+        VisibleRegions = new uint[maxSlabs];
     }
 
     /// <summary>6 facce-radice, ciascuna con la sua fetta riempita (per-nodo: il batch non è ancora attivo).</summary>
@@ -143,15 +145,17 @@ public class PlanetLodTree
         return (long)nd.face | ((long)nd.depth << 3) | (ix << 8) | (iy << 32) | ((long)pool.BodyId << 40);
     }
 
-    // id REGIONE compatto e collision-free, ≤ 2^23 (= esatto in FLOAT, così il vertex shader lo confronta senza errore):
-    // bodyId | face | depth | ix | iy. Lo scrive il fill nella fetta (slabRegion) e lo porta l'istanza (dir.w); se non
-    // combaciano, la fetta tiene la geometria di una regione VECCHIA (churn) → il vertice si collassa. ≤7 corpi in 2^23.
-    public float RegionId(Node nd)
+    // id REGIONE compatto e collision-free, ora UINT (era float → mantissa 24 bit → reggeva solo ≤7 corpi vivi). Con
+    // uint l'id è ESATTO fino a 2^32: bodyId nei bit alti (×2^20) tiene fino a ~4095 corpi VIVI insieme, il (face,
+    // depth,ix,iy) nei bit bassi. Lo scrive il fill nella fetta (_SlabRegion uint) e lo porta l'istanza
+    // (_RegionOfInstance uint); se non combaciano (==), la fetta tiene la geometria di una regione VECCHIA (churn) →
+    // il vertice si collassa. Confronto INTERO esatto (niente più margine 0.5 da precisione float) → LIMITE CORPI VIA.
+    public uint RegionId(Node nd)
     {
-        int N = 1 << nd.depth;
-        int ix = Mathf.RoundToInt(nd.u0 * N);
-        int iy = Mathf.RoundToInt(nd.v0 * N);
-        return pool.BodyId * 1048576 + ((nd.face * 8 + nd.depth) * 128 + ix) * 128 + iy;
+        uint N = 1u << nd.depth;
+        uint ix = (uint)Mathf.RoundToInt(nd.u0 * N);
+        uint iy = (uint)Mathf.RoundToInt(nd.v0 * N);
+        return (uint)pool.BodyId * 1048576u + (((uint)nd.face * 8u + (uint)nd.depth) * 128u + ix) * 128u + iy;
     }
 
     /// <summary>Dà al nodo una fetta pronta: dalla CACHE se la regione c'è (già riempita, niente dispatch),
@@ -289,7 +293,8 @@ public class PlanetLodTree
         {
             VisibleSplitDist[VisibleCount] = nd.worldSize * lodFactor;   // morph: distanza di split del nodo (per istanza)
             Vector3 cd = nd.centerLocal.normalized;                      // anti-spuntone: direzione-centro del nodo (spazio oggetto)
-            VisibleDirs[VisibleCount] = new Vector4(cd.x, cd.y, cd.z, RegionId(nd));   // .w = id regione attesa (region-stamp)
+            VisibleDirs[VisibleCount] = new Vector4(cd.x, cd.y, cd.z, 0f);   // .w inutilizzato (la regione sta in VisibleRegions, uint esatto)
+            VisibleRegions[VisibleCount] = RegionId(nd);                 // region-stamp: id regione UINT atteso (confronto esatto)
             VisibleSlabs[VisibleCount] = (uint)nd.slab;
             VisibleCount++;
         }
