@@ -323,10 +323,11 @@ public class RouteIndicator : MonoBehaviour
 
         if (onScreen)
         {
-            // marker SOPRA la sonda (non sovrapposto): triangolo apice in GIÙ che la indica, etichetta sopra di esso.
-            Vector2 mk = new Vector2(g.x, g.y - 40f * ui);
+            // marker SOPRA la sonda (non sovrapposto): triangolo apice in GIÙ che la indica, etichetta SOPRA con un
+            // buon distacco. Rect LARGO (360) così la distanza (es. "SONDA · posata · 2.7 km") non si tronca mai.
+            Vector2 mk = new Vector2(g.x, g.y - 44f * ui);
             DrawTex(triTex, mk, 20f * ui, 20f * ui, 180f, pcol);   // 180° → apice verso il basso, punta la sonda
-            Shadowed(new Rect(mk.x - 90f * ui, mk.y - 22f * ui, 180f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.LowerCenter);
+            Shadowed(new Rect(mk.x - 180f * ui, mk.y - 34f * ui, 360f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.LowerCenter);
         }
         else
         {
@@ -338,7 +339,7 @@ public class RouteIndicator : MonoBehaviour
             Vector2 edge = ClampToRect(ctr, dir, new Rect(m, m, Screen.width - 2f * m, Screen.height - 2f * m));
             float ang = Mathf.Atan2(dir.x, -dir.y) * Mathf.Rad2Deg;   // triangolo: apice in su → ruota verso dir
             DrawTex(triTex, edge, 24f * ui, 24f * ui, ang, pcol);
-            Shadowed(new Rect(edge.x - 90f * ui, edge.y + 16f * ui, 180f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.UpperCenter);
+            Shadowed(new Rect(edge.x - 180f * ui, edge.y + 20f * ui, 360f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.UpperCenter);
         }
     }
 

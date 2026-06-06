@@ -19,6 +19,7 @@ public class Probe : MonoBehaviour
     SolarSystem solar;
     Camera cam;
     GameObject visual;   // corpo metallico + scanalatura luminosa + luce: spento mentre guardi in prima persona
+    Light lamp;          // la lampada della sonda: registrata come luce ausiliaria del terreno mentre è in volo/posata
     bool landed;
     CelestialBody landedOn;
     Vector3 landedLocal;   // posizione di posa in coordinate LOCALI del corpo → resta incollata alla superficie anche
@@ -79,15 +80,15 @@ public class Probe : MonoBehaviour
         MakeGroove(vis.transform, unlit, ProbeRadius, 23.4f, 0.90f, 0.03f, glow);  // tropico nord
         MakeGroove(vis.transform, unlit, ProbeRadius, -23.4f, 0.90f, 0.03f, glow); // tropico sud
 
-        // LUCE EMESSA: point light ciano → la sonda è una piccola lampada (illumina oggetti Standard vicini e si
-        // legge come sorgente luminosa). NB: il terreno GPU usa luce MANUALE (sole+torcia) e non la cattura ancora.
+        // LUCE EMESSA: point light ciano. Illumina gli oggetti Standard vicini E il TERRENO GPU (registrata come luce
+        // ausiliaria in GpuPlanetRenderer.AuxPointLight da Launch → il terreno la calcola, come la torcia).
         var lampGo = new GameObject("SondaLuce");
         lampGo.transform.SetParent(vis.transform, false);
-        var lamp = lampGo.AddComponent<Light>();
-        lamp.type = LightType.Point;
-        lamp.color = new Color(0.6f, 0.95f, 1f);
-        lamp.intensity = 2.5f;
-        lamp.range = 14f;
+        p.lamp = lampGo.AddComponent<Light>();
+        p.lamp.type = LightType.Point;
+        p.lamp.color = new Color(0.6f, 0.95f, 1f);
+        p.lamp.intensity = 3.0f;
+        p.lamp.range = 22f;
 
         p.visual = vis;
 
@@ -142,6 +143,7 @@ public class Probe : MonoBehaviour
 
         if (solar != null && !solar.Loose.Contains(transform)) solar.Loose.Add(transform);
         if (!GpuPlanetRenderer.ExtraViewpoints.Contains(transform)) GpuPlanetRenderer.ExtraViewpoints.Add(transform);
+        GpuPlanetRenderer.AuxPointLight = lamp;   // la sua lampada illumina il terreno GPU attorno
     }
 
     /// <summary>Richiama la sonda: la toglie dalla scena e dai registri (Loose + viewpoint). Riusabile con Launch.</summary>
@@ -149,6 +151,7 @@ public class Probe : MonoBehaviour
     {
         if (solar != null) solar.Loose.Remove(transform);
         GpuPlanetRenderer.ExtraViewpoints.Remove(transform);
+        if (GpuPlanetRenderer.AuxPointLight == lamp) GpuPlanetRenderer.AuxPointLight = null;
         landed = false; landedOn = null;
         if (cam != null) cam.enabled = false;
         gameObject.SetActive(false);
@@ -158,6 +161,7 @@ public class Probe : MonoBehaviour
     {
         if (solar != null) solar.Loose.Remove(transform);
         GpuPlanetRenderer.ExtraViewpoints.Remove(transform);
+        if (GpuPlanetRenderer.AuxPointLight == lamp) GpuPlanetRenderer.AuxPointLight = null;
     }
 
     void FixedUpdate()

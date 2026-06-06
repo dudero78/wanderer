@@ -370,6 +370,10 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     /// PIÙ VICINO per il dettaglio LOD e il morph, e NON culla un corpo se QUALCUNO lo vede da vicino.</summary>
     public static readonly System.Collections.Generic.List<Transform> ExtraViewpoints = new System.Collections.Generic.List<Transform>();
 
+    /// <summary>LUCE AUSILIARIA point che illumina il terreno (oltre a sole+torcia): es. la SONDA. Chi la possiede la
+    /// registra qui (e la azzera quando sparisce). NULL = nessuna (costo/effetto zero). Una sola per ora, espandibile.</summary>
+    public static Light AuxPointLight;
+
     void Update()
     {
         if (!Ready) return;
@@ -415,6 +419,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         mat.SetInt("_Cull", CullSplit ? InteriorCull : 0);
         RefreshLighting(mat);
         RefreshTorch(mat);
+        RefreshAuxLight(mat);
 
         // LOD: il quadtree decide split/merge e raccoglie le foglie visibili (mi richiama in FillSlab per le fette nuove)
         fillsThisFrame = 0;
@@ -528,6 +533,17 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         float half = torch.spotAngle * 0.5f * Mathf.Deg2Rad;
         m.SetFloat("_TorchCosOuter", Mathf.Cos(half));
         m.SetFloat("_TorchCosInner", Mathf.Cos(half * 0.85f));
+    }
+
+    void RefreshAuxLight(Material m)
+    {
+        if (m == null) return;
+        var l = AuxPointLight;
+        if (l == null || !l.isActiveAndEnabled || l.intensity <= 0f) { m.SetVector("_AuxLightColor", Vector4.zero); return; }
+        Color c = l.color * l.intensity;
+        m.SetVector("_AuxLightPos", l.transform.position);
+        m.SetVector("_AuxLightColor", new Vector4(c.r, c.g, c.b, 1f));
+        m.SetFloat("_AuxLightRange", l.range);
     }
 
     /// <summary>Imposta gli uniform di ECLISSI sul materiale GPU (li calcola EclipseDriver per frame, come per i

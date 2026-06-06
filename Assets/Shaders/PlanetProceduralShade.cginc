@@ -22,6 +22,8 @@ float3 _SunDir, _SunColor, _Ambient;
 // termine nullo, nessun costo visivo. Posizione/direzione in spazio MONDO (la lampada è figlia della camera).
 float3 _TorchPos, _TorchDir, _TorchColor;
 float _TorchRange, _TorchCosInner, _TorchCosOuter;
+// LUCE AUSILIARIA point (manuale): es. la SONDA che illumina il terreno attorno. _AuxLightColor=0 (default) → nullo.
+float3 _AuxLightPos, _AuxLightColor; float _AuxLightRange;
 // 1 = baseN arriva GIÀ PRONTO per-vertice (gioco: il fragment non rifà il rumore gradiente per ogni pixel).
 // 0 = calcolalo qui per-pixel (editor: massima qualità, non è perf-critico). Default 0 se non impostato.
 float _PerVertexFields;
@@ -157,6 +159,13 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     float cone = smoothstep(_TorchCosOuter, _TorchCosInner, dot(-L, _TorchDir));
     float ndlT = saturate(dot(nrm, L));
     col += alb * (_TorchColor * (ndlT * att * cone));
+
+    // LUCE AUSILIARIA (point): es. la sonda. Diffusa, attenuata con la distanza, niente cono. _AuxLightColor=0 → nullo.
+    float3 toA = _AuxLightPos - worldP;
+    float dA = length(toA);
+    float3 LA = toA / max(dA, 1e-4);
+    float attA = saturate(1.0 - dA / max(_AuxLightRange, 1.0)); attA *= attA;
+    col += alb * (_AuxLightColor * (saturate(dot(nrm, LA)) * attA));
 
     // PBR — SPECULARE GGX LEGGERO sul suolo (riflesso minerale radente, look SC/ED): broad lobe, basso peso → non
     // "plasticoso". Solo sul lato illuminato (×ndlLand). L'acqua, sotto, sovrascrive col dove allagato (suo speculare).

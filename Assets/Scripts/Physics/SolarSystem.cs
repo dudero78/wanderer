@@ -145,10 +145,19 @@ public class SolarSystem : MonoBehaviour
                     //     orbitale e lei "scorre"; è il freno X (match velocity) a sincronizzarti e a
                     //     fermarla. Cambiare ancora non altera mai il tuo moto reale, solo i numeri.
                     Vector3 shift = (FloatingOrigin.SceneOrigin - target.UniversePosition).ToVector3();
-                    if (currentAnchor != null && PlayerBody != null)
+                    if (currentAnchor != null)
                     {
-                        Vector3d dv = currentAnchor.UniverseVelocity - target.UniverseVelocity;
-                        PlayerBody.linearVelocity += dv.ToVector3() * (float)TimeScale;
+                        Vector3 dvScene = (currentAnchor.UniverseVelocity - target.UniverseVelocity).ToVector3() * (float)TimeScale;
+                        if (PlayerBody != null) PlayerBody.linearVelocity += dvScene;
+                        // Stessa correzione ai LOOSE DINAMICI (es. la SONDA in volo): senza, allo switch d'ancora
+                        // restano con la velocità del VECCHIO frame e "schizzano via" nel nuovo. I kinematici (tuta,
+                        // sonda posata) sono già fermi/incollati → si saltano. Così la velocità-universo si conserva.
+                        for (int li = 0; li < Loose.Count; li++)
+                        {
+                            if (Loose[li] == null) continue;
+                            var lrb = Loose[li].GetComponent<Rigidbody>();
+                            if (lrb != null && !lrb.isKinematic) lrb.linearVelocity += dvScene;
+                        }
                     }
                     ShiftLoose(shift);
                     currentAnchor = target;
