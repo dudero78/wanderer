@@ -308,3 +308,58 @@ Tante sessioni interattive di rifinitura visiva/UX (commit logici incrementali).
   GPU per-corpo (readback sincroni) spostate dietro `GpuPlanetRenderer.VerifyGpu` (default OFF) → niente più stallo da
   readback. **Residuo onesto:** la compilazione della pipeline COMPUTE su Metal è sincrona sul main thread → la vera
   soluzione (loading animato durante il caricamento) è l'architettura a scene+async, prossima sessione.
+
+---
+
+## 2026-06-07 — Mappa multi-sistema (riscritta) + caricamenti graduali + resa
+
+Sessione lunga e iterativa, soprattutto su mappa e caricamenti. Tutto verificato col gate C# offline
+(`/tmp/wgate.sh`) + Editor.log per gli shader.
+
+### Mappa riscritta — spazio locale + camera trackball
+- **Spazio-mappa LOCALE**: tutto vive in coordinate-UNIVERSO (`Vector3d`) e si proietta con `ToMap(uni) = uni −
+  mapOrigin`, dove `mapOrigin` è l'origine del sistema più vicino al fuoco. Camera E oggetti usano lo stesso `ToMap` →
+  immagine **invariante** al cambio di mapOrigin (niente salti) e **precisione perfetta a qualunque distanza** (prima
+  un sistema a milioni di metri faceva tremare il float della camera). Il primo frame dell'animazione coincide al pixel
+  con la vista del giocatore: l'effetto "zoom dalla mia posizione" è corretto per costruzione.
+- **Camera trackball** (Blender-like): posizione e orientamento DECOUPLED dal pivot → il clic mette il pivot sul punto
+  cliccato senza muovere la vista; destro = orbita rigida; pan; zoom-verso-cursore. **Pivot dal cursore sull'ECLITTICA**
+  (il piano y=0 dove stanno tutti i sistemi e le orbite) → ruota attorno a ciò che hai sotto il mouse, anche nel vuoto.
+- **Pan agnostico dal sistema**: legato alla profondità del punto sotto il cursore (eclittica), non a CamDist → Vega si
+  muove 1:1 col mouse anche se il pivot è altrove (prima driftava).
+- **Zoom robusto**: mira al corpo sotto il cursore (con tolleranza a schermo, anche "a pochi px dalla superficie"), si
+  ferma alla superficie (niente overshoot/stop prematuro), clamp sulla distanza dal FOCUS non dal pivot.
+- **LAYER dedicato "MapView"**: la camera-mappa renderizza e raycasta SOLO le visuali della mappa, MAI la scena reale →
+  via il "sole finto" vagante (era `StarRenderClamp` che usava `Camera.main` = camera-mappa). `MapMode.IsOpen` statico.
+- **Vista galattica (G)**, **nomi corpi (N)**, **proxy statici dei sistemi dormienti** dai `SystemRecipe` (billboard
+  stella + dischi-pianeti + anelli, clic = waypoint o bersaglio del pianeta), **etichette anti-sovrapposizione**
+  (de-conflitto verticale), **sonda in mappa** (marker + "SONDA"). Visuali dei corpi **INCREMENTALI** (solo i nuovi al
+  risveglio, niente rebuild di tutto → via il lag all'apertura). Solo le **orbite** sfumano entrando/uscendo (il resto
+  resta visibile). Fade rimosso dal nero su richiesta.
+- **Selezione di QUALSIASI pianeta** (anche di sistemi dormienti): `SolarSystem.DormantTarget` (posizione da ricetta) →
+  l'autopilota ci vola; avvicinandoti il sistema si sveglia e il bersaglio si **promuove** al corpo vero (collisione/
+  atterraggio reali). HUD destinazione unificato `TryGetTarget` → "Vega-II — ★ Vega".
+- **Animazione d'apertura** (iterata a lungo): salita verticale sopra il giocatore (sguardo a picco, giocatore al
+  centro) → sorvolo in alto sopra il centro guardando A PICCO (il sistema si rivela dall'alto, mai "di taglio") →
+  inclinazione dolce all'overview. Principio: **non guardare mai la stella stando bassi** (da lì è di taglio = scatto).
+  Finale = overview canonico esatto.
+
+### Caricamenti graduali (il grande sblocco)
+- **Risveglio di un sistema su più frame** (`BuildSystemRoutine` coroutine): stella + **un corpo per frame**, e ogni
+  corpo spalmato su 3 frame (ricetta · materiali · superficie GPU) → niente più freeze all'arrivo. Flag `Waking` per non
+  ri-triggerare/addormentare a metà.
+- **Partenza ANTICIPATA**: il sistema di destinazione si costruisce appena sei in viaggio (hai tutta la crociera per
+  spalmare) e resta **residente** finché è la destinazione (`destSys` include `Destination.System` → fix del bug per cui
+  Vega veniva addormentata e distrutta, azzerando il target).
+- Lo stesso split a 3 frame vale per il **caricamento iniziale** → da ~16 s a **~2 s** (col bake offline dei corpi: se i
+  materiali bakeati mancano, ogni corpo viene bakeato a runtime = costosissimo; lanciare "Bake planet assets").
+
+### Resa & varie
+- **Orbite (O) senza glitch**: nello shader `Wanderer/OrbitLine`, niente espansione screen-space per i vertici DIETRO la
+  camera (esplodevano in triangoli enormi sui sistemi lontani/quello in cui sei). + gate per sistema corrente.
+- **Sole allineato**: `SunLight` calcola la direzione luce dalle posizioni VERE (`UniversePosition`), non dal transform
+  della stella (clampato da `StarRenderClamp`) → disco e illuminazione non divergono più.
+- **Stelle sempre in cielo** (`DistantStars`): le stelle dei sistemi dormienti come punti sempre visibili (clamp ottico);
+  spariscono quando il sistema si sveglia (stella vera). **Alone di luce** (`StarGlow` + shader additivo) attorno a ogni stella.
+- **Speed lines**: niente più "terza" animazione girandosi — una passata che sfuma a zero attraversando il perpendicolare.
+- **Warp di DEBUG ⌘+W / Ctrl+W**: balzi fin quasi al bersaglio selezionato (alla sua velocità) per testare i viaggi lunghi.

@@ -21,9 +21,10 @@ public class StarRenderClamp : MonoBehaviour
         Vector3 truePos = (body.UniversePosition - FloatingOrigin.SceneOrigin).ToVector3();
 
         var main = Camera.main;
-        // in vista sonda (camera giocatore spenta) lascio la stella alla posizione vera: il clamp è tarato sulla camera
-        // del giocatore e da un'altra camera sarebbe fuori posto.
-        if (main == null || !main.isActiveAndEnabled)
+        // in vista sonda (camera giocatore spenta) o in MAPPA (Camera.main = camera-mappa) lascio la stella alla posizione
+        // vera: il clamp è tarato sulla camera del giocatore; da un'altra camera la spinge fuori posto (in mappa creava il
+        // "sole finto" vagante, e corrompeva il transform che il reticolo di rotta legge → reticolo su un fantasma).
+        if (MapMode.IsOpen || main == null || !main.isActiveAndEnabled)
         {
             transform.position = truePos;
             transform.localScale = Vector3.one * baseScale;

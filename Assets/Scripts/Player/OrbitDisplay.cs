@@ -19,12 +19,17 @@ public class OrbitDisplay : MonoBehaviour
     [Tooltip("Spessore del filo in pixel (la strip; il nucleo brillante è più sottile dell'alone).")]
     public float pixelWidth = 6f;
 
+    // oltre questa distanza-scena del genitore l'orbita è di un sistema LONTANO → non disegnarla (evita il glitch
+    // dell'espansione a schermo coi vertici dietro la camera). Un sistema sta entro ~150 km; soglia ben sopra, ben sotto l'interstellare.
+    const float MaxParentDist = 800000f;
+
     SolarSystem solar;
     readonly List<Transform> nodes = new List<Transform>();
     readonly List<CelestialBody> bodies = new List<CelestialBody>();
     readonly List<MeshRenderer> renderers = new List<MeshRenderer>();
     readonly List<Material> mats = new List<Material>();
     bool visible;
+    int builtCount;   // n. corpi al momento del Build: se cambia (sistema svegliato/addormentato) si ricostruisce
 
     static readonly int IdPeakU = Shader.PropertyToID("_PeakU");
 
@@ -80,6 +85,16 @@ public class OrbitDisplay : MonoBehaviour
             renderers.Add(mr);
             mats.Add(mat);
         }
+        builtCount = solar.Bodies.Count;
+    }
+
+    // Ricostruisce quando l'insieme dei corpi cambia (un sistema distante svegliato porta nuovi pianeti con orbita).
+    void Rebuild()
+    {
+        for (int i = 0; i < nodes.Count; i++) if (nodes[i] != null) Destroy(nodes[i].gameObject);
+        nodes.Clear(); bodies.Clear(); renderers.Clear(); mats.Clear();
+        Build();
+        Show(visible);
     }
 
     // Nastro chiuso a 2 vertici per campione: posizione = punto dell'ellisse, NORMAL = tangente (per
@@ -128,14 +143,22 @@ public class OrbitDisplay : MonoBehaviour
     void Update()
     {
         if (solar == null) return;
+        if (solar.Bodies.Count != builtCount) Rebuild();   // un sistema svegliato/addormentato → aggiorna le orbite
         if (Input.GetKeyDown(toggleKey)) { visible = !visible; Show(visible); }
         if (!visible) return;
 
         double simTime = SolarSystem.Instance != null ? SolarSystem.Instance.SimTime : 0.0;
+        var curSys = solar.Reference != null ? solar.Reference.System : null;   // il sistema in cui ti trovi (ancora)
         for (int i = 0; i < nodes.Count; i++)
         {
             var b = bodies[i];
             if (b == null || b.Parent == null) { renderers[i].enabled = false; continue; }
+            // SOLO il sistema in cui ti trovi: le orbite di un sistema lontano hanno vertici dietro la camera →
+            // l'espansione a schermo glitcha. Gate per SISTEMA (agnostico) + per distanza del genitore (di sicurezza).
+            if (curSys != null && b.System != curSys) { renderers[i].enabled = false; continue; }
+            float parentDist = b.Parent.transform.position.magnitude;
+            if (parentDist > MaxParentDist) { renderers[i].enabled = false; continue; }
+            renderers[i].enabled = true;   // sistema vicino → mostrala (riacceso se prima era lontano)
             nodes[i].position = b.Parent.transform.position;   // segue la floating origin (solo traslazione)
 
             // fase del pianeta sull'anello: il campionamento mappa u = k/n all'anomalia media (lineare nel

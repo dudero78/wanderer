@@ -3,14 +3,20 @@
 Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **6 giugno 2026** (sessioni UX: sonda, modelli
 intercambiabili, menu ESC, multi-sistema/interstellare, mappa, effetto velocità, loading). Dettaglio tecnico nel `CLAUDE.md`.
 
-> ## 🔴 PROSSIMA SESSIONE → vedi **`NEXT_SESSION_PROMPT.md`** (piano dettagliato, concordato con Dario)
-> **Direttiva di fase:** basi ULTRA solide → si **riscrive liberamente** per la perfezione, niente pezze (memoria
-> `riscrivere-per-perfezione`). Due blocchi, in ordine:
-> 1. **Mappa multi-sistema** con SPAZIO-MAPPA LOCALE (precisione a qualunque distanza) + proxy STATICI di tutti i sistemi
->    dai `SystemRecipe` (Keplero) + centra/scala sul sistema in vista + **camera a ORBITA LIBERA** (no snap).
-> 2. **Architettura a SCENE + PREFAB + loading ASYNC** (risolve il loading da ~1 min e dà la "scena con asset"):
->    Loading scene leggera → `LoadSceneAsync` in background + warm-up shader. Il compile COMPUTE su Metal resta l'unico
->    pezzo sincrono irriducibile.
+> ## ✅ 7 giu 2026 — BLOCCO 1 (mappa multi-sistema) FATTO + caricamenti graduali (dettaglio in `CHANGELOG.md`)
+> - **Mappa RISCRITTA**: spazio-mappa LOCALE (precisione a ogni distanza), camera TRACKBALL (clic=pivot senza snap, pivot
+>   sull'eclittica), layer "MapView" (no scena reale → via il sole-finto), proxy dei sistemi dormienti, selezione di
+>   qualsiasi pianeta (anche dormiente, `DormantTarget`→promozione), visuali incrementali (no freeze all'apertura).
+> - **Caricamenti GRADUALI**: load iniziale 16s→~2s. **Il collo era il BAKE A RUNTIME** (materiali bakeati mancanti) →
+>   "Bake planet assets" è essenziale; risveglio sistema su più frame + partenza anticipata. (La compilazione compute
+>   Metal NON era il collo principale: la lezione "load = compute compile" è corretta in `CLAUDE.md`/memoria.)
+> - **APERTO/da rifinire:** animazione d'apertura mappa (iterata a lungo, principio "non guardare mai la stella stando
+>   bassi"); 3 bug editor pianeti; l'errore console "Screen position out of view frustum" (proiezione di target lontani, benigno).
+>
+> ## 🔴 PROSSIMA: BLOCCO 2 — ARCHITETTURA A SCENE + PREFAB + loading ASYNC → vedi **`NEXT_SESSION_PROMPT.md`**
+> **Direttiva di fase:** basi ULTRA solide → si **riscrive liberamente** per la perfezione, niente pezze.
+> **Scene + prefab + `LoadSceneAsync`** + warm-up shader (la "scena con asset"); il grosso del load è già risolto col bake
+> offline + lo split su frame, quindi il Blocco 2 ora è più "autorabilità/struttura" che "togliere il freeze".
 
 > ## 🟢 PARTI DA QUI (6 giu+)
 > **Motore terreno = CDLOD PURO, crack-free.** Le "crepe/tagli" di Valentina2, inseguite per settimane, sono RISOLTE

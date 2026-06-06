@@ -165,7 +165,9 @@ public class RouteIndicator : MonoBehaviour
         label.fontSize = Mathf.RoundToInt(14f * ui);
 
         Vector3 camPos = view.transform.position;
-        Vector3 tp = tgt.scenePos;
+        // in mappa la camera vive nello spazio-mappa LOCALE (ancorato a mapOrigin), diverso dallo spazio-scena del
+        // giocatore in cui arriva tgt.scenePos → convertilo, o il reticolo cadrebbe lontano dal corpo selezionato.
+        Vector3 tp = mapActive ? map.ToViewSpace(tgt.scenePos) : tgt.scenePos;
         Vector2 gui = ToGui(tp, out bool behind, out bool onScreen);
 
         float dist = Vector3.Distance(camPos, tp);

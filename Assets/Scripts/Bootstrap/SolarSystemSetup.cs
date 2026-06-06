@@ -197,6 +197,7 @@ public static class SolarSystemSetup
         var unlit = Shader.Find("Unlit/Color");
         if (unlit != null) starGo.GetComponent<Renderer>().material = new Material(unlit) { color = new Color(1f, 0.88f, 0.55f) };
         starGo.AddComponent<StarRenderClamp>().body = star;   // sempre visibile oltre il far-clip (prima spariva ~oltre 150 km)
+        starGo.AddComponent<StarGlow>().Configure(new Color(1f, 0.92f, 0.7f));   // alone di luce
         solar.Register(star);
 
         // SISTEMA stellare (Tappa 1 multi-sistema): contenitore della stella + i suoi corpi. A N=1 SystemOrigin=Zero
@@ -265,18 +266,19 @@ public static class SolarSystemSetup
         solar.Register(bary);
 
         var byName = new Dictionary<string, CelestialBody> { { "Pianeta", planet }, { "Baricentro", bary } };
+        var holder = new CelestialBody[1];
         foreach (var def in Orbiting)
         {
             CelestialBody parent = !string.IsNullOrEmpty(def.ParentName) && byName.TryGetValue(def.ParentName, out var p)
                 ? p : (def.AroundStar ? star : planet);
-            var b = BuildOrbitBody(def, solar, parent, useQuadtree, useGpuSurface, gpuSurfaceRes);
+            yield return BuildOrbitBodyRoutine(def, solar, parent, useQuadtree, useGpuSurface, gpuSurfaceRes, holder);   // su 3 frame (loading più fluido)
+            var b = holder[0];
             if (b == null) continue;
             byName[def.Name] = b;
             if (!string.IsNullOrEmpty(spawnOnBody) && def.Name == spawnOnBody)
             {
                 spawnBody = b; spawnGo = b.gameObject; spawnTerrain = b.GetComponent<PlanetTerrain>();
             }
-            yield return null;   // cede dopo OGNI corpo in orbita → spinner e messaggi continuano a girare
         }
 
         // origine ancorata al corpo di SPAWN (la casa, o quello scelto per il test): resta a ~(0,0,0). Posiziona i
@@ -307,38 +309,47 @@ public static class SolarSystemSetup
 
     /// <summary>Costruisce un corpo in orbita dalla sua descrizione. Walker/mappa/viaggio lo gestiscono "gratis"
     /// (leggono PlanetTerrain/CelestialBody). Se la ricetta manca, salta il corpo (il resto del gioco parte).</summary>
-    static CelestialBody BuildOrbitBody(OrbitBody def, SolarSystem solar, CelestialBody parent, bool useQuadtree, bool useGpuSurface, int gpuSurfaceRes)
+    /// <summary>Costruisce un corpo SPALMANDO il lavoro su 3 frame (ricetta · materiali · superficie GPU): ognuno è il
+    /// passo pesante isolato, così nessun frame fa "tutto insieme" (niente freeze). Il risultato torna in result[0].</summary>
+    static System.Collections.IEnumerator BuildOrbitBodyRoutine(OrbitBody def, SolarSystem solar, CelestialBody parent,
+        bool useQuadtree, bool useGpuSurface, int gpuSurfaceRes, CelestialBody[] result)
     {
+        result[0] = null;
         var go = new GameObject(def.Name);
         var terrain = go.AddComponent<PlanetTerrain>();
-        if (!def.Apply(terrain)) { Object.Destroy(go); return null; }
+        if (!def.Apply(terrain)) { Object.Destroy(go); yield break; }   // ricetta (CPU: rumore/layer)
+        yield return null;
+
+        // materiali: PRIMA gli asset bakeati offline (cartella dedicata), poi bake a runtime (costoso → su disco è meglio).
+        var faceMats = PlanetBaker.TryLoadBakedMaterials(terrain, def.BakedDir) ?? PlanetBaker.BakeFaceMaterials(terrain, 64);
+        yield return null;
 
         var body = go.AddComponent<CelestialBody>();
         body.Radius = def.Radius;
         body.SurfaceGravity = def.Gravity;
         body.Parent = parent;
         body.Orbit = def.Orbit;
-
-        // PRIMA gli asset bakeati offline (cartella dedicata), poi bake a runtime.
-        var faceMats = PlanetBaker.TryLoadBakedMaterials(terrain, def.BakedDir) ?? PlanetBaker.BakeFaceMaterials(terrain, 64);
         if (faceMats != null)
-            AddSurface(go, terrain, faceMats, useQuadtree, 256, def.ProxyRes, useGpuSurface, gpuSurfaceRes);
+            AddSurface(go, terrain, faceMats, useQuadtree, 256, def.ProxyRes, useGpuSurface, gpuSurfaceRes);   // superficie GPU
         else Debug.LogWarning($"{def.Name}: bake non riuscito, niente superficie (corpo comunque presente per gravità/mappa).");
 
         solar.Register(body);
-        return body;
+        result[0] = body;
     }
 
     /// <summary>TAPPA 4 — SVEGLIA un sistema DORMIENTE: costruisce la sua stella + i suoi corpi (data-driven dalla
     /// SystemRecipe), li registra nel SolarSystem e li posiziona al tempo corrente. Riusa BuildOrbitBody (stesso
     /// percorso del sistema-casa) → renderer GPU + walker + mappa "gratis". Il limite di corpi vivi non c'è più
     /// (region-stamp uint), quindi il sistema-casa può restare residente mentre un sistema distante si sveglia.</summary>
-    public static bool BuildSystem(SolarSystem solar, StarSystem sys, bool useQuadtree, bool useGpuSurface, int gpuSurfaceRes)
+    public static System.Collections.IEnumerator BuildSystemRoutine(SolarSystem solar, StarSystem sys, bool useQuadtree, bool useGpuSurface, int gpuSurfaceRes)
     {
-        if (sys == null || sys.Recipe == null || sys.Recipe.Bodies == null || sys.Active) return false;
+        if (sys == null || sys.Recipe == null || sys.Recipe.Bodies == null || sys.Active) { if (sys != null) sys.Waking = false; yield break; }
         var rec = sys.Recipe;
 
-        // stella del sistema: corpo SENZA orbita, fissa al proprio SystemOrigin (frame del sistema nello spazio-galassia)
+        // GRADUALE: la stella (leggera) e POI un corpo per frame (yield dopo ciascuno). Il costo pesante è BuildOrbitBody
+        // (carica/bakea i materiali + inizializza il renderer GPU): spalmandolo su più frame il freeze si dissolve in
+        // micro-scatti mentre voli verso il sistema (la sveglia parte ~WakeRadius prima dell'arrivo). Active resta FALSE
+        // finché non è tutto pronto; Waking (in StarSystem) evita di ri-triggerare la sveglia e di addormentarlo a metà.
         var starGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         starGo.name = rec.Name + "-Stella";
         var starCol = starGo.GetComponent<Collider>(); if (starCol) Object.Destroy(starCol);
@@ -349,25 +360,32 @@ public static class SolarSystemSetup
         var unlit = Shader.Find("Unlit/Color");
         if (unlit != null) starGo.GetComponent<Renderer>().material = new Material(unlit) { color = rec.StarColor };
         starGo.AddComponent<StarRenderClamp>().body = star;   // sempre visibile oltre il far-clip
+        starGo.AddComponent<StarGlow>().Configure(rec.StarColor);   // alone di luce del colore della stella
         star.System = sys;
+        star.UpdatePosition(solar.SimTime);
         solar.Register(star);
+        sys.Star = star; sys.StarTransform = starGo.transform;
 
         var objs = new List<GameObject> { starGo };
         var bodies = new List<CelestialBody>();
         var byName = new Dictionary<string, CelestialBody>();
+        yield return null;   // cede dopo la stella
+
+        var holder = new CelestialBody[1];
         foreach (var def in rec.Bodies)
         {
             CelestialBody parent = !string.IsNullOrEmpty(def.ParentName) && byName.TryGetValue(def.ParentName, out var p) ? p : star;
-            var b = BuildOrbitBody(def, solar, parent, useQuadtree, useGpuSurface, gpuSurfaceRes);
-            if (b == null) continue;
-            b.System = sys; byName[def.Name] = b; bodies.Add(b); objs.Add(b.gameObject);
+            yield return BuildOrbitBodyRoutine(def, solar, parent, useQuadtree, useGpuSurface, gpuSurfaceRes, holder);   // corpo su 3 frame
+            var b = holder[0];
+            if (b != null)
+            {
+                b.System = sys; byName[def.Name] = b; bodies.Add(b); objs.Add(b.gameObject);
+                b.UpdatePosition(solar.SimTime);
+            }
         }
-        sys.Star = star; sys.StarTransform = starGo.transform; sys.Bodies = bodies; sys.SceneObjects = objs; sys.Active = true;
 
-        star.UpdatePosition(solar.SimTime);
-        foreach (var b in bodies) b.UpdatePosition(solar.SimTime);
-        Debug.Log($"[multi-sistema] svegliato '{rec.Name}' a SystemOrigin {rec.SystemOrigin} ({bodies.Count} corpi).");
-        return true;
+        sys.Bodies = bodies; sys.SceneObjects = objs; sys.Active = true; sys.Waking = false;
+        Debug.Log($"[multi-sistema] svegliato '{rec.Name}' a SystemOrigin {rec.SystemOrigin} ({bodies.Count} corpi, graduale).");
     }
 
     /// <summary>TAPPA 4 — ADDORMENTA un sistema attivo: distrugge stella + corpi (i GpuPlanetRenderer.OnDestroy

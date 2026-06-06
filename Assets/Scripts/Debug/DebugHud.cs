@@ -145,20 +145,17 @@ public class DebugHud : MonoBehaviour
 
         // distanza dal corpo SELEZIONATO sulla mappa (può essere uno qualunque del sistema): riga a sé,
         // diversa dall'altitudine (che è il corpo di gravità sotto di te).
+        // BERSAGLIO UNIFICATO (TryGetTarget): corpo vivo, PIANETA di un sistema dormiente (es. Vega-I), o sistema distante
+        // → una sola riga coerente per tutto, senza casi separati (così selezionare un pianeta di Vega lo segna subito).
         string destLine = "";
-        if (solar != null && solar.Destination != null)
+        if (solar != null && solar.TryGetTarget(out var tgt))
         {
-            float dd = (solar.Destination.transform.position - player.position).magnitude;
+            float dd = (tgt.scenePos - player.position).magnitude;
             string ds = dd > 1000f ? (dd / 1000f).ToString("F1") + " km" : dd.ToString("F0") + " m";
-            destLine = $"Distanza ({solar.Destination.gameObject.name}) : {ds}\n";
-        }
-        else if (solar != null && solar.DestinationSystem != null)
-        {
-            // sistema distante selezionato (waypoint galattico): stessa riga-target di un corpo, ma verso la stella lontana.
-            Vector3 sp = (solar.DestinationSystem.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
-            float dd = (sp - player.position).magnitude;
-            string ds = dd > 1000f ? (dd / 1000f).ToString("F1") + " km" : dd.ToString("F0") + " m";
-            destLine = $"Sistema ★ {solar.DestinationSystem.Name} : {ds}\n";
+            // nome del corpo + sistema di appartenenza (es. "Vega-II — ★ Vega"); il target-sistema ha già la stella nel nome.
+            string who = tgt.interstellar ? tgt.name
+                       : tgt.system != null ? $"{tgt.name} — ★ {tgt.system.Name}" : tgt.name;
+            destLine = tgt.interstellar ? $"Sistema {who} : {ds}\n" : $"Distanza ({who}) : {ds}\n";
         }
 
         string perfLine = showPerf

@@ -15,6 +15,28 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 
 ## Stato attuale (vedi git log per il dettaglio)
 
+> **AGGIORNAMENTO 7 giu 2026 — MAPPA RISCRITTA + CARICAMENTI GRADUALI (PREVALE; dettaglio in `CHANGELOG.md` e memoria [[wanderer-hud-navigazione]]):**
+> - **`MapMode` rifatto da zero** con **spazio-mappa LOCALE** (tutto in coordinate-universo `Vector3d`, `ToMap(uni)=uni−mapOrigin`,
+>   camera+oggetti stesso ToMap → immagine invariante al cambio mapOrigin + precisione perfetta a ogni distanza), **camera
+>   TRACKBALL** (pos/rot decoupled dal pivot: clic = pivot sul punto cliccato senza muovere la vista; pivot dal cursore sull'
+>   **ECLITTICA** y=0), **layer "MapView"** (la camera-mappa renderizza/raycasta SOLO le visuali della mappa → via il "sole
+>   finto" vagante di `StarRenderClamp`/`Camera.main`), pan agnostico (profondità sotto il cursore), zoom-al-corpo, **vista
+>   galattica (G)** / **nomi (N)**, proxy statici dei sistemi dormienti, etichette anti-sovrapposizione, sonda in mappa,
+>   visuali corpi INCREMENTALI (proxy immediato res 4 + full su thread → niente freeze all'apertura), fade solo sulle orbite.
+> - **Selezione di QUALSIASI pianeta anche di sistemi DORMIENTI** (`SolarSystem.DormantTarget` da ricetta → autopilota +
+>   **promozione** al corpo vero al risveglio). BUG CHIUSO: `destSys` include `Destination.System`, o il sistema si addormenta
+>   a metà viaggio e `Unregister` azzera il target.
+> - **CARICAMENTI GRADUALI — load iniziale 16s→~2s.** **CORREZIONE alla lezione LOAD:** il collo NON era (solo) la compilazione
+>   compute Metal ma il **BAKE A RUNTIME** quando mancano i materiali bakeati (`TryLoadBakedMaterials`→`BakeFaceMaterials`, RT
+>   per faccia) → **lanciare "Bake planet assets"** è essenziale. Risveglio sistema su più frame (`BuildSystemRoutine`
+>   coroutine, un corpo/frame, ogni corpo su 3 frame: ricetta·materiali·GPU, flag `Waking`) + **partenza ANTICIPATA** (costruisci
+>   la destinazione appena in viaggio, resta residente).
+> - **Resa:** `SunLight` da posizioni VERE (`UniversePosition`) non dal transform clampato (disco+luce coerenti); `DistantStars`
+>   (stelle dormienti = punti sempre in cielo); `StarGlow` (alone additivo, shader `Wanderer/StarGlow`). Orbite (O) glitch FIX
+>   (no espansione screen-space per vertici dietro la camera + gate sistema corrente). Speed lines: passaggio dolce girandosi.
+> - **Warp DEBUG ⌘+W / Ctrl+W** (`PlanetWalker.WarpToTarget`) per testare i viaggi lunghi.
+> - **NB commit:** scene (`Game.unity`/`PlanetEditor.unity`) e ricette (`Valentina2`/`terra-test3.json`) restano FUORI dai commit.
+
 > **AGGIORNAMENTO 6 giu 2026 — sessioni UX (PREVALE; piano prossimi passi in `NEXT_SESSION_PROMPT.md`, dettaglio in `CHANGELOG.md`):**
 > - **DIRETTIVA DI FASE:** basi ULTRA solide → si **riscrive liberamente** per la perfezione, **niente pezze** (solo molto
 >   più avanti si preserverà l'esistente). Vale per ogni modifica ora.

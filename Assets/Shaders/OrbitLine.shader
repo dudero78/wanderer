@@ -61,7 +61,11 @@ Shader "Wanderer/OrbitLine"
 
                 float side = v.uv.y * 2.0 - 1.0;                   // -1 / +1
                 float2 off = perp * side * (_PixelWidth / _ScreenParams.y);   // NDC per px·(W/2)·2 = W px tot
-                c0.xy += off * c0.w;                               // in clip space (contrasta la divisione per w)
+                // GUARDIA dietro-camera: un vertice con w<=0 (dietro di te) espanso in spazio schermo esplode in
+                // triangoli enormi (il glitch sulle orbite del sistema in cui ti trovi). Se questo vertice o il vicino
+                // sono dietro, NON espandere: la xy resta in clip valida → il near-clip della GPU taglia l'orbita
+                // pulita dietro di te (invisibile comunque). Davanti, espansione normale.
+                if (c0.w > 1e-4 && c1.w > 1e-4) c0.xy += off * c0.w;   // in clip space (contrasta la divisione per w)
 
                 // LUMINOSITÀ LUNGO L'ANELLO calcolata QUI, per-vertice (uv.x = posizione vera del campione).
                 // Si interpola poi il VALORE di luminosità, che è continuo attorno all'anello → alla cucitura

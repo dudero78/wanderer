@@ -22,6 +22,7 @@ public class StarSystem
     // Register continua a popolare quell'unica lista e nessun consumatore può vederne una versione divergente.
     public List<CelestialBody> Bodies;
     public bool Active;                             // un solo sistema Active per volta (con N=1 sempre true)
+    public bool Waking;                             // risveglio in corso (build su più frame): evita di ri-triggerare la sveglia o di addormentarlo a metà
 
     // --- Tappa 3+: dati per costruire/distruggere il sistema su richiesta (sleep/wake interstellare) ---
     // Recipe: la composizione del sistema (stella + corpi) come DATO → BuildSystem la sa costruire (Tappa 4). I sistemi

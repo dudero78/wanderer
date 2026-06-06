@@ -25,6 +25,8 @@ public class Probe : MonoBehaviour
     Vector3 landedLocal;   // posizione di posa in coordinate LOCALI del corpo → resta incollata alla superficie anche
                            // mentre il corpo orbita / la floating origin ri-centra (era la causa del lento sprofondamento)
 
+    public static Probe Instance { get; private set; }   // l'unica sonda (per la mappa: marker "SONDA")
+
     public Camera Cam => cam;
     public bool Landed => landed;
     public CelestialBody LandedOn => landedOn;
@@ -40,6 +42,7 @@ public class Probe : MonoBehaviour
         var go = new GameObject("Sonda");
         var p = go.AddComponent<Probe>();
         p.solar = s;
+        Instance = p;
 
         p.rb = go.AddComponent<Rigidbody>();
         p.rb.useGravity = false;                 // gravità a mano (radiale sommata), come il walker
@@ -178,6 +181,7 @@ public class Probe : MonoBehaviour
         if (solar != null) solar.Loose.Remove(transform);
         GpuPlanetRenderer.ExtraViewpoints.Remove(transform);
         if (GpuPlanetRenderer.AuxPointLight == lamp) GpuPlanetRenderer.AuxPointLight = null;
+        if (Instance == this) Instance = null;
     }
 
     void FixedUpdate()

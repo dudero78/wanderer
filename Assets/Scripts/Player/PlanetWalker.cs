@@ -122,6 +122,12 @@ public class PlanetWalker : MonoBehaviour
     {
         if (!ControlsActive) return;   // congelato (es. modalità mappa): niente sguardo né tasti
 
+        // ⌘+W (DEBUG): WARP verso la destinazione — balza fin quasi al bersaglio (per testare i viaggi lunghi senza
+        // aspettare). Ti deposita appena fuori dal bersaglio, con la sua stessa velocità (relativa ~0, non sfrecci via).
+        if (Input.GetKeyDown(KeyCode.W) && (Input.GetKey(KeyCode.LeftCommand) || Input.GetKey(KeyCode.RightCommand)
+                                            || Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)))
+            WarpToTarget();
+
         // T (toggle) inserisce/disinserisce l'autopilota: vola hands-off verso il corpo SELEZIONATO. Si inserisce
         // solo con la tuta E con una destinazione scelta sulla mappa (niente da agganciare, altrimenti). Quando si
         // inserisce passa a Newtoniano, così alla disinserzione resti in volo libero (no scatto di assetto).
@@ -189,6 +195,22 @@ public class PlanetWalker : MonoBehaviour
         // rollio in volo libero (Q/E): accumulato qui, applicato e azzerato in FixedUpdate.
         float roll = (Input.GetKey(KeyCode.E) ? 1f : 0f) - (Input.GetKey(KeyCode.Q) ? 1f : 0f);
         rollDelta += roll * rollSpeed * Time.deltaTime;
+    }
+
+    /// <summary>DEBUG (⌘+W): teletrasporta il giocatore fin quasi al bersaglio selezionato, alla sua stessa velocità →
+    /// per provare i viaggi lunghi (es. verso un altro sistema) senza aspettare. Si appoggia al ri-ancoraggio dell'origine
+    /// (lo Step del SolarSystem ri-centra lo spazio-scena il frame dopo, come per qualunque spostamento).</summary>
+    void WarpToTarget()
+    {
+        var solar = SolarSystem.Instance;
+        if (solar == null || rb == null || !solar.TryGetTarget(out var t)) return;
+        Vector3 to = t.scenePos - rb.position;
+        float dist = to.magnitude;
+        float arrive = Mathf.Max(t.radius * 6f, 20000f);   // fermati ~20 km / 6 raggi fuori dal bersaglio
+        if (dist <= arrive * 1.5f) return;                  // già vicino: niente warp
+        rb.position = t.scenePos - to / dist * arrive;
+        rb.linearVelocity = t.sceneVelocity;                // velocità del bersaglio → relativa ~0 (non sfrecci via)
+        ActionHint = "WARP → " + t.name;
     }
 
     void FixedUpdate()

@@ -114,22 +114,28 @@ public class GameBootstrap : MonoBehaviour
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);
         var eclipse = LightingSetup.Setup(gameObject, solar, sys.StarTransform, sys.HomePlanetGo.transform);
         UiSetup.Setup(gameObject, solar, rig, sys);
+        gameObject.AddComponent<DistantStars>().Init(solar);   // stelle dei sistemi dormienti come punti sempre visibili in cielo
 
         // TAPPA 4 multi-sistema: cabla sveglia/sonno dei sistemi DISTANTI (SolarSystem decide il QUANDO per
         // prossimità; qui il COSA: costruisci/distruggi i corpi + ri-punta la luce alla stella giusta + ricostruisci
         // le eclissi sui nuovi corpi). Il sistema-casa resta residente. Identico a prima finché resti nel sistema-casa.
         Transform homeStar = sys.StarTransform; Transform homePlanet = sys.HomePlanetGo.transform;
-        solar.WakeSystem = s =>
+
+        // costruzione GRADUALE (coroutine): la stella e un corpo per frame → niente freeze all'arrivo. A fine build
+        // (s.Active) ri-punta la luce alla stella giusta, ricostruisce le eclissi, e promuove l'eventuale bersaglio
+        // dormiente al corpo vero appena nato (collisione/atterraggio reali).
+        System.Collections.IEnumerator WakeRoutine(StarSystem s)
         {
-            bool ok = SolarSystemSetup.BuildSystem(solar, s, useQuadtree, useGpuSurface, gpuSurfaceRes);
-            if (ok)
+            yield return SolarSystemSetup.BuildSystemRoutine(solar, s, useQuadtree, useGpuSurface, gpuSurfaceRes);
+            if (s.Active)
             {
                 if (SunLight.Instance != null && s.StarTransform != null && s.Bodies != null && s.Bodies.Count > 0)
                     SunLight.Instance.Retarget(s.StarTransform, s.Bodies[0].transform);
                 eclipse?.Rebuild();
+                solar.PromoteDormantTarget(s);
             }
-            return ok;
-        };
+        }
+        solar.WakeSystem = s => StartCoroutine(WakeRoutine(s));
         solar.SleepSystem = s =>
         {
             SolarSystemSetup.DestroySystem(solar, s);

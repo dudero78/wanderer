@@ -44,13 +44,15 @@ public class SpeedLines : MonoBehaviour
         Vector3 vd = walker.Velocity.sqrMagnitude > 1f ? walker.Velocity.normalized : cam.transform.forward;
         float facing = Vector3.Dot(cam.transform.forward, vd);
 
-        // UNA SOLA passata (com'era — pulita). AVANTI: le righe EMANANO dal prograde; INDIETRO: CONVERGONO verso il
-        // retrograde (davanti a te). Vicino a 90° il punto di fuga schizza al bordo (buco nero): lo riporto verso il
-        // CENTRO schermo man mano che |facing|→0 → le righe riempiono lo schermo e le due animazioni si toccano (no gap).
+        // UNA passata. AVANTI: le righe EMANANO dal prograde; INDIETRO: CONVERGONO verso il retrograde. Lo SCAMBIO fra
+        // le due (a |facing|→0, cioè guardando di traverso al moto) avviene mentre l'effetto è SFUMATO A ZERO (turnFade):
+        // girandoti vedi l'una dissolversi, l'altra rinascere — niente più salto netto, e niente "terza" animazione fasulla
+        // (che nasceva disegnando la passata del lato sbagliato col punto di fuga ripiegato al centro).
         bool inward = facing < 0f;
         Vector2 vanish = ProjectVanish(inward ? -vd : vd, screenC);
-        float gap = 1f - Mathf.Clamp01(Mathf.Abs(facing) / 0.5f);   // 1 a 90°, 0 oltre ±30°
+        float gap = 1f - Mathf.Clamp01(Mathf.Abs(facing) / 0.5f);   // a vista di traverso il punto di fuga torna al centro
         Vector2 center = Vector2.Lerp(vanish, screenC, gap);
+        float turnFade = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(Mathf.Abs(facing) / 0.22f));   // dip a 0 attraversando il perpendicolare
 
         float maxR = Mathf.Sqrt((float)Screen.width * Screen.width + (float)Screen.height * Screen.height);
         float innerFrac = Mathf.Lerp(0.5f, 0.04f, intensity);
@@ -65,7 +67,7 @@ public class SpeedLines : MonoBehaviour
             float r = inward ? Mathf.Lerp(maxR * 1.05f, maxR * innerFrac, phase)
                              : Mathf.Lerp(maxR * innerFrac, maxR * 1.05f, phase);
             float len = baseLen * (0.35f + phase) * ui;
-            float a = intensity * Mathf.Sin(phase * Mathf.PI) * 0.9f;
+            float a = turnFade * intensity * Mathf.Sin(phase * Mathf.PI) * 0.9f;
             if (a <= 0.004f) continue;
             Vector2 dir = new Vector2(Mathf.Cos(ang[i]), Mathf.Sin(ang[i]));
             Vector2 p = center + dir * r;

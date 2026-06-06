@@ -21,6 +21,20 @@ public class SolarSystem : MonoBehaviour
     public CelestialBody Destination;       // corpo selezionato sulla mappa: in volo l'origine ancora a lui
     public StarSystem DestinationSystem;    // SISTEMA stellare distante selezionato in mappa (waypoint galattico): ci voli verso, arrivando si sveglia (Tappa 4). Mutuamente esclusivo con Destination
 
+    /// <summary>Un PIANETA di un sistema DORMIENTE scelto come bersaglio dalla mappa: non esiste ancora come corpo vivo,
+    /// la sua posizione si calcola dalla ricetta (orbita relativa al SystemOrigin). L'autopilota ci vola; avvicinandoti il
+    /// sistema si sveglia e il pianeta diventa un corpo vero → allora lo "promuovo" a Destination (collisione/atterraggio
+    /// reali). Mutuamente esclusivo con Destination/DestinationSystem.</summary>
+    public class DormantTarget
+    {
+        public string name;
+        public StarSystem system;
+        public KeplerOrbit orbit;     // relativa al SystemOrigin (null = la stella stessa)
+        public double radius, gravity;
+        public Vector3d UniversePos(double time) => system.SystemOrigin + (orbit != null ? orbit.GetRelativePosition(time) : Vector3d.Zero);
+    }
+    public DormantTarget DestinationDormant;
+
     /// <summary>BERSAGLIO unificato del targeting: un CORPO o un SISTEMA distante, con TUTTO ciò che serve a chi lo usa
     /// (autopilota, reticolo di rotta, HUD). Fonte UNICA → qualunque cosa selezionabile eredita automaticamente ogni
     /// funzione di targeting (rotta, distanza, velocità di avvicinamento, autopilota), senza ricablare i consumatori.</summary>
@@ -46,7 +60,18 @@ public class SolarSystem : MonoBehaviour
         {
             var b = Destination;
             Vector3 sv = Reference != null ? (b.UniverseVelocity - Reference.UniverseVelocity).ToVector3() * ts : Vector3.zero;
-            t = new TargetInfo { name = b.gameObject.name, scenePos = b.transform.position, radius = (float)b.Radius, mu = (float)b.Mu, surfaceGravity = (float)b.SurfaceGravity, sceneVelocity = sv, body = b };
+            t = new TargetInfo { name = b.gameObject.name, scenePos = b.transform.position, radius = (float)b.Radius, mu = (float)b.Mu, surfaceGravity = (float)b.SurfaceGravity, sceneVelocity = sv, body = b, system = b.System };
+            return true;
+        }
+        if (DestinationDormant != null)
+        {
+            var dt = DestinationDormant;
+            Vector3 pos = (dt.UniversePos(SimTime) - FloatingOrigin.SceneOrigin).ToVector3();
+            // punto FISSO nell'universo (come il sistema): in scena si muove come −(velocità del riferimento)·TimeScale
+            Vector3 sv = Reference != null ? (Vector3d.Zero - Reference.UniverseVelocity).ToVector3() * ts : Vector3.zero;
+            float r = (float)dt.radius;
+            t = new TargetInfo { name = dt.name, scenePos = pos, radius = r, mu = (float)(dt.gravity * dt.radius * dt.radius),
+                                 surfaceGravity = (float)dt.gravity, sceneVelocity = sv, system = dt.system };
             return true;
         }
         if (DestinationSystem != null)
@@ -74,7 +99,9 @@ public class SolarSystem : MonoBehaviour
     // callback (costruzione/distruzione corpi + retarget luce + rebuild eclissi) li imposta GameBootstrap. NULL =
     // nessun multi-sistema (identico a prima). Il sistema-casa (Recipe.Bodies==null) resta SEMPRE residente: il
     // limite di corpi vivi non c'è più (region-stamp uint), quindi casa + un sistema distante svegliato coesistono.
-    public System.Func<StarSystem, bool> WakeSystem;
+    // WakeSystem: avvia la costruzione del sistema (ora GRADUALE su più frame → niente freeze). Fire-and-forget: imposta
+    // s.Waking, costruisce in coroutine, a fine build mette s.Active e fa luce/eclissi/promozione del bersaglio.
+    public System.Action<StarSystem> WakeSystem;
     public System.Action<StarSystem> SleepSystem;
 
     // Corpo di RIFERIMENTO: quello a cui è ancorata l'origine in questo istante. È FERMO in scena,
@@ -203,7 +230,7 @@ public class SolarSystem : MonoBehaviour
             // agganciarsi, e ancorare a casa o alla destinazione fa esplodere la pos-scena a metà strada (a milioni di
             // metri il float TREMA → jitter, errori di proiezione). FLOATING ORIGIN VERA: ancora a un PUNTO fisso che
             // RI-CENTRO sul giocatore appena si allontana oltre una soglia → la pos-scena resta sempre piccola (≤~50 km).
-            bool wantDeep = traveling && DestinationSystem != null;
+            bool wantDeep = traveling && (DestinationSystem != null || DestinationDormant != null);
             if (wantDeep)
             {
                 if (!deepMode)
@@ -253,14 +280,39 @@ public class SolarSystem : MonoBehaviour
     {
         if (PlayerBody == null || WakeSystem == null || Systems.Count <= 1) return;
         Vector3d playerU = FloatingOrigin.SceneOrigin + new Vector3d(PlayerBody.position);
+        // sistema di DESTINAZIONE — include il sistema del CORPO selezionato vivo (Destination.System): dopo che un
+        // pianeta dormiente è stato promosso a corpo vero, la destinazione è Destination, non più DestinationDormant →
+        // senza questo Vega non risultava più "destinazione" e veniva ADDORMENTATA mentre ancora ci viaggiavi (→ il
+        // corpo distrutto azzerava Destination = target perso, e il sistema spariva). Lo si costruisce PRESTO (in
+        // viaggio) e resta RESIDENTE finché è la destinazione.
+        StarSystem destSys = DestinationDormant != null ? DestinationDormant.system
+                           : DestinationSystem != null ? DestinationSystem
+                           : Destination != null ? Destination.System : null;
         for (int i = 0; i < Systems.Count; i++)
         {
             var s = Systems[i];
             if (s == null || s.Recipe == null || s.Recipe.Bodies == null) continue;   // casa (Bodies==null): sempre residente
             double d = Vector3d.Distance(s.SystemOrigin, playerU);
-            if (!s.Active && d < s.WakeRadius) WakeSystem(s);
-            else if (s.Active && d > s.WakeRadius * 1.4) SleepSystem?.Invoke(s);
+            bool isDest = s == destSys;
+            // sveglia GRADUALE (coroutine): vicino, OPPURE è la destinazione e sei già in viaggio. Waking evita di
+            // ri-triggerare ogni frame; la promozione del bersaglio dormiente la fa il builder a fine costruzione.
+            if (!s.Active && !s.Waking && (d < s.WakeRadius || (isDest && traveling))) { s.Waking = true; WakeSystem(s); }
+            // dormi quando lontano — MA non la destinazione (resta residente mentre ci viaggi) e mai a metà risveglio.
+            else if (s.Active && !s.Waking && !isDest && d > s.WakeRadius * 1.4) SleepSystem?.Invoke(s);
         }
+    }
+
+    /// <summary>Quando il sistema del bersaglio dormiente si SVEGLIA, sostituisci il bersaglio (punto da ricetta) col
+    /// CORPO VERO appena creato (stesso nome) → collisione/atterraggio reali e l'autopilota continua su di lui.
+    /// Pubblico: lo chiama il builder asincrono a fine costruzione.</summary>
+    public void PromoteDormantTarget(StarSystem s)
+    {
+        if (DestinationDormant == null || DestinationDormant.system != s) return;
+        for (int i = 0; i < Bodies.Count; i++)
+            if (Bodies[i] != null && Bodies[i].gameObject.name == DestinationDormant.name)
+            {
+                Destination = Bodies[i]; DestinationDormant = null; return;
+            }
     }
 
     // Corpo più vicino al giocatore, CON ISTERESI. Senza isteresi, a metà strada fra due corpi (es. Pianeta

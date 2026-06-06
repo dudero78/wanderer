@@ -2,17 +2,35 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Modalità mappa stile Outer Wilds. Premendo M la camera fa uno zoom-out veloce dal personaggio
-/// fino a inquadrare l'intero sistema in prospettiva, con le ORBITE dei corpi disegnate. Si clicca
-/// un corpo per SELEZIONARLO (base per la futura navigazione "vai verso"). Premi M (o Esc) per tornare.
+/// Modalità mappa stile Outer Wilds. Premendo M la camera fa uno zoom-out veloce DALLA POSIZIONE ESATTA del
+/// giocatore fino a inquadrare l'intero sistema in prospettiva, con le ORBITE dei corpi. Si clicca un corpo per
+/// SELEZIONARLO (navigazione "vai verso"); un sistema distante per fissarlo come WAYPOINT galattico. M/Esc per tornare.
 ///
-/// Usa una camera dedicata: in mappa la camera del giocatore viene spenta e accesa quella della mappa
-/// (entrambe taggate MainCamera, una sola attiva → Camera.main resta valido). I comandi del walker
-/// sono congelati (ControlsActive=false) ma gravità e suolo restano attivi: il giocatore aspetta a terra.
+/// ── SPAZIO-MAPPA LOCALE (il cuore della riscrittura) ──────────────────────────────────────────────────────────
+/// La mappa NON disegna più i corpi alle loro posizioni-scena del gioco (ancorate a FloatingOrigin.SceneOrigin). Un
+/// sistema distante è a milioni di metri da lì → il float della camera-mappa trema. Invece: ogni cosa vive in
+/// coordinate-UNIVERSO (Vector3d) e si proietta con ToMap(uni) = (uni − mapOrigin).ToVector3(), dove mapOrigin è
+/// l'origine del SISTEMA più vicino al pivot. Vicino al fuoco le coordinate sono sempre piccole → precisione perfetta
+/// a qualunque distanza. PROPRIETÀ CHIAVE: siccome la CAMERA e gli OGGETTI usano lo STESSO ToMap, l'immagine è
+/// invariante al cambio di mapOrigin (nessun salto quando passi da un sistema all'altro) e — non meno importante — il
+/// primo frame dell'animazione d'entrata coincide al pixel con la vista reale del giocatore (l'effetto "zoom-out dalla
+/// mia posizione" è corretto per costruzione, a ogni distanza).
+///
+/// ── CAMERA TRACKBALL (orbita libera, niente snap) ─────────────────────────────────────────────────────────────
+/// Posizione (camPosU) e orientamento (camRot) della camera sono INDIPENDENTI dal pivot. Il destro fa un'orbita
+/// RIGIDA attorno al pivot (ruota posizione E orientamento insieme → resti puntato sul pivot). Il clic imposta il
+/// pivot sul punto cliccato SENZA muovere la camera → nessuno snap della vista. Pan (sinistro trascinato / WASD) e
+/// zoom-verso-cursore (rotella) restano. È il comportamento Blender-like richiesto.
+///
+/// Usa una camera dedicata: in mappa la camera del giocatore viene spenta. I comandi del walker sono congelati
+/// (ControlsActive=false) ma gravità e suolo restano attivi: il giocatore aspetta a terra.
 /// </summary>
 public class MapMode : MonoBehaviour
 {
     public KeyCode toggleKey = KeyCode.M;
+    public KeyCode galaxyKey = KeyCode.G;   // vista galattica (inquadra tutti i sistemi)
+    public KeyCode namesKey = KeyCode.N;     // mostra/nascondi i nomi dei corpi
+    bool showBodyNames = true;               // DEV: nomi dei corpi (anche dei sistemi distanti) visibili da subito
     [Tooltip("Durata dello zoom-out/in in secondi.")]
     public float transitionTime = 0.7f;
     [Tooltip("Dimensione dei marker come frazione della distanza camera (≈ costante a schermo).")]
@@ -22,23 +40,31 @@ public class MapMode : MonoBehaviour
     Transform playerCamT;
     PlanetWalker walker;
     SolarSystem solar;
-    RenderScaler playerScaler;   // la camera giocatore renderizza in una RT presentata a parte: va spento in mappa
+    RenderScaler playerScaler;   // la camera giocatore renderizza in una RT presentata a parte: va spenta in mappa
 
     Camera mapCam;
+    int mapLayer;                // layer "MapView": la camera-mappa renderizza e raycasta SOLO questo (niente scena reale)
     enum State { Off, Entering, On, Exiting }
     State state = State.Off;
     float t;
-    Vector3 fromPos; Quaternion fromRot;
 
-    GUIStyle mapStyle, hereStyle;
-    GameObject playerMarker;   // "tu sei qui": dove sta il giocatore in scena (su un corpo o in volo)
+    // ── Camera trackball, in coordinate-UNIVERSO ──
+    Vector3d camPosU;            // posizione della camera (universo)
+    Quaternion camRot = Quaternion.identity;   // orientamento della camera (indipendente dal pivot)
+    Vector3d pivotU;             // centro d'orbita (universo): NON è il bersaglio di sguardo, solo il perno del destro
+    Vector3d mapOrigin;          // punto-universo che corrisponde all'origine di render della mappa (sistema più vicino al pivot)
+    Vector3d fromU; Quaternion fromRot;   // capisaldi dell'animazione d'entrata/uscita
 
-    // Scia: traiettoria percorsa. Registrata SEMPRE (anche fuori mappa) in coordinate-UNIVERSO (la scena
-    // trasla con la floating origin) e riconvertita a scena ogni frame → resta coerente con stella e orbite.
+    const float MapPitchDefault = 33.5f, MapRotSpeed = 0.25f, MapPanRate = 0.7f;
+
+    GUIStyle mapStyle, hereStyle, nameStyle, probeStyle;
+    GameObject playerMarker;   // "tu sei qui": dove sta il giocatore (su un corpo o in volo), in universo
+    GameObject probeMarker;    // la SONDA, quando dispiegata (Probe.Instance attiva): pallino ambra + etichetta
+
+    // Scia: traiettoria percorsa. Registrata SEMPRE (anche fuori mappa) in coordinate-UNIVERSO (Vector3d) e proiettata
+    // con ToMap ogni frame → coerente con stella e orbite a qualunque distanza.
     LineRenderer trail;
     const int MaxTrailPoints = 1024;   // ring buffer: oltre, scarta il punto più vecchio (scia "recente")
-    // scia = RING BUFFER vero (O(1) inserimento): niente List.RemoveAt(0) O(n) a ogni punto durante il volo veloce.
-    // trailHead = indice del più VECCHIO; i punti in ordine cronologico sono trailRing[(trailHead+i) % cap].
     readonly Vector3d[] trailRing = new Vector3d[MaxTrailPoints];
     int trailHead, trailCount;
     Vector3d TrailAt(int i) => trailRing[(trailHead + i) % MaxTrailPoints];
@@ -46,35 +72,52 @@ public class MapMode : MonoBehaviour
     float trailMaxJump = 1e9f;         // salto max plausibile fra due frame: oltre = ri-ancoraggio, si scarta
 
     const int MapProxyRes = 40;   // risoluzione mesh del proxy "corpo reale" in mappa (basta: è piccolo)
+
+    // ── Visuali dei CORPI VIVI (in solar.Bodies): marker cliccabile + proxy craterizzato + anello d'orbita ──
     readonly List<GameObject> markers = new List<GameObject>();
     readonly Dictionary<GameObject, CelestialBody> markerBody = new Dictionary<GameObject, CelestialBody>();
-    // proxy del CORPO REALE (mesh craterizzata + materiali bakeati) per i corpi rocciosi: sostituisce il
-    // disco piatto. Il marker-sfera resta come bersaglio di click invisibile.
     readonly Dictionary<CelestialBody, Transform> proxies = new Dictionary<CelestialBody, Transform>();
     readonly List<LineRenderer> orbits = new List<LineRenderer>();
     readonly List<CelestialBody> orbitBody = new List<CelestialBody>();
+    readonly List<Color> orbitCol = new List<Color>();   // colore base per orbita (per il fade-in/out entrando/uscendo dalla mappa)
     CelestialBody selected;
 
-    // TAPPA 5 — MAPPA GALATTICA: billboard delle stelle dei sistemi DISTANTI (alla loro SystemOrigin). Compaiono
-    // quando zoomi oltre il sistema-casa; danno la "galassia da navigare". Niente corpi/fette: solo un disco unlit.
-    readonly List<GameObject> systemMarkers = new List<GameObject>();
-    readonly List<StarSystem> systemMarkerSys = new List<StarSystem>();
-    readonly Dictionary<GameObject, StarSystem> systemOf = new Dictionary<GameObject, StarSystem>();
-    int builtBodyCount;   // n. corpi per cui sono costruite le visuali → se cambia (sistema svegliato) si ricostruisce
+    // ── Visuali dei SISTEMI DISTANTI (statiche, dai SystemRecipe): billboard della stella + dischi-pianeti + anelli ──
+    // Esistono dai DATI senza caricare il sistema nel mondo. Quando un sistema si SVEGLIA (i suoi corpi veri entrano in
+    // solar.Bodies) si NASCONDONO e lasciano il posto ai corpi reali; quando dorme tornano visibili.
+    sealed class SystemVisual
+    {
+        public StarSystem sys;
+        public GameObject star;                          // billboard cliccabile (waypoint)
+        public readonly List<GameObject> discs = new List<GameObject>();   // dischi-pianeti cliccabili (waypoint)
+        public readonly List<LineRenderer> rings = new List<LineRenderer>();
+        public readonly List<KeplerOrbit> bodyOrbits = new List<KeplerOrbit>();   // parallelo a discs/rings: per posizionarli
+        public readonly List<float> bodyRadii = new List<float>();
+        public readonly List<string> bodyNames = new List<string>();
+    }
+    readonly List<SystemVisual> systemVisuals = new List<SystemVisual>();
+    readonly Dictionary<GameObject, StarSystem> waypointOf = new Dictionary<GameObject, StarSystem>();   // clic billboard → sistema (waypoint alla stella)
+    readonly Dictionary<GameObject, float> discRadius = new Dictionary<GameObject, float>();              // disco/billboard → raggio (zoom-su-corpo)
+    readonly Dictionary<GameObject, SolarSystem.DormantTarget> discTarget = new Dictionary<GameObject, SolarSystem.DormantTarget>();   // clic disco pianeta dormiente → bersaglio del PIANETA
 
-    // Camera ORBITALE della mappa: yaw/pitch (trascina col DESTRO), distanza (rotella), attorno a un FOCUS.
-    // Il focus insegue il corpo SELEZIONATO (focusFollows, con smoothing) finché non PANni con WASD → si sgancia
-    // e roami libero; la selezione successiva lo ri-aggancia. Click sinistro = seleziona.
-    float mapYaw, mapPitch, mapDist;
-    Vector3 focusPos, lastMousePx;
-    Vector2 leftDownPx, lastLeftPx;   // pan col TRASCINAMENTO SINISTRO (distingue click=selezione da drag=pan)
-    bool leftDragged;
-    bool focusFollows;
-    const float MapPitchDefault = 33.5f, MapRotSpeed = 0.25f, MapPanRate = 0.7f;
+    // statico: "la mappa è aperta?" → StarRenderClamp lo guarda per NON clampare la stella sulla camera-mappa (clamp
+    // tarato sulla camera del giocatore; in mappa corromperebbe il transform della stella, e il reticolo di rotta che
+    // legge transform.position finirebbe su un fantasma fuori posto).
+    public static bool IsOpen { get; private set; }
 
     public CelestialBody Selected => selected;
     public bool Active => state != State.Off;
     public Camera ViewCamera => mapCam;   // la camera della mappa (per il reticolo di rotta in modalità mappa)
+
+    // ── Conversioni spazio-mappa ──
+    Vector3 ToMap(Vector3d uni) => (uni - mapOrigin).ToVector3();
+    Vector3d ToUniverse(Vector3 mapPos) => mapOrigin + new Vector3d(mapPos);
+
+    /// <summary>Converte una posizione dallo spazio-scena del GIOCATORE (ancorato a SceneOrigin) allo spazio-mappa
+    /// (ancorato a mapOrigin). Serve al RouteIndicator: in mappa proietta il bersaglio sulla camera-mappa, che vive in
+    /// un frame diverso da quello del gioco. universo = SceneOrigin + scenePos → mappa = scenePos + (SceneOrigin − mapOrigin).</summary>
+    public Vector3 ToViewSpace(Vector3 playerScenePos) =>
+        playerScenePos + (FloatingOrigin.SceneOrigin - mapOrigin).ToVector3();
 
     public void Init(Camera playerCamera, PlanetWalker w, SolarSystem s)
     {
@@ -94,40 +137,32 @@ public class MapMode : MonoBehaviour
         mapCam.fieldOfView = 55f;
         mapCam.enabled = false;
 
-        trailStep = SystemRadius() * 0.0015f;   // ~42 m su un sistema da 28 km → scia fine ma punti contenuti
-        trailMaxJump = SystemRadius() * 0.25f;  // un frame reale non copre mai tanto: oltre = ri-ancoraggio
+        // LAYER DEDICATO: la camera-mappa renderizza SOLO le visuali della mappa (proxy/marker/orbite), MAI gli oggetti
+        // reali della scena. Senza, renderizzava anche le stelle vere — per giunta spostate fuori posto da StarRenderClamp,
+        // che usa Camera.main (= la camera-mappa in mappa) → il "sole finto" vagante. La camera giocatore esclude il layer.
+        mapLayer = LayerMask.NameToLayer("MapView");
+        if (mapLayer < 0) mapLayer = 9;
+        mapCam.cullingMask = 1 << mapLayer;
+        playerCam.cullingMask &= ~(1 << mapLayer);
+
+        float homeR = SystemRadius(HomeSystem());
+        trailStep = homeR * 0.0015f;   // scia fine ma con punti contenuti
+        trailMaxJump = homeR * 0.25f;  // un frame reale non copre mai tanto: oltre = ri-ancoraggio
         BuildVisuals();
         ShowVisuals(false);
     }
+
+    // ───────────────────────────────────────── Costruzione visuali ─────────────────────────────────────────
 
     void BuildVisuals()
     {
         var markerShader = Shader.Find("Unlit/Color");
         var lineShader = Shader.Find("Sprites/Default");
-        float orbitWidth = SystemRadius() * 0.004f;
 
-        BuildBodyVisuals(markerShader, lineShader, orbitWidth);
+        BuildBodyVisuals(markerShader, lineShader);
+        BuildSystemVisuals(markerShader, lineShader);
 
-        // TAPPA 5 — billboard delle stelle dei sistemi DISTANTI (SystemOrigin != Zero): disco unlit del colore della
-        // stella. CLICCABILI (collider) → selezionano il sistema come WAYPOINT galattico.
-        if (solar.Systems != null)
-            foreach (var s in solar.Systems)
-            {
-                if (s == null || s.SystemOrigin.sqrMagnitude < 1.0) continue;   // salta il sistema-casa (origine Zero)
-                var smk = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                smk.name = "System_" + s.Name;
-                systemOf[smk] = s;   // bersaglio di click → seleziona il sistema
-                if (markerShader != null)
-                {
-                    var m = new Material(markerShader); m.SetColor("_Color", s.StarColor);
-                    smk.GetComponent<MeshRenderer>().sharedMaterial = m;
-                }
-                smk.transform.SetParent(transform, false);
-                systemMarkers.Add(smk); systemMarkerSys.Add(s);
-            }
-
-        // marker "TU SEI QUI": verde acceso, distinto dai corpi. Niente collider → non intercetta i
-        // click (non è selezionabile) e non copre i corpi dietro di sé.
+        // marker "TU SEI QUI": verde acceso. Niente collider → non intercetta i click e non copre i corpi dietro.
         playerMarker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         playerMarker.name = "Marker_Player";
         var col2 = playerMarker.GetComponent<Collider>();
@@ -139,16 +174,32 @@ public class MapMode : MonoBehaviour
             playerMarker.GetComponent<MeshRenderer>().sharedMaterial = m;
         }
         playerMarker.transform.SetParent(transform, false);
+        playerMarker.layer = mapLayer;
+
+        // marker della SONDA: ambra, niente collider (non selezionabile, non copre i corpi). Visibile solo da dispiegata.
+        probeMarker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        probeMarker.name = "Marker_Probe";
+        var col3 = probeMarker.GetComponent<Collider>();
+        if (col3 != null) Destroy(col3);
+        if (markerShader != null)
+        {
+            var m = new Material(markerShader);
+            m.SetColor("_Color", new Color(1f, 0.75f, 0.2f));
+            probeMarker.GetComponent<MeshRenderer>().sharedMaterial = m;
+        }
+        probeMarker.transform.SetParent(transform, false);
+        probeMarker.layer = mapLayer;
+        probeMarker.SetActive(false);
 
         // scia del giocatore: filo verde, brilla al capo recente e sfuma sul vecchio (coda a cometa)
         if (lineShader != null)
         {
             var tgo = new GameObject("PlayerTrail");
             tgo.transform.SetParent(transform, false);
+            tgo.layer = mapLayer;
             trail = tgo.AddComponent<LineRenderer>();
             trail.material = new Material(lineShader);
             trail.useWorldSpace = true;
-            trail.widthMultiplier = orbitWidth * 0.8f;
             trail.numCapVertices = 2;
             trail.positionCount = 0;
             trail.startColor = new Color(0.4f, 1f, 0.5f, 0.12f);   // capo VECCHIO (indice 0): quasi spento
@@ -156,222 +207,269 @@ public class MapMode : MonoBehaviour
         }
     }
 
-    // Visuali dei CORPI (marker cliccabili + proxy + orbite). Estratte così si possono RICOSTRUIRE quando un sistema
-    // distante si SVEGLIA (i suoi corpi entrano in solar.Bodies dopo l'avvio) → i suoi pianeti diventano selezionabili
-    // e mostrano l'orbita, come quelli di casa. I billboard dei sistemi / "tu sei qui" / scia NON cambiano (una volta).
-    void BuildBodyVisuals(Shader markerShader, Shader lineShader, float orbitWidth)
+    readonly HashSet<CelestialBody> visualized = new HashSet<CelestialBody>();   // corpi con visuali costruite (per l'update incrementale)
+
+    void BuildBodyVisuals(Shader markerShader, Shader lineShader)
     {
         for (int i = 0; i < solar.Bodies.Count; i++)
+            if (solar.Bodies[i] != null) AddBodyVisual(solar.Bodies[i], markerShader, lineShader);
+    }
+
+    // Costruisce le visuali di UN corpo (marker cliccabile + proxy craterizzato + anello d'orbita).
+    void AddBodyVisual(CelestialBody b, Shader markerShader, Shader lineShader)
+    {
+        if (!visualized.Add(b)) return;
+        bool isStar = b.Orbit == null;
+        Color col = isStar ? (b.System != null ? b.System.StarColor : new Color(1f, 0.85f, 0.45f))
+                           : new Color(0.7f, 0.78f, 0.9f);
+
+        if (!b.Massless)   // il baricentro di un binario non è un bersaglio (niente marker/proxy), ma l'orbita sì
         {
-            var b = solar.Bodies[i];
-            if (b == null) continue;
-            bool isStar = b.Orbit == null;
-            // la stella usa il COLORE del suo sistema (Vega = blu, ecc.), non un giallo fisso (prima la stella
-            // svegliata diventava gialla anche se il suo billboard dormiente era blu).
-            Color col = isStar ? (b.System != null ? b.System.StarColor : new Color(1f, 0.85f, 0.45f))
-                               : new Color(0.7f, 0.78f, 0.9f);
-
-            if (!b.Massless)   // il baricentro di un binario non è un bersaglio (niente marker/proxy), ma l'orbita sì
+            var mk = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            mk.name = "Marker_" + b.gameObject.name;
+            if (markerShader != null)
             {
-                var mk = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                mk.name = "Marker_" + b.gameObject.name;
-                if (markerShader != null)
-                {
-                    var m = new Material(markerShader);
-                    m.SetColor("_Color", col);
-                    mk.GetComponent<MeshRenderer>().sharedMaterial = m;
-                }
-                mk.transform.SetParent(transform, false);
-                markers.Add(mk);
-                markerBody[mk] = b;
-
-                var terr = b.GetComponent<PlanetTerrain>();
-                if (terr != null && terr.Recipe != null)
-                {
-                    mk.GetComponent<MeshRenderer>().enabled = false;
-                    var pgo = new GameObject("Proxy_" + b.gameObject.name);
-                    pgo.transform.SetParent(transform, false);
-                    var proxy = pgo.AddComponent<SingleMeshPlanet>();
-                    proxy.Build(terr, terr.FaceMaterials, MapProxyRes, MapProxyRes);
-                    proxies[b] = pgo.transform;
-                }
+                var m = new Material(markerShader);
+                m.SetColor("_Color", col);
+                mk.GetComponent<MeshRenderer>().sharedMaterial = m;
             }
+            mk.transform.SetParent(transform, false);
+            mk.layer = mapLayer;
+            markers.Add(mk);
+            markerBody[mk] = b;
 
-            if (b.Orbit != null && b.Parent != null && lineShader != null)
+            var terr = b.GetComponent<PlanetTerrain>();
+            if (terr != null && terr.Recipe != null)
             {
-                var lgo = new GameObject("Orbit_" + b.gameObject.name);
-                lgo.transform.SetParent(transform, false);
-                var lr = lgo.AddComponent<LineRenderer>();
-                lr.material = new Material(lineShader);
-                lr.useWorldSpace = true;
-                lr.loop = true;
-                lr.widthMultiplier = orbitWidth;
-                lr.numCapVertices = 2;
-                lr.positionCount = 96;
-                var faint = new Color(col.r, col.g, col.b, 0.5f);
-                lr.startColor = faint; lr.endColor = faint;
-                orbits.Add(lr);
-                orbitBody.Add(b);
+                mk.GetComponent<MeshRenderer>().enabled = false;   // il marker resta bersaglio di click INVISIBILE
+                var pgo = new GameObject("Proxy_" + b.gameObject.name);
+                pgo.transform.SetParent(transform, false);
+                var proxy = pgo.AddComponent<SingleMeshPlanet>();
+                // full-res (MapProxyRes) su THREAD; proxy immediato a res MINIMA (4) → niente freeze sul main thread
+                // all'apertura (prima il proxy immediato era a MapProxyRes = 9600 vert·noise per corpo, ×N corpi = blocco).
+                proxy.Build(terr, terr.FaceMaterials, MapProxyRes, 4);
+                SetMapLayer(pgo);   // il proxy ha mesh-figlie: ricorsivo
+                proxies[b] = pgo.transform;
             }
         }
-        builtBodyCount = solar.Bodies.Count;
-    }
 
-    // Ricostruisce SOLO le visuali dei corpi (quando l'insieme dei corpi cambia: un sistema svegliato/addormentato).
-    void RebuildBodyVisuals()
-    {
-        foreach (var mk in markers) if (mk) Destroy(mk);
-        markers.Clear(); markerBody.Clear();
-        foreach (var kv in proxies) if (kv.Value) Destroy(kv.Value.gameObject);
-        proxies.Clear();
-        foreach (var lr in orbits) if (lr) Destroy(lr.gameObject);
-        orbits.Clear(); orbitBody.Clear();
-        BuildBodyVisuals(Shader.Find("Unlit/Color"), Shader.Find("Sprites/Default"), SystemRadius() * 0.004f);
-    }
-
-    // Centro del sistema = la stella (corpo senza orbita); fallback: media dei corpi.
-    Vector3 SystemCenter()
-    {
-        for (int i = 0; i < solar.Bodies.Count; i++)
-            if (solar.Bodies[i] != null && solar.Bodies[i].Orbit == null)
-                return solar.Bodies[i].transform.position;
-        Vector3 sum = Vector3.zero; int c = 0;
-        for (int i = 0; i < solar.Bodies.Count; i++)
-            if (solar.Bodies[i] != null) { sum += solar.Bodies[i].transform.position; c++; }
-        return c > 0 ? sum / c : Vector3.zero;
-    }
-
-    // Raggio del sistema = l'orbita più esterna (apoapsis); così l'inquadratura contiene tutto.
-    float SystemRadius()
-    {
-        float r = 3000f;
-        for (int i = 0; i < solar.Bodies.Count; i++)
+        if (b.Orbit != null && b.Parent != null && lineShader != null)
         {
-            var b = solar.Bodies[i];
-            if (b != null && b.Orbit != null)
-                r = Mathf.Max(r, (float)(b.Orbit.SemiMajorAxis * (1.0 + b.Orbit.Eccentricity)));
+            var oc = new Color(col.r, col.g, col.b, 0.5f);
+            orbits.Add(NewOrbitRing(lineShader, oc, 96));
+            orbitBody.Add(b);
+            orbitCol.Add(oc);
         }
-        return r;
     }
 
-    /// <summary>Distanza di inquadratura iniziale: l'intero sistema entra in campo (come il vecchio overview).</summary>
-    float DefaultDist() => SystemRadius() / Mathf.Tan(mapCam.fieldOfView * 0.5f * Mathf.Deg2Rad) * 1.25f;
-
-    /// <summary>TAPPA 5 — raggio GALATTICO: distanza-scena al sistema distante più lontano (0 se non ce ne sono).
-    /// Limita lo zoom-out al livello galattico così le stelle distanti entrano in campo senza perdersi nel vuoto.</summary>
-    float GalaxyRadius()
+    // INCREMENTALE (era il lag all'apertura): aggiunge le visuali dei corpi NUOVI (sistema svegliato) e rimuove quelle
+    // dei corpi spariti (sistema addormentato), senza ricostruire i proxy esistenti (mesh costose) ogni volta.
+    void SyncBodyVisuals()
     {
-        float r = 0f;
+        var present = new HashSet<CelestialBody>();
+        for (int i = 0; i < solar.Bodies.Count; i++) if (solar.Bodies[i] != null) present.Add(solar.Bodies[i]);
+
+        for (int i = markers.Count - 1; i >= 0; i--)
+        {
+            var b = markerBody[markers[i]];
+            if (present.Contains(b)) continue;
+            Destroy(markers[i]); markerBody.Remove(markers[i]); markers.RemoveAt(i);
+            if (b != null && proxies.TryGetValue(b, out var px)) { if (px) Destroy(px.gameObject); proxies.Remove(b); }
+            if (b != null) visualized.Remove(b);
+        }
+        for (int i = orbits.Count - 1; i >= 0; i--)
+        {
+            var ob = orbitBody[i];
+            if (present.Contains(ob)) continue;
+            if (orbits[i]) Destroy(orbits[i].gameObject);
+            orbits.RemoveAt(i); orbitBody.RemoveAt(i); orbitCol.RemoveAt(i);
+            if (ob != null) visualized.Remove(ob);   // copre i corpi massless (baricentro: solo orbita, niente marker)
+        }
+
+        var ms = Shader.Find("Unlit/Color"); var ls = Shader.Find("Sprites/Default");
+        for (int i = 0; i < solar.Bodies.Count; i++)
+            if (solar.Bodies[i] != null) AddBodyVisual(solar.Bodies[i], ms, ls);
+    }
+
+    // Visuali STATICHE dei sistemi distanti, dai SystemRecipe: si costruiscono UNA volta (sono dato immutabile). Il
+    // sistema-casa (SystemOrigin = Zero) è sempre vivo → niente proxy statico (lo coprono i corpi veri).
+    void BuildSystemVisuals(Shader markerShader, Shader lineShader)
+    {
+        if (solar.Systems == null) return;
+        foreach (var s in solar.Systems)
+        {
+            if (s == null || s.SystemOrigin.sqrMagnitude < 1.0) continue;   // salta la casa (origine Zero)
+            var sv = new SystemVisual { sys = s };
+
+            // billboard della stella: disco unlit del colore del sistema, cliccabile (waypoint galattico).
+            var smk = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            smk.name = "System_" + s.Name;
+            if (markerShader != null)
+            {
+                var m = new Material(markerShader); m.SetColor("_Color", s.StarColor);
+                smk.GetComponent<MeshRenderer>().sharedMaterial = m;
+            }
+            smk.transform.SetParent(transform, false);
+            smk.layer = mapLayer;
+            sv.star = smk;
+            waypointOf[smk] = s;
+            discRadius[smk] = s.StarRadius;   // bersaglio di zoom: puoi zoomare dritto sulla stella distante
+
+            // dischi-pianeti + anelli d'orbita, dai corpi della ricetta (posizione = SystemOrigin + orbita(SimTime)).
+            var rec = s.Recipe;
+            if (rec != null && rec.Bodies != null)
+                foreach (var def in rec.Bodies)
+                {
+                    if (def.Orbit == null) continue;
+                    var disc = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                    disc.name = "Body_" + s.Name + "_" + def.Name;
+                    if (markerShader != null)
+                    {
+                        var m = new Material(markerShader); m.SetColor("_Color", new Color(0.7f, 0.78f, 0.9f));
+                        disc.GetComponent<MeshRenderer>().sharedMaterial = m;
+                    }
+                    disc.transform.SetParent(transform, false);
+                    disc.layer = mapLayer;
+                    discRadius[disc] = def.Radius;
+                    discTarget[disc] = new SolarSystem.DormantTarget {   // cliccandolo punti il PIANETA (non solo il sistema)
+                        name = def.Name, system = s, orbit = def.Orbit, radius = def.Radius, gravity = def.Gravity };
+                    sv.discs.Add(disc);
+                    sv.bodyOrbits.Add(def.Orbit);
+                    sv.bodyRadii.Add(def.Radius);
+                    sv.bodyNames.Add(def.Name);
+
+                    if (lineShader != null)
+                        sv.rings.Add(NewOrbitRing(lineShader, new Color(0.7f, 0.78f, 0.9f, 0.4f), 96));
+                }
+
+            systemVisuals.Add(sv);
+        }
+    }
+
+    // Assegna ricorsivamente l'oggetto (e figli: i proxy hanno mesh-figlie) al layer della mappa → la camera-mappa li vede.
+    void SetMapLayer(GameObject go)
+    {
+        go.layer = mapLayer;
+        foreach (Transform c in go.transform) SetMapLayer(c.gameObject);
+    }
+
+    LineRenderer NewOrbitRing(Shader lineShader, Color col, int segments)
+    {
+        var lgo = new GameObject("OrbitRing");
+        lgo.transform.SetParent(transform, false);
+        lgo.layer = mapLayer;
+        var lr = lgo.AddComponent<LineRenderer>();
+        lr.material = new Material(lineShader);
+        lr.useWorldSpace = true;
+        lr.loop = true;
+        lr.numCapVertices = 2;
+        lr.positionCount = segments;
+        lr.startColor = col; lr.endColor = col;
+        return lr;
+    }
+
+    // ───────────────────────────────────── Geometria dei sistemi ─────────────────────────────────────
+
+    StarSystem HomeSystem()
+    {
         if (solar.Systems != null)
             foreach (var s in solar.Systems)
-                if (s != null) r = Mathf.Max(r, (s.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3().magnitude);
+                if (s != null && s.SystemOrigin.sqrMagnitude < 1.0) return s;
+        return solar.Active;
+    }
+
+    /// <summary>Il sistema più vicino al pivot (= quello "in vista"). Definisce centro, raggio e mapOrigin.</summary>
+    StarSystem SystemInView()
+    {
+        StarSystem best = null; double bd = double.MaxValue;
+        if (solar.Systems != null)
+            foreach (var s in solar.Systems)
+            {
+                if (s == null) continue;
+                double d = Vector3d.Distance(s.SystemOrigin, pivotU);
+                if (d < bd) { bd = d; best = s; }
+            }
+        return best ?? solar.Active;
+    }
+
+    Vector3d SystemCenterU(StarSystem s) => s != null ? s.SystemOrigin : Vector3d.Zero;
+
+    /// <summary>Il sistema su cui inquadrare aprendo la mappa: se sei DENTRO/vicino a un sistema mostra QUELLO (vedi
+    /// dove sei e selezioni i corpi vicini, es. il sole stando a casa); SOLO in crociera lontana da tutti mostra la
+    /// DESTINAZIONE scelta (così, a metà viaggio per Vega, centra su Vega e non su casa lontana).</summary>
+    StarSystem FocusSystem(Vector3d playerU)
+    {
+        StarSystem nearest = null; double bd = double.MaxValue;
+        if (solar.Systems != null)
+            foreach (var s in solar.Systems)
+            {
+                if (s == null) continue;
+                double d = Vector3d.Distance(s.SystemOrigin, playerU);
+                if (d < bd) { bd = d; nearest = s; }
+            }
+        if (nearest != null && bd < SystemRadius(nearest) * 3.0) return nearest;   // sei in un sistema → mostra quello
+        if (solar.DestinationDormant != null) return solar.DestinationDormant.system;
+        if (solar.DestinationSystem != null) return solar.DestinationSystem;
+        if (solar.Destination != null && solar.Destination.System != null) return solar.Destination.System;
+        return nearest ?? solar.Active;
+    }
+
+    /// <summary>Raggio del sistema = l'orbita più esterna (apoapsis). Dai DATI della ricetta se presente (vale anche da
+    /// dormiente); altrimenti dai corpi VIVI filtrati su questo sistema (il sistema-casa, Recipe.Bodies==null) — così non
+    /// si conta per sbaglio un sistema distante svegliato, i cui corpi convivono in solar.Bodies.</summary>
+    float SystemRadius(StarSystem s)
+    {
+        float r = 3000f;
+        if (s == null) return r;
+        if (s.Recipe != null && s.Recipe.Bodies != null)
+        {
+            foreach (var def in s.Recipe.Bodies)
+                if (def.Orbit != null)
+                    r = Mathf.Max(r, (float)(def.Orbit.SemiMajorAxis * (1.0 + def.Orbit.Eccentricity)) + def.Radius);
+        }
+        else
+        {
+            for (int i = 0; i < solar.Bodies.Count; i++)
+            {
+                var b = solar.Bodies[i];
+                if (b != null && b.System == s && b.Orbit != null)
+                    r = Mathf.Max(r, (float)((b.UniversePosition - s.SystemOrigin).magnitude + b.Radius));
+            }
+        }
         return r;
     }
 
-    /// <summary>Punto attorno a cui orbita la camera: il corpo selezionato (così zoomi/ruoti su di lui) o il
-    /// centro del sistema se niente è selezionato.</summary>
-    Vector3 FocusTarget()
+    /// <summary>Estensione galattica: distanza dal centro in vista al sistema più lontano (0 se uno solo). Dà il tetto
+    /// di zoom-out e di far-clip così tutte le stelle entrano in campo senza perdersi nel vuoto.</summary>
+    float GalaxyExtent()
     {
-        if (selected != null) return selected.transform.position;
-        if (solar.DestinationSystem != null) return (solar.DestinationSystem.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
-        return SystemCenter();
+        float r = 0f;
+        Vector3d c = SystemCenterU(SystemInView());
+        if (solar.Systems != null)
+            foreach (var s in solar.Systems)
+                if (s != null) r = Mathf.Max(r, (float)Vector3d.Distance(s.SystemOrigin, c));
+        return r;
     }
 
-    /// <summary>Tiene il focus entro un limite (raggio del sistema, o GALATTICO se ci sono sistemi distanti) → non ci
-    /// si perde nel vuoto, ma si può arrivare fino alle stelle lontane.</summary>
-    void ClampFocus()
+    double CamDist() => Vector3d.Distance(camPosU, pivotU);
+
+    /// <summary>Profondità (distanza dalla camera) del punto sotto un pixel, sull'eclittica del sistema in vista (dove
+    /// stanno i corpi). Serve a far corrispondere il pan al MOVIMENTO REALE del contenuto sotto il cursore, indipendente
+    /// da dove sia il pivot: usare CamDist (camera→pivot) sbagliava quando il pivot era lontano dal contenuto (es.
+    /// zoomato su un pianeta col pivot al centro-sistema, o viste lontane). Fallback: CamDist.</summary>
+    float DepthAt(Vector2 screenPx)
     {
-        Vector3 c = SystemCenter();
-        float lim = Mathf.Max(SystemRadius() * 1.5f, GalaxyRadius() * 1.3f);
-        focusPos = c + Vector3.ClampMagnitude(focusPos - c, lim);
+        var ray = mapCam.ScreenPointToRay(screenPx);
+        float planeY = ToMap(SystemCenterU(SystemInView())).y;
+        var plane = new Plane(Vector3.up, new Vector3(0f, planeY, 0f));
+        if (plane.Raycast(ray, out float ent) && ent > 0f) return ent;
+        return (float)CamDist();
     }
 
-    /// <summary>Vista della camera dai parametri orbitali (yaw/pitch/distanza attorno a focusPos). Default
-    /// (yaw 0, pitch 33.5°) = lo stesso angolo dall'alto/dietro del vecchio overview → l'entrata resta fluida.</summary>
-    void ComputeOverview(out Vector3 pos, out Quaternion rot)
-    {
-        Vector3 c = focusPos;
-        Vector3 dir = Quaternion.Euler(mapPitch, mapYaw, 0f) * Vector3.back;   // pitch=33.5,yaw=0 → (0,0.55,-0.83)
-        pos = c + dir * mapDist;
-        rot = Quaternion.LookRotation(c - pos, Vector3.up);
-    }
+    /// <summary>Quanti metri-mondo equivalgono a 1 pixel a una data profondità (per pan ~1:1 col contenuto).</summary>
+    float WorldPerPixel(float depth) => depth * 2f * Mathf.Tan(mapCam.fieldOfView * 0.5f * Mathf.Deg2Rad) / Mathf.Max(Screen.height, 1);
 
-    /// <summary>Pan (WASD) + rotazione (trascina col DESTRO, asse verticale invertito) + zoom (rotella) +
-    /// selezione (click sinistro).</summary>
-    void HandleMapInput()
-    {
-        // PAN col WASD: muove il focus nel PIANO dello schermo (destra/su della camera) → si sgancia dal corpo.
-        // Velocità ∝ distanza → pan coerente a ogni zoom. Senza WASD, il focus insegue il corpo selezionato.
-        float px = (Input.GetKey(KeyCode.D) ? 1f : 0f) - (Input.GetKey(KeyCode.A) ? 1f : 0f);
-        float py = (Input.GetKey(KeyCode.W) ? 1f : 0f) - (Input.GetKey(KeyCode.S) ? 1f : 0f);
-        if (px != 0f || py != 0f)
-        {
-            focusFollows = false;
-            Vector3 move = mapCam.transform.right * px + mapCam.transform.up * py;
-            focusPos += move * (mapDist * MapPanRate * Time.deltaTime);
-            ClampFocus();
-        }
-        else if (focusFollows)
-            focusPos = Vector3.Lerp(focusPos, FocusTarget(), 1f - Mathf.Exp(-Time.deltaTime * 6f));
-
-        // ROTAZIONE col tasto DESTRO trascinato. Asse verticale INVERTITO (trascini su → guardi più di lato).
-        // All'inizio del trascinamento il PIVOT diventa il punto sotto il cursore → ruoti attorno a dove clicchi.
-        // Ruota attorno al CENTRO della vista (il focus): nessuno snap. NB: con una camera che punta sempre il focus,
-        // spostare il pivot sul punto cliccato la farebbe RI-MIRARE = salto → si tiene il centro vista come pivot.
-        if (Input.GetMouseButtonDown(1)) lastMousePx = Input.mousePosition;
-        if (Input.GetMouseButton(1))
-        {
-            Vector2 d = (Vector2)Input.mousePosition - (Vector2)lastMousePx; lastMousePx = Input.mousePosition;
-            mapYaw += d.x * MapRotSpeed;
-            mapPitch = Mathf.Clamp(mapPitch - d.y * MapRotSpeed, 8f, 88f);   // invertito + niente ribaltamenti ai poli
-        }
-
-        // TASTO SINISTRO: TRASCINARE = pan della mappa (trascini il contenuto, il focus va all'opposto); un CLICK
-        // senza trascinamento (movimento < 6 px) = SELEZIONE. Così pan e selezione convivono sullo stesso tasto.
-        if (Input.GetMouseButtonDown(0)) { leftDownPx = Input.mousePosition; lastLeftPx = leftDownPx; leftDragged = false; }
-        if (Input.GetMouseButton(0))
-        {
-            Vector2 cur = Input.mousePosition;
-            if ((cur - leftDownPx).sqrMagnitude > 36f) leftDragged = true;
-            if (leftDragged)
-            {
-                focusFollows = false;
-                Vector2 dd = cur - lastLeftPx;
-                float panK = mapDist / Mathf.Max(Screen.height, 1) * 1.5f;
-                focusPos += (-mapCam.transform.right * dd.x - mapCam.transform.up * dd.y) * panK;
-                ClampFocus();
-            }
-            lastLeftPx = cur;
-        }
-        if (Input.GetMouseButtonUp(0) && !leftDragged) SelectAtCursor();
-
-        // ZOOM con la rotella, verso/da il focus. Limiti: vicino al raggio del corpo (non ci entri dentro) … molto largo.
-        float sc = Mathf.Clamp(Input.mouseScrollDelta.y, -3f, 3f);
-        if (Mathf.Abs(sc) > 0.001f)
-        {
-            // min: vicino al corpo selezionato (per ispezionarlo da presso) o una frazione del sistema; max: cappato
-            // (oltre il sistema sparisce nel vuoto). Il far clip è dinamico → niente corpi che scompaiono in zoom-out.
-            float minD = selected != null ? (float)selected.Radius * 1.6f : SystemRadius() * 0.04f;
-            // TAPPA 5: lo zoom-out arriva al livello GALATTICO (le stelle distanti in campo), se la galassia ha più
-            // di un sistema; altrimenti resta al sistema-casa come prima.
-            float maxD = Mathf.Max(SystemRadius() * 3f, GalaxyRadius() * 1.4f);
-            float oldD = mapDist;
-            mapDist = Mathf.Clamp(mapDist * Mathf.Pow(0.82f, sc), minD, maxD);
-
-            // ZOOM VERSO IL CURSORE: punto sotto il mouse sul piano per il focus, sposto il focus verso di lui in
-            // proporzione al cambio di zoom. GUARDIA: col cursore ai bordi il raggio è quasi PARALLELO al piano →
-            // ent enorme → il focus schizzava lontano e poi la mappa "rimbalzava" (il glitch). Applico solo se ent è sano.
-            var ray = mapCam.ScreenPointToRay(Input.mousePosition);
-            var plane = new Plane(-mapCam.transform.forward, focusPos);
-            if (plane.Raycast(ray, out float ent) && ent > 0f && ent < mapDist * 3f)
-            {
-                Vector3 hit = ray.GetPoint(ent);
-                focusPos = hit + (focusPos - hit) * (mapDist / Mathf.Max(oldD, 1e-4f));
-                focusFollows = false;
-                ClampFocus();
-            }
-        }
-    }
+    // ───────────────────────────────────────── Update ─────────────────────────────────────────
 
     void Update()
     {
@@ -387,48 +485,311 @@ public class MapMode : MonoBehaviour
         if ((state == State.On || state == State.Entering) && (Input.GetKeyDown(toggleKey) || Input.GetKeyDown(KeyCode.Escape)))
             ExitMap();
 
+        mapOrigin = SystemCenterU(SystemInView());   // origine di render = sistema in vista → coords piccole vicino al fuoco
+
         if (state == State.Entering || state == State.Exiting)
         {
             t += Time.deltaTime / Mathf.Max(0.01f, transitionTime);
             float s = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t));
-            ComputeOverview(out var ovPos, out var ovRot);
-            Vector3 tgtPos = state == State.Entering ? ovPos : playerCamT.position;
-            Quaternion tgtRot = state == State.Entering ? ovRot : playerCamT.rotation;
-            mapCam.transform.SetPositionAndRotation(Vector3.Lerp(fromPos, tgtPos, s), Quaternion.Slerp(fromRot, tgtRot, s));
+
+            if (state == State.Entering)
+            {
+                Overview(out var toU, out var toRot);
+                Vector3d cU = SystemCenterU(SystemInView());
+                Vector3d playerU = FloatingOrigin.SceneOrigin + new Vector3d(walker != null ? walker.transform.position : playerCamT.position);
+                bool playerNear = (float)Vector3d.Distance(playerU, cU) < SystemRadius(SystemInView()) * 3f;   // sei NEL sistema in vista?
+
+                if (playerNear)
+                {
+                    // ── TRE FASI: il principio è NON GUARDARE MAI LA STELLA STANDO BASSI (da lì la stella, lontana in
+                    // orizzontale, sarebbe "di taglio" → lo scatto). La camera scende SEMPRE da sopra.
+                    //  1) [0..a1]  SALI verticale sopra il giocatore, sguardo che si abbassa A PICCO (giocatore al centro);
+                    //  2) [a1..a2] SORVOLA in ALTO fino a sopra il CENTRO, sempre A PICCO → il sistema si rivela dall'alto, mai di taglio;
+                    //  3) [a2..1]  INCLINA dolce (pitch) dalla picchiata all'angolo dell'overview, assestandoti nella vista finale.
+                    // 'back' = "su" orizzontale della vista overview (yaw 0, sempre dietro in −z) → continuità di rollio fra le fasi.
+                    float bodyR = (walker != null && walker.GravityBody != null) ? (float)walker.GravityBody.Radius : 2000f;
+                    Vector3d phaseAEnd = playerU + new Vector3d(0, Mathf.Clamp(bodyR * 4f, 1500f, 50000f), 0);   // sopra il giocatore
+                    double ovH = System.Math.Max(1.0, (toU - cU).ToVector3().y);            // altezza dell'overview sopra il centro
+                    Vector3d apexCenter = cU + new Vector3d(0, ovH, 0);                     // alto, DIRETTAMENTE sopra il centro
+                    Vector3 back = new Vector3(0f, 0f, 1f);
+                    Quaternion downRot = Quaternion.LookRotation(Vector3.down, back);       // sguardo a PICCO
+
+                    const float a1 = 0.35f, a2 = 0.7f;
+                    if (s < a1)
+                    {
+                        float ue = Mathf.SmoothStep(0f, 1f, s / a1);
+                        camPosU = fromU + (phaseAEnd - fromU) * (double)ue;                 // salita verticale
+                        camRot = Quaternion.Slerp(fromRot, downRot, ue);                    // sguardo → a picco
+                    }
+                    else if (s < a2)
+                    {
+                        float ue = Mathf.SmoothStep(0f, 1f, (s - a1) / (a2 - a1));
+                        camPosU = phaseAEnd + (apexCenter - phaseAEnd) * (double)ue;         // sorvolo in alto verso sopra il centro
+                        camRot = downRot;                                                   // SEMPRE a picco (mai di taglio)
+                    }
+                    else
+                    {
+                        float ue = Mathf.SmoothStep(0f, 1f, (s - a2) / (1f - a2));
+                        camPosU = apexCenter + (toU - apexCenter) * (double)ue;             // dalla verticale all'overview
+                        Vector3 toC = ToMap(cU) - ToMap(camPosU);                           // sempre il centro inquadrato
+                        Vector3 upRef = Vector3.Slerp(back, Vector3.up, ue);                // su: orizzontale (a picco) → verticale (overview)
+                        camRot = toC.sqrMagnitude > 1e-6f ? Quaternion.LookRotation(toC, upRef) : downRot;
+                    }
+                }
+                else
+                {
+                    // ── LONTANO dal sistema in vista (in viaggio): zoom DIRETTO dalla tua vista all'overview. Niente
+                    // "inquadra il giocatore" — sei troppo lontano e l'arco impazzirebbe. Finisce nell'overview pulito.
+                    camPosU = fromU + (toU - fromU) * s;
+                    camRot = Quaternion.Slerp(fromRot, toRot, s);
+                }
+            }
+            else   // uscita: ritorno DIRETTO alla vista del giocatore (le orbite sfumano da sole)
+            {
+                Vector3d toU = FloatingOrigin.SceneOrigin + new Vector3d(playerCamT.position);
+                camPosU = fromU + (toU - fromU) * s;
+                camRot = Quaternion.Slerp(fromRot, playerCamT.rotation, s);
+            }
+            ApplyCameraTransform();
             if (t >= 1f)
             {
                 if (state == State.Entering) state = State.On;
-                else FinishExit();
+                else { FinishExit(); return; }
             }
         }
         else if (state == State.On)
         {
-            HandleMapInput();   // zoom + rotazione + selezione (aggiorna anche focusPos)
-            ComputeOverview(out var ovPos, out var ovRot);
-            mapCam.transform.SetPositionAndRotation(ovPos, ovRot);
+            ApplyCameraTransform();   // transform valido PRIMA dell'input (ScreenPointToRay/WorldToScreenPoint corretti)
+            HandleMapInput();         // orbita + pan + zoom + selezione (muta camPosU/camRot/pivotU)
+            ApplyCameraTransform();   // riflette l'input (stesso mapOrigin del frame)
         }
 
-        if (state != State.Off)
-        {
-            // PIANI DI CLIP dinamici: in zoom-out i corpi (fino a ~SystemRadius dal focus) superavano il far clip
-            // fisso (500k) → sparivano. Qui il far segue lo zoom; il near sale con la distanza (precisione di profondità).
-            float sysR = SystemRadius();
-            mapCam.farClipPlane = mapDist + Mathf.Max(sysR * 4f, GalaxyRadius() * 1.2f);   // raggiunge le stelle distanti (Tappa 5)
-            mapCam.nearClipPlane = Mathf.Clamp(mapDist * 0.001f, 0.5f, sysR);
-            UpdateVisuals();
-        }
+        // PIANI DI CLIP dinamici: in zoom-out i corpi/stelle (fino a GalaxyExtent dal fuoco) superavano il far fisso →
+        // sparivano. Qui il far segue lo zoom; il near sale con la distanza (precisione di profondità).
+        float sysR = SystemRadius(SystemInView());
+        float galaxy = GalaxyExtent();
+        mapCam.farClipPlane = (float)CamDist() + Mathf.Max(sysR * 4f, galaxy * 1.4f) + sysR;
+        mapCam.nearClipPlane = Mathf.Clamp((float)CamDist() * 0.001f, 0.5f, sysR);
+        UpdateVisuals();
     }
+
+    void ApplyCameraTransform() => mapCam.transform.SetPositionAndRotation(ToMap(camPosU), camRot);
+
+    /// <summary>Vista d'insieme del sistema in vista: stessa angolazione dall'alto/dietro del vecchio overview, così
+    /// l'animazione d'entrata resta fluida. Restituisce posizione (universo) e orientamento.</summary>
+    void Overview(out Vector3d posU, out Quaternion rot)
+    {
+        var sys = SystemInView();
+        Vector3d cU = SystemCenterU(sys);
+        float R = SystemRadius(sys);
+        float d = R / Mathf.Tan(mapCam.fieldOfView * 0.5f * Mathf.Deg2Rad) * 1.25f;
+        Vector3 dir = Quaternion.Euler(MapPitchDefault, 0f, 0f) * Vector3.back;   // dal centro verso la camera: (0,0.55,-0.83)
+        posU = cU + new Vector3d(dir * d);
+        rot = Quaternion.LookRotation(-dir, Vector3.up);
+    }
+
+    // ───────────────────────────────────────── Input camera ─────────────────────────────────────────
+
+    void HandleMapInput()
+    {
+        // ── PAN col WASD: muove camera E pivot nel piano-schermo (resta puntata sul pivot). ∝ distanza → coerente a ogni zoom.
+        float px = (Input.GetKey(KeyCode.D) ? 1f : 0f) - (Input.GetKey(KeyCode.A) ? 1f : 0f);
+        float py = (Input.GetKey(KeyCode.W) ? 1f : 0f) - (Input.GetKey(KeyCode.S) ? 1f : 0f);
+        if (px != 0f || py != 0f)
+        {
+            // pan ∝ profondità del contenuto al centro schermo (agnostico dal pivot/sistema), non ∝ CamDist
+            float wpp = WorldPerPixel(DepthAt(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f)));
+            Vector3 move = (mapCam.transform.right * px + mapCam.transform.up * py) * (wpp * Screen.height * MapPanRate * Time.deltaTime);
+            Vector3d dU = new Vector3d(move);
+            camPosU += dU; pivotU += dU;
+        }
+
+        // ── ORBITA RIGIDA col DESTRO trascinato: ruota camera E orientamento attorno al pivot → resti puntato sul pivot.
+        // Yaw attorno al mondo-su (orizzonte stabile), pitch attorno al destro della camera (con clamp anti-ribaltamento).
+        // Al PREMERE: il pivot va sul punto sotto il cursore → l'universo ruota attorno a ciò che hai sotto il mouse, che
+        // resta FERMO lì (proprietà della rotazione rigida: il pivot conserva la sua posizione a schermo).
+        if (Input.GetMouseButtonDown(1)) { lastMousePx = Input.mousePosition; pivotU = PivotFromCursor(); }
+        if (Input.GetMouseButton(1))
+        {
+            Vector2 dpx = (Vector2)Input.mousePosition - (Vector2)lastMousePx; lastMousePx = Input.mousePosition;
+            Vector3 right = camRot * Vector3.right;
+            Quaternion qYaw = Quaternion.AngleAxis(dpx.x * MapRotSpeed, Vector3.up);
+            Quaternion qPit = Quaternion.AngleAxis(-dpx.y * MapRotSpeed, right);
+            // clamp pitch: non far avvicinare la vista a ±88° dalla verticale (evita ribaltamenti ai poli)
+            float elev = Vector3.Angle((qPit * camRot) * Vector3.forward, Vector3.up);
+            Quaternion q = (elev > 4f && elev < 176f) ? qPit * qYaw : qYaw;
+            camRot = q * camRot;
+            Vector3 off = (camPosU - pivotU).ToVector3();
+            camPosU = pivotU + new Vector3d(q * off);
+        }
+
+        // ── TASTO SINISTRO: trascinare = pan; click senza trascinamento (< 6 px) = selezione + sposta il pivot sul punto.
+        if (Input.GetMouseButtonDown(0)) { leftDownPx = Input.mousePosition; lastLeftPx = leftDownPx; leftDragged = false; }
+        if (Input.GetMouseButton(0))
+        {
+            Vector2 cur = Input.mousePosition;
+            if ((cur - leftDownPx).sqrMagnitude > 36f) leftDragged = true;
+            if (leftDragged)
+            {
+                Vector2 dd = cur - lastLeftPx;
+                // pan 1:1 col punto sotto il cursore (profondità sull'eclittica) → Vega si muove "come ti aspetti",
+                // indipendente da dove sia il pivot (prima usava CamDist → drift se il pivot era nel sistema-casa).
+                float wpp = WorldPerPixel(DepthAt(cur));
+                Vector3 move = (-mapCam.transform.right * dd.x - mapCam.transform.up * dd.y) * wpp;
+                Vector3d dU = new Vector3d(move);
+                camPosU += dU; pivotU += dU;
+            }
+            lastLeftPx = cur;
+        }
+        if (Input.GetMouseButtonUp(0) && !leftDragged) SelectAtCursor();
+
+        // ── ZOOM-VERSO-CURSORE con la rotella. Il FOCUS è il corpo sotto il mouse (anche a qualche px dalla superficie:
+        // tolleranza) → zoomi SU di lui e ti fermi alla sua superficie (niente overshoot, niente stop prematuro). Se non
+        // punti nulla, il focus è il punto sotto il cursore sull'eclittica. Il clamp è sulla distanza DAL FOCUS, non dal pivot.
+        float sc = Mathf.Clamp(Input.mouseScrollDelta.y, -3f, 3f);
+        if (Mathf.Abs(sc) > 0.001f)
+        {
+            float k = Mathf.Pow(0.82f, sc);   // <1 zoom-in, >1 zoom-out
+            Vector3 camMap = mapCam.transform.position;
+            var ray = mapCam.ScreenPointToRay(Input.mousePosition);
+
+            Vector3 focusMap; float minD;
+            if (ZoomFocusBody(out Vector3 bodyMap, out float bodyRadius))
+            {
+                focusMap = bodyMap;                  // punti un corpo → zoomi su di lui
+                minD = bodyRadius * 1.3f;            // ti fermi appena fuori dalla superficie
+            }
+            else
+            {
+                // niente corpo: punto sotto il cursore sull'eclittica (o, se la vista è radente, davanti alla camera)
+                float planeY = ToMap(SystemCenterU(SystemInView())).y;
+                var plane = new Plane(Vector3.up, new Vector3(0f, planeY, 0f));
+                focusMap = (plane.Raycast(ray, out float ent) && ent > 0f && ent < (float)CamDist() * 8f)
+                    ? ray.GetPoint(ent) : camMap + mapCam.transform.forward * (float)CamDist();
+                minD = SystemRadius(SystemInView()) * 0.04f;
+            }
+
+            Vector3 newCamMap = focusMap + (camMap - focusMap) * k;
+            float maxD = Mathf.Max(SystemRadius(SystemInView()) * 3f, GalaxyExtent() * 1.4f);
+            Vector3 toFocus = newCamMap - focusMap;
+            float dF = toFocus.magnitude;
+            float clD = Mathf.Clamp(dF, minD, maxD);
+            if (dF > 1e-4f) newCamMap = focusMap + toFocus * (clD / dF);
+            camPosU = ToUniverse(newCamMap);
+        }
+
+        // ── G: VISTA GALATTICA. Inquadra l'intera galassia (tutti i sistemi); se sei già a scala galattica, torna al
+        // sistema in vista. Decide dallo zoom ATTUALE (niente flag che diventa stantio se navighi a mano).
+        if (Input.GetKeyDown(galaxyKey))
+        {
+            if ((float)CamDist() > SystemRadius(SystemInView()) * 20f) FrameSystem();
+            else FrameGalaxy();
+        }
+
+        // ── N: mostra/nascondi i nomi dei corpi (anche dei pianeti dei sistemi distanti).
+        if (Input.GetKeyDown(namesKey)) showBodyNames = !showBodyNames;
+    }
+
+    /// <summary>Il corpo sotto il cursore (marker vivo o disco dormiente), per lo zoom. Prima un raycast diretto; poi una
+    /// TOLLERANZA a schermo (~4% altezza) → "punto vicino alla superficie" conta come "voglio zoomare su di lui". Ritorna
+    /// la sua posizione in spazio-mappa e il raggio (per fermare lo zoom alla superficie).</summary>
+    bool ZoomFocusBody(out Vector3 mapPos, out float radius)
+    {
+        mapPos = default; radius = 0f;
+        var go = PickTarget(0.04f);
+        if (go != null && TryBodyRadius(go, out radius)) { mapPos = go.transform.position; return true; }
+        return false;
+    }
+
+    /// <summary>L'oggetto selezionabile (marker vivo · disco/stella di un sistema dormiente) sotto o VICINO al cursore.
+    /// Prima un raycast esatto; poi una TOLLERANZA a schermo (tolFrac dell'altezza) → la selezione/lo zoom non chiedono
+    /// di centrare il pixel esatto del disco (richiesta di Dario: selezione più generosa). Null se niente è abbastanza vicino.</summary>
+    GameObject PickTarget(float tolFrac)
+    {
+        var ray = mapCam.ScreenPointToRay(Input.mousePosition);
+        if (Physics.Raycast(ray, out var hit, 1e9f, 1 << mapLayer)) return hit.collider.gameObject;
+        float tol = Screen.height * tolFrac;
+        float best = tol * tol; GameObject bestGo = null;
+        Vector2 m = Input.mousePosition;
+        foreach (var mk in markers)
+            if (mk != null && mk.activeInHierarchy) ConsiderTol(mk, m, ref best, ref bestGo);
+        foreach (var sv in systemVisuals)
+        {
+            if (sv.star != null && sv.star.activeInHierarchy) ConsiderTol(sv.star, m, ref best, ref bestGo);
+            foreach (var d in sv.discs)
+                if (d != null && d.activeInHierarchy) ConsiderTol(d, m, ref best, ref bestGo);
+        }
+        return bestGo;
+    }
+
+    void ConsiderTol(GameObject go, Vector2 mouse, ref float best, ref GameObject bestGo)
+    {
+        Vector3 sp = mapCam.WorldToScreenPoint(go.transform.position);
+        if (sp.z <= 0f) return;
+        float d2 = ((Vector2)sp - mouse).sqrMagnitude;
+        if (d2 < best) { best = d2; bestGo = go; }
+    }
+
+    bool TryBodyRadius(GameObject go, out float radius)
+    {
+        if (markerBody.TryGetValue(go, out var b) && b != null) { radius = (float)b.Radius; return true; }
+        if (discRadius.TryGetValue(go, out radius)) return true;
+        radius = 0f; return false;
+    }
+
+    /// <summary>Inquadra l'intera galassia: pivot sul baricentro dei sistemi, distanza per contenerli tutti.</summary>
+    void FrameGalaxy()
+    {
+        Vector3d c = Vector3d.Zero; int n = 0;
+        if (solar.Systems != null)
+            foreach (var s in solar.Systems) if (s != null) { c += s.SystemOrigin; n++; }
+        if (n > 0) c = c / n;
+        float R = 3000f;
+        if (solar.Systems != null)
+            foreach (var s in solar.Systems) if (s != null) R = Mathf.Max(R, (float)Vector3d.Distance(s.SystemOrigin, c) + SystemRadius(s));
+        pivotU = c;
+        float d = R / Mathf.Tan(mapCam.fieldOfView * 0.5f * Mathf.Deg2Rad) * 1.25f;
+        Vector3 dir = Quaternion.Euler(MapPitchDefault, 0f, 0f) * Vector3.back;
+        mapOrigin = SystemCenterU(SystemInView());
+        camPosU = c + new Vector3d(dir * d);
+        camRot = Quaternion.LookRotation(-dir, Vector3.up);
+    }
+
+    /// <summary>Inquadra il sistema in vista (ritorno dalla vista galattica).</summary>
+    void FrameSystem()
+    {
+        Overview(out camPosU, out var rot);
+        camRot = rot;
+        pivotU = SystemCenterU(SystemInView());
+    }
+    Vector3 lastMousePx;
+    Vector2 leftDownPx, lastLeftPx;
+    bool leftDragged;
+
+    // ───────────────────────────────────────── Entrata / uscita ─────────────────────────────────────────
 
     void EnterMap()
     {
-        // se l'insieme dei corpi è cambiato (un sistema distante si è svegliato/addormentato), ricostruisci le
-        // visuali dei corpi → i pianeti del nuovo sistema diventano selezionabili e mostrano l'orbita.
-        if (solar.Bodies.Count != builtBodyCount) RebuildBodyVisuals();
+        // INCREMENTALE: aggiunge solo le visuali dei corpi nuovi (sistema svegliato) e toglie quelle dei corpi spariti
+        // (sistema addormentato) → niente più lag all'apertura della mappa vicino a un altro sistema.
+        SyncBodyVisuals();
+        lastBodyCount = solar.Bodies.Count;
 
-        fromPos = playerCamT.position; fromRot = playerCamT.rotation;
-        mapCam.transform.SetPositionAndRotation(fromPos, fromRot);
-        // spegni il RenderScaler: renderizza la camera giocatore in una RT che una camera
-        // presentatrice stende a schermo ogni frame → senza spegnerlo coprirebbe la camera-mappa.
+        // l'animazione PARTE dalla vista reale del giocatore (in universo) → "zoom-out dalla posizione esatta".
+        fromU = FloatingOrigin.SceneOrigin + new Vector3d(playerCamT.position);
+        fromRot = playerCamT.rotation;
+
+        // pivot = centro del sistema su cui inquadrare: la DESTINAZIONE se ne hai una (anche un pianeta di un sistema
+        // distante selezionato a metà viaggio), altrimenti il sistema in cui ti trovi. L'overview lo inquadra; mapOrigin
+        // si ricalcola da quel pivot a ogni frame in Update.
+        pivotU = SystemCenterU(FocusSystem(fromU));
+        mapOrigin = pivotU;
+
+        camPosU = fromU; camRot = fromRot;
+        ApplyCameraTransform();
+
+        // spegni il RenderScaler (la camera giocatore renderizza in una RT che una camera presentatrice stende a
+        // schermo: senza spegnerlo coprirebbe la camera-mappa).
         if (playerScaler != null) playerScaler.enabled = false;
         playerCam.enabled = false;
         mapCam.enabled = true;
@@ -436,16 +797,14 @@ public class MapMode : MonoBehaviour
         Cursor.visible = true;
         if (walker != null) walker.ControlsActive = false;
         GpuPlanetRenderer.SuppressDraw = true;   // la superficie GPU entrerebbe nella camera-mappa: in mappa solo i proxy
+        IsOpen = true;
         ShowVisuals(true);
-        // parametri orbitali iniziali = lo stesso overview di prima (intero sistema, dall'alto/dietro)
-        mapYaw = 0f; mapPitch = MapPitchDefault; mapDist = DefaultDist();
-        focusPos = SystemCenter(); focusFollows = true;
         state = State.Entering; t = 0f;
     }
 
     void ExitMap()
     {
-        fromPos = mapCam.transform.position; fromRot = mapCam.transform.rotation;
+        fromU = camPosU; fromRot = camRot;
         state = State.Exiting; t = 0f;
     }
 
@@ -458,31 +817,54 @@ public class MapMode : MonoBehaviour
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
         if (walker != null) walker.ControlsActive = true;
+        IsOpen = false;
         ShowVisuals(false);
         state = State.Off;
     }
 
-    void SelectAtCursor()
+    /// <summary>Pivot d'orbita dal punto sotto il cursore. Priorità: (1) un corpo/disco colpito (orbiti attorno a LUI);
+    /// (2) l'intersezione con l'ECLITTICA — il piano y dei sistemi/orbite, tutti a y≈0 a casa come fra le stelle: clic
+    /// nel vuoto = punto sull'eclittica sotto il mouse (l'intuizione di Dario); (3) fallback: un punto davanti alla camera
+    /// alla distanza attuale del pivot (raggio d'orbita invariato), se la vista è quasi radente al piano.</summary>
+    Vector3d PivotFromCursor()
     {
         var ray = mapCam.ScreenPointToRay(Input.mousePosition);
-        if (!Physics.Raycast(ray, out var hit, 1e9f)) return;
-        if (markerBody.TryGetValue(hit.collider.gameObject, out var b))
+        if (Physics.Raycast(ray, out var hit, 1e9f, 1 << mapLayer)) return ToUniverse(hit.point);
+
+        float planeY = ToMap(SystemCenterU(SystemInView())).y;   // eclittica del sistema in vista (y≈0 in universo)
+        var plane = new Plane(Vector3.up, new Vector3(0f, planeY, 0f));
+        if (plane.Raycast(ray, out float ent) && ent > 0f && ent < (float)CamDist() * 8f)
+            return ToUniverse(ray.GetPoint(ent));
+
+        return ToUniverse(ray.GetPoint((float)CamDist()));
+    }
+
+    void SelectAtCursor()
+    {
+        var go = PickTarget(0.05f);   // tolleranza generosa: basta cliccare VICINO al disco, non sul pixel esatto
+        if (go == null) return;
+        if (markerBody.TryGetValue(go, out var b))
         {
             selected = b;
-            solar.Destination = b;          // in volo l'origine si ancora a lei → ferma e centrata, il freno X la sincronizza
-            solar.DestinationSystem = null; // un corpo e un sistema distante sono mutuamente esclusivi
-            focusFollows = true;            // ri-aggancia la camera al corpo scelto (dopo un eventuale pan libero)
+            solar.Destination = b;          // corpo VIVO: in volo l'origine si ancora a lui, il freno X sincronizza
+            solar.DestinationSystem = null; solar.DestinationDormant = null;
         }
-        else if (systemOf.TryGetValue(hit.collider.gameObject, out var sys))
+        else if (discTarget.TryGetValue(go, out var dt))
         {
-            // WAYPOINT GALATTICO: selezioni un sistema distante → ci voli verso (il reticolo di rotta lo indica);
-            // arrivando, si sveglia (Tappa 4) e puoi selezionarne i corpi.
+            // PIANETA di un sistema dormiente: bersaglio diretto → l'autopilota ci vola; avvicinandoti il sistema si
+            // sveglia e il pianeta diventa un corpo vero (promozione automatica). Così imposti la rotta a QUEL mondo.
+            solar.DestinationDormant = dt;
+            solar.Destination = null; solar.DestinationSystem = null; selected = null;
+        }
+        else if (waypointOf.TryGetValue(go, out var sys))
+        {
+            // STELLA di un sistema distante → waypoint al SISTEMA (ci voli verso, arrivando si sveglia).
             solar.DestinationSystem = sys;
-            solar.Destination = null;
-            selected = null;
-            focusFollows = true;   // centra la mappa sul sistema selezionato (come per i corpi)
+            solar.Destination = null; solar.DestinationDormant = null; selected = null;
         }
     }
+
+    // ───────────────────────────────────────── Scia ─────────────────────────────────────────
 
     // Registra la posizione-universo del giocatore quando si è spostato abbastanza dall'ultimo punto.
     void RecordTrail()
@@ -504,92 +886,178 @@ public class MapMode : MonoBehaviour
         }
     }
 
-    // Dimensione di un corpo in mappa: IN SCALA tra corpi (∝ raggio reale) e che RIMPICCIOLISCE zoomando out
-    // (∝ d^0.7, sotto-lineare → i corpi calano RISPETTO alle orbite e non si fondono), con un PAVIMENTO a
-    // dimensione-schermo (sempre selezionabile/visibile, anche il sole da lontanissimo) e mai sotto la taglia reale da vicino.
-    float MapBodySize(CelestialBody b, Vector3 camPos)
+    // ───────────────────────────────────────── Aggiornamento visuali ─────────────────────────────────────────
+
+    // Dimensione di un corpo in mappa: IN SCALA tra corpi (∝ raggio reale), RIMPICCIOLISCE zoomando out (∝ d^0.7,
+    // sotto-lineare → cala RISPETTO alle orbite), con un PAVIMENTO a dimensione-schermo (sempre visibile/selezionabile)
+    // e mai sotto la taglia reale da vicino.
+    float MapBodySize(float radius, Vector3 mapPos, Vector3 camPos)
     {
-        float d = Vector3.Distance(camPos, b.transform.position);
-        float R = 0.001f * (float)b.Radius * Mathf.Pow(Mathf.Max(d, 1f), 0.7f);
-        R = Mathf.Max(R, (float)b.Radius);
+        float d = Vector3.Distance(camPos, mapPos);
+        float R = 0.001f * radius * Mathf.Pow(Mathf.Max(d, 1f), 0.7f);
+        R = Mathf.Max(R, radius);
         return Mathf.Max(R, d * 0.004f);
     }
+
+    /// <summary>Spessore di linea ~COSTANTE a schermo (px) per un oggetto a 'distToCam' dalla camera: width_world =
+    /// px · dist · 2·tan(fov/2)/altezza. Usare la distanza dal CENTRO dell'orbita (non dal pivot) evita che le orbite
+    /// si gonfino in nastri quando zoomi/sposti il pivot altrove.</summary>
+    float ScreenWidth(float distToCam, float px) =>
+        Mathf.Max(0.05f, px * distToCam * 2f * Mathf.Tan(mapCam.fieldOfView * 0.5f * Mathf.Deg2Rad) / Mathf.Max(Screen.height, 1));
+
+    /// <summary>Il "dettaglio" del sistema (orbite + dischi-pianeti) è visibile quando la camera è abbastanza VICINA al suo
+    /// centro; alla scala galattica si nasconde (restano solo le stelle) → niente orbite gonfie/sovrapposte a zoom largo.</summary>
+    bool DetailVisible(StarSystem s) =>
+        s != null && (float)Vector3d.Distance(camPosU, s.SystemOrigin) < SystemRadius(s) * 14f;
+
+    /// <summary>Solo le ORBITE fanno fade-in entrando in mappa e fade-out uscendo (il resto resta visibile) → l'orbita
+    /// che a fine animazione passa "in faccia" è già sfumata via, senza il brutto effetto-bug.</summary>
+    float orbitFade = 1f;
+    float OrbitFade() =>
+        state == State.Entering ? Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t))
+      : state == State.Exiting ? Mathf.SmoothStep(0f, 1f, 1f - Mathf.Clamp01(t))
+      : 1f;
+
+    int lastBodyCount;   // se cambia mentre la mappa è APERTA (sistema svegliato), aggiorna le visuali → niente "sparizione"
 
     void UpdateVisuals()
     {
         Vector3 camPos = mapCam.transform.position;
+        orbitFade = OrbitFade();
+        if (solar.Bodies.Count != lastBodyCount) { SyncBodyVisuals(); lastBodyCount = solar.Bodies.Count; }
+
+        // "tu sei qui": il giocatore in universo
         if (playerMarker != null && walker != null)
         {
-            playerMarker.transform.position = walker.transform.position;
-            playerMarker.transform.localScale = Vector3.one *
-                (Vector3.Distance(camPos, walker.transform.position) * markerScreenSize * 0.6f);
+            Vector3d playerU = FloatingOrigin.SceneOrigin + new Vector3d(walker.transform.position);
+            Vector3 pm = ToMap(playerU);
+            playerMarker.transform.position = pm;
+            playerMarker.transform.localScale = Vector3.one * (Vector3.Distance(camPos, pm) * markerScreenSize * 0.6f);
         }
+
+        // SONDA (se dispiegata): la sua posizione-scena + SceneOrigin = universo → spazio-mappa.
+        var probe = Probe.Instance;
+        bool probeOn = probe != null && probe.gameObject.activeSelf;
+        if (probeMarker != null)
+        {
+            probeMarker.SetActive(probeOn);
+            if (probeOn)
+            {
+                Vector3 pp = ToMap(FloatingOrigin.SceneOrigin + new Vector3d(probe.transform.position));
+                probeMarker.transform.position = pp;
+                probeMarker.transform.localScale = Vector3.one * (Vector3.Distance(camPos, pp) * markerScreenSize * 0.6f);
+            }
+        }
+
+        // scia
         if (trail != null)
         {
-            trail.widthMultiplier = Mathf.Max(0.2f, mapDist * 0.0016f);   // ∝ zoom, come le orbite (era fissa = nastro verde enorme)
             int n = trailCount;
             trail.positionCount = n;
-            for (int i = 0; i < n; i++) trail.SetPosition(i, (TrailAt(i) - FloatingOrigin.SceneOrigin).ToVector3());
-            trail.enabled = n >= 2;   // serve almeno un segmento
+            for (int i = 0; i < n; i++) trail.SetPosition(i, ToMap(TrailAt(i)));
+            if (n >= 2)
+                trail.widthMultiplier = ScreenWidth(Vector3.Distance(camPos, ToMap(TrailAt(n - 1))), 2f);   // costante a schermo
+            trail.enabled = n >= 2;
         }
+
+        // CORPI VIVI: marker (click target) + proxy craterizzato, posizionati in universo
         for (int i = 0; i < markers.Count; i++)
         {
             var mk = markers[i];
             var b = markerBody[mk];
             if (b == null) { mk.SetActive(false); continue; }
-            mk.transform.position = b.transform.position;
+            Vector3 bp = ToMap(b.UniversePosition);
+            mk.transform.position = bp;
             if (proxies.TryGetValue(b, out var px))
             {
-                float R = MapBodySize(b, camPos);
+                float R = MapBodySize((float)b.Radius, bp, camPos);
                 if (b == selected) R *= 1.2f;
-                px.position = b.transform.position;
+                px.position = bp;
                 px.localScale = Vector3.one * (R / Mathf.Max(1f, (float)b.Radius));   // mesh a raggio reale → scala a R
                 mk.transform.localScale = Vector3.one * (R * 2f);   // sfera-collider (raggio 0.5) → copre il proxy
             }
             else
             {
-                // la stella: disco stilizzato, STESSA scala dei pianeti (in scala tra loro).
-                float sz = MapBodySize(b, camPos);
+                float sz = MapBodySize((float)b.Radius, bp, camPos);   // la stella: disco stilizzato, stessa scala dei pianeti
                 if (b == selected) sz *= 1.4f;
                 mk.transform.localScale = Vector3.one * sz;
             }
         }
 
-        // TAPPA 5 — stelle dei sistemi distanti: posizione = SystemOrigin - SceneOrigin (scena), scala screen-costante.
-        // Visibili solo a zoom GALATTICO (mapDist oltre ~2× il sistema-casa) per non affollare la vista locale.
-        bool galacticZoom = mapDist > SystemRadius() * 2f;
-        for (int i = 0; i < systemMarkers.Count; i++)
-        {
-            var smk = systemMarkers[i]; var s = systemMarkerSys[i];
-            if (smk == null || s == null) continue;
-            Vector3 sp = (s.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
-            smk.transform.position = sp;
-            bool selectedSys = s == solar.DestinationSystem;
-            float sz = Mathf.Max(Vector3.Distance(camPos, sp) * markerScreenSize * 1.6f, s.StarRadius);
-            if (selectedSys) sz *= 2.2f;   // selezione BEN visibile (più grande)
-            smk.transform.localScale = Vector3.one * sz;
-            // visibile a zoom galattico OPPURE se è quello che stai guardando (vicino al focus) → zoomando su Vega
-            // NON sparisce più (prima si spegneva uscendo dallo zoom galattico → schermo nero).
-            bool nearFocus = (focusPos - sp).magnitude < mapDist * 2.5f;
-            smk.SetActive(galacticZoom || nearFocus);
-        }
-
+        // ORBITE dei corpi vivi: relative al genitore (universo)
         for (int i = 0; i < orbits.Count; i++)
         {
             var b = orbitBody[i];
             var lr = orbits[i];
-            if (b == null || b.Orbit == null || b.Parent == null) { lr.enabled = false; continue; }
+            if (b == null || b.Orbit == null || b.Parent == null || !DetailVisible(b.System)) { lr.enabled = false; continue; }
             lr.enabled = true;
-            Vector3 parentScene = b.Parent.transform.position;
-            // SPESSORE ∝ ZOOM (mapDist) → larghezza ~costante a schermo a ogni zoom. Usare la distanza dal GENITORE
-            // sbagliava: l'orbita del baricentro (genitore = stella lontana) restava un nastro enorme anche zoomata.
-            // (Il LineRenderer non sa lo screen-space per-vertice di Wanderer/OrbitLine: mapDist basta per la mappa.)
-            lr.widthMultiplier = Mathf.Max(0.3f, mapDist * 0.0022f);
+            var oc = orbitCol[i]; oc.a *= orbitFade; lr.startColor = lr.endColor = oc;   // fade entrando/uscendo
+            Vector3 centerMap = ToMap(b.Parent.UniversePosition);
+            lr.widthMultiplier = ScreenWidth(Vector3.Distance(camPos, centerMap), 2.5f);   // costante a schermo
             int n = lr.positionCount;
             for (int k = 0; k < n; k++)
             {
                 double tt = b.Orbit.Period * (k / (double)n);
-                lr.SetPosition(k, parentScene + b.Orbit.GetRelativePosition(tt).ToVector3());
+                Vector3d p = b.Parent.UniversePosition + b.Orbit.GetRelativePosition(tt);
+                lr.SetPosition(k, ToMap(p));
+            }
+        }
+
+        UpdateSystemVisuals(camPos);
+    }
+
+    // Sistemi distanti: billboard stella sempre visibile (la "galassia"); dischi-pianeti + anelli visibili quando sei
+    // VICINO al sistema (zoomato/spostato lì). Tutto NASCOSTO quando il sistema è SVEGLIO (i corpi veri lo coprono).
+    void UpdateSystemVisuals(Vector3 camPos)
+    {
+        foreach (var sv in systemVisuals)
+        {
+            var s = sv.sys;
+            bool dormant = s != null && !s.Active && !s.Waking;   // in risveglio la stella/i corpi VERI stanno arrivando → cedi il posto
+
+            // billboard della stella, a dimensione-schermo (con pavimento al raggio stella)
+            if (sv.star != null)
+            {
+                Vector3 sp = ToMap(s.SystemOrigin);
+                sv.star.transform.position = sp;
+                bool selectedSys = s == solar.DestinationSystem;
+                float sz = Mathf.Max(Vector3.Distance(camPos, sp) * markerScreenSize * 1.6f, s.StarRadius);
+                if (selectedSys) sz *= 2.2f;
+                sv.star.transform.localScale = Vector3.one * sz;
+                sv.star.SetActive(dormant);   // svegliato → la stella vera (in solar.Bodies) prende il posto
+            }
+
+            // dischi-pianeti + anelli: da dormiente, quando la camera è vicina al sistema OPPURE quando il sistema è
+            // SELEZIONATO (così, scelta Vega, vedi i suoi pianeti/nomi anche prima di averla visitata — richiesta di Dario).
+            bool selectedSys2 = s == solar.DestinationSystem || (solar.DestinationDormant != null && solar.DestinationDormant.system == s);
+            bool showDetail = dormant && (selectedSys2
+                                          || (float)Vector3d.Distance(camPosU, s.SystemOrigin) < SystemRadius(s) * 12f);
+            for (int i = 0; i < sv.discs.Count; i++)
+            {
+                var disc = sv.discs[i];
+                Vector3d bp = s.SystemOrigin + sv.bodyOrbits[i].GetRelativePosition(solar.SimTime);
+                Vector3 bm = ToMap(bp);
+                disc.transform.position = bm;
+                disc.transform.localScale = Vector3.one * MapBodySize(sv.bodyRadii[i], bm, camPos);
+                disc.SetActive(showDetail);
+
+                if (i < sv.rings.Count)
+                {
+                    var lr = sv.rings[i];
+                    lr.enabled = showDetail;
+                    if (showDetail)
+                    {
+                        var orb = sv.bodyOrbits[i];
+                        lr.startColor = lr.endColor = new Color(0.7f, 0.78f, 0.9f, 0.4f * orbitFade);   // fade entrando/uscendo
+                        lr.widthMultiplier = ScreenWidth(Vector3.Distance(camPos, ToMap(s.SystemOrigin)), 2.5f);
+                        int n = lr.positionCount;
+                        for (int k = 0; k < n; k++)
+                        {
+                            double tt = orb.Period * (k / (double)n);
+                            lr.SetPosition(k, ToMap(s.SystemOrigin + orb.GetRelativePosition(tt)));
+                        }
+                    }
+                }
             }
         }
     }
@@ -597,50 +1065,114 @@ public class MapMode : MonoBehaviour
     void ShowVisuals(bool on)
     {
         for (int i = 0; i < markers.Count; i++) markers[i].SetActive(on);
-        for (int i = 0; i < systemMarkers.Count; i++) if (systemMarkers[i] != null) systemMarkers[i].SetActive(false);   // accesi solo a zoom galattico (UpdateVisuals)
         foreach (var px in proxies.Values) if (px != null) px.gameObject.SetActive(on);
         for (int i = 0; i < orbits.Count; i++) orbits[i].enabled = on;
+        foreach (var sv in systemVisuals)
+        {
+            if (sv.star != null) sv.star.SetActive(false);   // riattivati selettivamente in UpdateSystemVisuals
+            foreach (var d in sv.discs) if (d != null) d.SetActive(false);
+            foreach (var r in sv.rings) if (r != null) r.enabled = false;
+        }
         if (playerMarker != null) playerMarker.SetActive(on);
+        if (probeMarker != null) probeMarker.SetActive(false);   // riattivato da UpdateVisuals se la sonda è dispiegata
         if (trail != null) trail.enabled = on && trailCount >= 2;
     }
 
+    // ───────────────────────────────────────── HUD (etichette) ─────────────────────────────────────────
+
     void OnGUI()
     {
-        if (state == State.Off) return;
         if (Event.current.type != EventType.Repaint) return;
+        if (state == State.Off) return;
         float ui = Mathf.Max(1f, Screen.height / 1080f);   // scala col display (Retina/4K)
         if (mapStyle == null) mapStyle = new GUIStyle(GUI.skin.label) { normal = { textColor = Color.white } };
         mapStyle.fontSize = Mathf.RoundToInt(15f * ui);
-        GUI.Label(new Rect(20f * ui, Screen.height - 60f * ui, 1100f * ui, 24f * ui),
-            (selected != null ? "Selezionato: " + selected.gameObject.name : "Clic = seleziona")
-            + "   ·   Destro = ruota   ·   WASD = sposta   ·   Rotella = zoom   ·   M / Esc", mapStyle);
+        GUI.Label(new Rect(20f * ui, Screen.height - 60f * ui, 1400f * ui, 24f * ui),
+            (selected != null ? "Selezionato: " + selected.gameObject.name :
+             solar.DestinationDormant != null ? "Destinazione: " + solar.DestinationDormant.name + " (" + solar.DestinationDormant.system.Name + ")" :
+             solar.DestinationSystem != null ? "Waypoint: ★ " + solar.DestinationSystem.Name : "Clic = seleziona")
+            + "   ·   Destro = ruota   ·   WASD = sposta   ·   Rotella = zoom   ·   G = galassia   ·   N = nomi"
+            + (showBodyNames ? " (ON)" : " (OFF)") + "   ·   M / Esc", mapStyle);
 
-        // etichetta "TU SEI QUI" ancorata al marker del giocatore (solo se davanti alla camera)
-        if (playerMarker != null && mapCam != null)
+        // ── ETICHETTE (TU SEI QUI · nomi sistemi · nomi corpi): RACCOLTE e poi DE-CONFLITTATE in verticale prima di
+        // disegnarle. A grande distanza io/target/pianeti proiettano quasi nello stesso punto → senza questo si
+        // sovrappongono (illeggibili). Greedy: ordina per y, spingi giù chi si sovrappone a una già piazzata.
+        if (hereStyle == null) hereStyle = new GUIStyle(GUI.skin.label)
+            { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0.45f, 1f, 0.55f) } };
+        if (nameStyle == null) nameStyle = new GUIStyle(GUI.skin.label)
+            { alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0.85f, 0.9f, 1f) } };
+        if (probeStyle == null) probeStyle = new GUIStyle(GUI.skin.label)
+            { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(1f, 0.78f, 0.3f) } };
+        hereStyle.fontSize = Mathf.RoundToInt(13f * ui);
+        nameStyle.fontSize = Mathf.RoundToInt(12f * ui);
+        probeStyle.fontSize = Mathf.RoundToInt(13f * ui);
+
+        labelList.Clear();
+        if (playerMarker != null)
         {
-            if (hereStyle == null) hereStyle = new GUIStyle(GUI.skin.label)
-                { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0.45f, 1f, 0.55f) } };
-            hereStyle.fontSize = Mathf.RoundToInt(13f * ui);
-            // l'etichetta fluttua SOPRA l'eventuale pianeta su cui ti trovi (offset lungo l'alto-schermo pari al
-            // suo raggio apparente) → non si sovrappone alla superficie. In spazio profondo l'offset è minimo.
             float clear = playerMarker.transform.localScale.x;
             var gb = walker != null ? walker.GravityBody : null;
             if (gb != null && proxies.TryGetValue(gb, out var gpx)) clear = gpx.localScale.x * (float)gb.Radius;
-            Vector3 anchor = playerMarker.transform.position + mapCam.transform.up * (clear * 1.4f);
-            Vector3 sp = mapCam.WorldToScreenPoint(anchor);
-            if (sp.z > 0f)
-                GUI.Label(new Rect(sp.x - 100f * ui, Screen.height - sp.y - 10f * ui, 200f * ui, 20f * ui), "TU SEI QUI", hereStyle);
+            AddLabel(playerMarker.transform.position + mapCam.transform.up * (clear * 1.4f), "TU SEI QUI", hereStyle);
         }
+        // SONDA: sempre etichettata quando dispiegata (è un oggetto che vuoi sempre poter localizzare, come "TU SEI QUI").
+        if (probeMarker != null && probeMarker.activeSelf)
+            AddLabel(probeMarker.transform.position + mapCam.transform.up * (probeMarker.transform.localScale.x * 1.4f), "SONDA", probeStyle);
 
-        // TAPPA 5 — etichette dei sistemi distanti (solo a zoom galattico, quando i loro billboard sono accesi)
-        if (hereStyle != null)
-            for (int i = 0; i < systemMarkers.Count; i++)
+        foreach (var sv in systemVisuals)
+            if (sv.star != null && sv.star.activeSelf && sv.sys != null)
+                AddLabel(sv.star.transform.position + mapCam.transform.up * (sv.star.transform.localScale.x * 0.9f), sv.sys.Name, hereStyle);
+
+        // NOMI DEI CORPI (toggle N): corpi vivi solo quando sei ZOOMATO nel loro sistema (a vista d'insieme/galattica
+        // affollerebbero — a quella distanza non li si vuole); dischi dei sistemi dormienti quando il loro dettaglio è
+        // mostrato (vicino o sistema selezionato → vedi i nomi di Vega anche da lontano, se l'hai scelta).
+        if (showBodyNames)
+        {
+            for (int i = 0; i < markers.Count; i++)
             {
-                var smk = systemMarkers[i]; var s = systemMarkerSys[i];
-                if (smk == null || !smk.activeSelf || s == null) continue;
-                Vector3 ssp = mapCam.WorldToScreenPoint(smk.transform.position + mapCam.transform.up * (smk.transform.localScale.x * 0.9f));
-                if (ssp.z > 0f)
-                    GUI.Label(new Rect(ssp.x - 100f * ui, Screen.height - ssp.y - 10f * ui, 200f * ui, 20f * ui), s.Name, hereStyle);
+                var mk = markers[i];
+                if (mk == null || !mk.activeInHierarchy) continue;
+                var b = markerBody[mk];
+                if (b == null || b == walker?.GravityBody) continue;   // sotto il giocatore c'è già "TU SEI QUI"
+                if (b.System != null && (float)Vector3d.Distance(camPosU, b.System.SystemOrigin) > SystemRadius(b.System) * 2f) continue;   // troppo lontano: niente nome
+                AddLabel(mk.transform.position + mapCam.transform.up * (mk.transform.localScale.x * 0.9f), b.gameObject.name, nameStyle);
             }
+            foreach (var sv in systemVisuals)
+                for (int i = 0; i < sv.discs.Count; i++)
+                    if (sv.discs[i] != null && sv.discs[i].activeInHierarchy)
+                        AddLabel(sv.discs[i].transform.position + mapCam.transform.up * (sv.discs[i].transform.localScale.x * 0.9f), sv.bodyNames[i], nameStyle);
+        }
+        DrawLabels();
+    }
+
+    struct LabelItem { public Rect rect; public string text; public GUIStyle style; }
+    readonly List<LabelItem> labelList = new List<LabelItem>();
+
+    void AddLabel(Vector3 worldAnchor, string text, GUIStyle style)
+    {
+        Vector3 sp = mapCam.WorldToScreenPoint(worldAnchor);
+        if (sp.z <= 0f) return;
+        Vector2 size = style.CalcSize(new GUIContent(text));
+        labelList.Add(new LabelItem {
+            rect = new Rect(sp.x - size.x * 0.5f, Screen.height - sp.y - size.y * 0.5f, size.x, size.y),
+            text = text, style = style });
+    }
+
+    void DrawLabels()
+    {
+        labelList.Sort((a, b) => a.rect.y.CompareTo(b.rect.y));
+        for (int i = 0; i < labelList.Count; i++)
+        {
+            var li = labelList[i];
+            bool moved = true; int guard = 0;
+            while (moved && guard++ < 30)   // spingi giù finché non si sovrappone più a una già piazzata (j<i)
+            {
+                moved = false;
+                for (int j = 0; j < i; j++)
+                    if (li.rect.Overlaps(labelList[j].rect)) { li.rect.y = labelList[j].rect.yMax + 1f; moved = true; }
+            }
+            labelList[i] = li;
+            GUI.Label(li.rect, li.text, li.style);
+        }
     }
 }
