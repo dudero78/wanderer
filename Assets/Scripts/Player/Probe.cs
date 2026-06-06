@@ -80,10 +80,12 @@ public class Probe : MonoBehaviour
         MakeGroove(vis.transform, unlit, ProbeRadius, 23.4f, 0.90f, 0.03f, glow);  // tropico nord
         MakeGroove(vis.transform, unlit, ProbeRadius, -23.4f, 0.90f, 0.03f, glow); // tropico sud
 
-        // LUCE EMESSA: point light ciano. Illumina gli oggetti Standard vicini E il TERRENO GPU (registrata come luce
+        // LUCE EMESSA: point light. Illumina gli oggetti Standard vicini E il TERRENO GPU (registrata come luce
         // ausiliaria in GpuPlanetRenderer.AuxPointLight da Launch → il terreno la calcola, come la torcia).
+        // Figlia di GO (NON di Visual) → resta accesa anche in VISTA SONDA (Visual si spegne, ma la luce no) →
+        // guardando attraverso la sonda vedi l'ambiente illuminato.
         var lampGo = new GameObject("SondaLuce");
-        lampGo.transform.SetParent(vis.transform, false);
+        lampGo.transform.SetParent(go.transform, false);
         p.lamp = lampGo.AddComponent<Light>();
         p.lamp.type = LightType.Point;
         p.lamp.color = new Color(0.85f, 0.92f, 1f);   // meno blu (quasi bianco, appena freddo)
