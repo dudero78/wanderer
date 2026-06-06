@@ -124,13 +124,38 @@ Dettagli file-per-file nella tabella "actionable" dell'`AUDIT3.md`.
 
 ---
 
+## 6) Seconda sessione (mi hai svegliato a metà 😄): multi-sistema Tappe 1+2
+
+Dopo il tuo "committa, poi concludi gli aperti minori e vai con le tappe 1 e 2", ho fatto:
+
+**✅ Tappe 1+2 del multi-sistema** (le ho fatte tutte e due, compilano pulito, e per **costruzione non cambiano niente** del gioco a un solo sistema):
+- **`StarSystem.cs`** (nuovo) — un contenitore della stella + i suoi corpi, con la sua posizione nello spazio-galassia (`SystemOrigin`, in doppia precisione, oggi = zero = identità). Non è altro: lo scoping (sistemi che dormono/si svegliano, viaggio interstellare) si scriverà solo quando ci sarà davvero un secondo sistema — prima quel codice non sarebbe nemmeno collaudabile.
+- **`SolarSystem`** ora ha la lista dei sistemi + quello attivo; la lista dei corpi del sistema attivo **è la stessa identica** di quella di prima (riferimento condiviso) → impossibile che due parti del codice vedano liste diverse.
+- Ogni corpo sa a quale sistema appartiene.
+- **`SlabPool`: il BodyId ora si ricicla** (uno slot riusabile invece di un contatore che cresce all'infinito). A un solo sistema è identico a prima (pesca 0,1,2,…); ma chiude un **vincolo nascosto** che sarebbe esploso con lo streaming di più sistemi (il marchio anti-spuntone è un float che regge solo ≤7 corpi vivi). + un avviso se mai si superano 7 corpi vivi.
+
+Il bello: la posizione della stella si **propaga già** giù per la catena (pianeti = stella + orbita, lune = pianeta + orbita), quindi non ho dovuto toccare la matematica delle coordinate. Rischio ~zero.
+
+**Le prossime tappe** (3 = definire 2-3 sistemi senza accenderne più d'uno; 4 = sleep/wake + viaggio interstellare; 5 = mappa galattica) sono in `STARSYSTEM_DESIGN.md`, pronte quando vuoi.
+
+## 7) I due "aperti minori" che NON ho fatto alla cieca — e perché
+
+Li ho lasciati apposta per una sessione **a gioco aperto**, per lo stesso motivo degli shader (non posso verificarli da solo, e una regressione che scopri domani è peggio che farli insieme in 10 minuti):
+
+- **#17 — fonte unica dell'altezza (transpiler C#→HLSL).** Per unire le due scritture devo **generare l'HLSL**, e il mio gate di compilazione offline **non compila gli shader**. Un generatore con un solo errore romperebbe la geometria in silenzio (il giocatore galleggia). Stanotte la duplicazione è comunque **protetta** dal gate di parità automatico che ho messo: il rischio è coperto, manca solo l'unificazione vera. Si fa con te al volo.
+- **#8 — fisica nel tick fisso.** Spostare la simulazione dei corpi nel "tick fisso" darebbe più determinismo (utile per il multiplayer futuro), **ma** ho controllato: il tick fisso è a 50 Hz e il gioco gira a 60 → i corpi lontani **scatterebbero** (serve interpolazione, o allineare i due ritmi). Entrambe sono cose che vanno **viste in movimento** per non rovinare il "liscio come l'olio". Te le faccio mentre guardi, con la possibilità di annullare in un attimo.
+
+Tradotto: ho fatto tutto il **sicuro** in autonomia; i due che richiedono i tuoi occhi te li ho preparati con il piano pronto.
+
+---
+
 ## In sintesi
 
 - ✅ #18 (god-object) — fatto, verificato in compilazione e metodo-per-metodo.
 - ✅ #17 (parità altezza) — reso sicuro con gate automatico.
 - ✅ #15 (FixedUpdate) — era già a posto, verificato.
-- ✅ #16 (multi-sistema) — al tavolo, piano a tappe in arrivo.
+- ✅ #16 (multi-sistema) — **Tappe 1+2 implementate** (identità a 1 sistema, rischio ~zero); 3-5 progettate.
 - ✅ 9 correzioni del tavolo applicate (incluso un probabile fix al bug editor #3).
-- 📋 3 interventi di resa specificati e pronti (toccano gli shader → un controllo a gioco aperto).
+- 📋 3 interventi di resa (shader) + #17 transpiler + #8 tick-fisso = pronti, da fare insieme a gioco aperto.
 
-Tutto compila pulito. Buongiorno! ☀️
+Tutto compila pulito (gate offline). Primo commit `dcd8a99` + secondo per le Tappe 1+2. Buongiorno davvero! ☀️

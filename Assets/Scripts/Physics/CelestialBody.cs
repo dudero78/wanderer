@@ -21,6 +21,7 @@ public class CelestialBody : MonoBehaviour
 
     public Vector3d UniversePosition;
     public Vector3d UniverseVelocity;   // cache: aggiornata UNA volta per Step da SolarSystem; i consumatori la leggono (no ricalcolo per-frame)
+    public StarSystem System;           // sistema stellare di appartenenza (Tappa 1 multi-sistema). A N=1 c'è un solo sistema
 
     /// <summary>Parametro gravitazionale standard μ = g·r².</summary>
     public double Mu => SurfaceGravity * Radius * Radius;

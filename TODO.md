@@ -23,7 +23,9 @@ guardie C0 nelle pipeline, strumenti di diagnosi, rimozione skirt). Dettaglio te
 > **ROADMAP (aggiornata 6 giu — vedi `AUDIT3.md`):** ✅ **#18 god-object SPACCATO** (`SlabPool` + `PlanetLodTree` +
 > `GpuPlanetRenderer` orchestratore). ✅ **#17 parità altezza resa SICURA** (`PlanetParityGate` automatico a ogni
 > ricompila su tutte le ricette; il transpiler C#→HLSL vero resta da fare). ✅ **#15 era già fatto** (fisica in
-> FixedUpdate). **#16 layer multi-sistema** → piano a tappe in `STARSYSTEM_DESIGN.md`. **PROSSIMO = RESA:** colore
+> FixedUpdate). **#16 layer multi-sistema** → `STARSYSTEM_DESIGN.md`, **Tappe 1+2 FATTE** (StarSystem + BodyId riciclato,
+> identità a N=1); Tappe 3-5 progettate. **DA FARE A GIOCO APERTO** (non verificabili alla cieca): #17 transpiler
+> C#→HLSL, #8 fisica in FixedUpdate (50Hz vs 60fps → judder). **PROSSIMO = RESA:** colore
 > per-vertice (3 fbm residui nel fragment = prerequisito PBR) + keyword `_HAS_SEA` + eclissi nel renderer autoritativo
 > → materiali per pendenza/quota + PBR. I 3 toccano shader: vanno landati con UN controllo a gioco aperto (vedi `AUDIT3.md`).
 >

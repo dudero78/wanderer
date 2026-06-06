@@ -238,7 +238,15 @@ Sessione di riordino strutturale e robustezza (priorità: resa/qualità/performa
   **ripristino del render target dopo il bake** (probabile causa del bug editor "il pianeta sparisce dopo il
   Bake"); **isteresi sul corpo di riferimento del walker** (niente più sobbalzo d'inquadratura fra i gemelli);
   slider "limpidezza" grigio in anteprima CPU.
-- **Multi-sistema (#16):** mandato a un secondo tavolo ristretto → piano a tappe additivo in `STARSYSTEM_DESIGN.md`
-  (la Tappa 1 non cambia il comportamento del sistema singolo).
+- **Multi-sistema (#16):** secondo tavolo ristretto → piano a tappe additivo in `STARSYSTEM_DESIGN.md`. **Tappe 1+2
+  IMPLEMENTATE** (a comportamento immutato, N=1 = identità): `StarSystem` (contenitore stella+corpi, `SystemOrigin`
+  in double; `Active.Bodies` riferisce la stessa lista di `SolarSystem.Bodies` → niente viste divergenti); ogni
+  `CelestialBody` conosce il suo `System`; **BodyId del `SlabPool` riciclato** (free-stack invece di contatore
+  monotono) → chiude il vincolo latente RegionId-float (≤7 corpi vivi) quando ci sarà lo streaming. La posizione
+  della stella si propaga giù per la catena dei genitori → nessun cambio alle coordinate.
+- **Restano per una sessione "a gioco aperto"** (non verificabili alla cieca, stessa cautela degli shader): **#17**
+  transpiler C#→HLSL (la fonte unica dell'altezza tocca i 600 righe di HLSL che non posso compilare offline) e **#8**
+  fisica in FixedUpdate (fixedTimestep 50Hz vs fps 60Hz → judder dei corpi non-ancora senza interpolazione; richiede
+  un controllo di feel/fluidità). Piani dettagliati in `REPORT_NOTTE_6giu.md` / `AUDIT3.md`.
 - **Lasciati pronti ma non applicati** (toccano gli shader, non verificabili offline): keyword `_HAS_SEA`, colore
   per-vertice (prerequisito PBR), eclissi nel renderer autoritativo. Dettagli in `AUDIT3.md`.

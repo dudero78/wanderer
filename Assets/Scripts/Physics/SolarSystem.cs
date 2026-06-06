@@ -20,6 +20,13 @@ public class SolarSystem : MonoBehaviour
     public CelestialBody Destination;       // corpo selezionato sulla mappa: in volo l'origine ancora a lui
     public List<CelestialBody> Bodies = new List<CelestialBody>();
 
+    // Tappa 1 multi-sistema (#16, vedi STARSYSTEM_DESIGN.md): i sistemi stellari + quello ATTIVO. A N=1
+    // Active.Bodies è la STESSA istanza di Bodies (riferimento condiviso) → comportamento identico a prima.
+    // Reference/Anchor/Destination/currentAnchor restano QUI: sono stato del GIOCATORE (l'ancora vive FRA i sistemi),
+    // spostarli nel contenitore romperebbe il futuro viaggio interstellare.
+    public List<StarSystem> Systems = new List<StarSystem>();
+    public StarSystem Active;
+
     // Corpo di RIFERIMENTO: quello a cui è ancorata l'origine in questo istante. È FERMO in scena,
     // quindi velocità (rb.linearVelocity) e quota del giocatore sono relative a LUI. La HUD lo legge:
     // così i numeri parlano sempre del corpo con cui stai interagendo (sotto i piedi o in viaggio).

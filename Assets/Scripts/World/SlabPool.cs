@@ -31,6 +31,7 @@ public class SlabPool
     static int sRefCount;
     static int sPoolVerts, sPoolSlabs;   // dimensioni con cui il pool è stato allocato (tutti i corpi le condividono)
     static int sNextBodyId;
+    static readonly Stack<int> sFreeBodyIds = new Stack<int>();   // BodyId riciclabili (Tappa 2 multi-sistema): l'occupazione è i corpi VIVI, non il totale storico
 
     /// <summary>Il pool condiviso è allocato? (guardia per Update dopo un domain reload in Play.)</summary>
     public static bool IsAllocated => sRefCount > 0;
@@ -95,7 +96,12 @@ public class SlabPool
         Pos = sPos; Nrm = sNrm; BedNrm = sBedNrm; Depth = sDepth; Field = sField; Surf = sSurf;
         Region = sSlabRegion;
         freeSlabs = sFreeSlabs; cacheSlab = sCacheSlab; lru = sLru; lruNode = sLruNode;
-        BodyId = sNextBodyId++;
+        // BodyId RICICLATO: uno slot riusabile, non un contatore monotono. Così l'occupazione è "corpi VIVI
+        // contemporaneamente" (≤ corpi del sistema attivo), non il totale storico → il vincolo float di RegionId
+        // (≤7 corpi vivi, region-stamp anti-spuntone nel vertex shader) regge anche con lo streaming sonno/risveglio.
+        // A N=1 (tutti i corpi nascono all'avvio, nessuno muore) pesca 0,1,2,… in ordine = identico al contatore di prima.
+        BodyId = sFreeBodyIds.Count > 0 ? sFreeBodyIds.Pop() : sNextBodyId++;
+        if (BodyId >= 7) Debug.LogWarning($"SlabPool: BodyId {BodyId} ≥ 7 → RegionId (float, region-stamp) rischia collisioni. Riduci i corpi VIVI contemporanei o allarga RegionId.");
     }
 
     /// <summary>Slot libero: dalla free-list, o sfrattando in O(1) la regione meno recente (fronte LRU). -1 se vuoto.</summary>
@@ -150,13 +156,14 @@ public class SlabPool
     {
         if (sRefCount == 0) return;
         sRefCount--;
+        sFreeBodyIds.Push(BodyId);   // l'id torna disponibile per un corpo che entra in streaming
         Pos = Nrm = BedNrm = Depth = Field = Surf = Region = null;
         freeSlabs = null; cacheSlab = null; lru = null; lruNode = null;
         if (sRefCount == 0)
         {
             sPos?.Release(); sNrm?.Release(); sBedNrm?.Release(); sDepth?.Release(); sField?.Release(); sSurf?.Release(); sSlabRegion?.Release();
             sPos = sNrm = sBedNrm = sDepth = sField = sSurf = sSlabRegion = null;
-            sFreeSlabs.Clear(); sCacheSlab.Clear(); sLru.Clear(); sLruNode.Clear(); sNextBodyId = 0;
+            sFreeSlabs.Clear(); sCacheSlab.Clear(); sLru.Clear(); sLruNode.Clear(); sNextBodyId = 0; sFreeBodyIds.Clear();
         }
     }
 }

@@ -140,6 +140,13 @@ public static class SolarSystemSetup
         if (unlit != null) starGo.GetComponent<Renderer>().material = new Material(unlit) { color = new Color(1f, 0.88f, 0.55f) };
         solar.Register(star);
 
+        // SISTEMA stellare (Tappa 1 multi-sistema): contenitore della stella + i suoi corpi. A N=1 SystemOrigin=Zero
+        // (= posizione della stella, che si propaga giù per la catena dei genitori → niente cambio di coordinate);
+        // Bodies riferisce la STESSA lista di solar.Bodies (che Register popola) → nessuna vista divergente.
+        var system = new StarSystem { Name = "Casa", SystemOrigin = Vector3d.Zero, Star = star, Bodies = solar.Bodies, Active = true };
+        solar.Systems.Add(system);
+        solar.Active = system;
+
         // --- Pianeta-CASA (orbita la stella; è dove nasce il giocatore e a cui si ancora l'origine) ---
         var planetGo = new GameObject("Pianeta");
         var planet = planetGo.AddComponent<CelestialBody>();
@@ -211,6 +218,8 @@ public static class SolarSystemSetup
 
         // origine ancorata al corpo di SPAWN (la casa, o quello scelto per il test): resta a ~(0,0,0). Posiziona i
         // corpi al tempo 0 PRIMA che GameBootstrap legga la posizione del corpo per lo spawn del giocatore.
+        foreach (var b in solar.Bodies) if (b != null) b.System = system;   // Tappa 1: ogni corpo conosce il suo sistema (a N=1 = "Casa")
+
         solar.Anchor = spawnBody;
         spawnBody.UpdatePosition(0);
         solar.Step();
