@@ -82,7 +82,9 @@ public class SolarSystem : MonoBehaviour
     // così i numeri parlano sempre del corpo con cui stai interagendo (sotto i piedi o in viaggio).
     public CelestialBody Reference { get; private set; }
     CelestialBody currentAnchor;
-    StarSystem currentAnchorSys;            // se ancorato al PUNTO di un sistema distante (crociera interstellare) invece che a un corpo
+    bool deepMode;                          // crociera interstellare: ancorati a un PUNTO fisso ri-centrato sul giocatore (floating origin vera)
+    Vector3d deepAnchor;                    // il punto-origine attuale dello spazio profondo (ri-centrato oltre la soglia)
+    const float RebaseThresholdSq = 50000f * 50000f;   // ri-centra se |pos-scena| supera ~50 km → coords sempre piccole (precisione)
     CelestialBody lastNearest;              // isteresi sul corpo più vicino (vedi NearestBody)
     bool traveling;                         // isteresi zona-locale/viaggio: evita il flip-flop sul bordo
 
@@ -197,37 +199,37 @@ public class SolarSystem : MonoBehaviour
             // mentre orbita) e raggiungibile. Altrimenti (zona locale, o nessuna destinazione) → al più vicino.
             CelestialBody bodyTarget = (traveling && Destination != null) ? Destination : nearest;
 
-            // CROCIERA INTERSTELLARE: verso un SISTEMA distante, in mezzo allo spazio non c'è un corpo vicino a cui
-            // agganciarsi → la pos-scena del giocatore esplode (a milioni di metri il float TREMA). Ancora allora al
-            // PUNTO del sistema-destinazione (fermo nell'universo): la pos-scena resta piccola (precisione) e i numeri
-            // diventano relativi alla DESTINAZIONE. Si passa al punto quando è più vicino del corpo più prossimo.
-            Vector3d playerU = FloatingOrigin.SceneOrigin + new Vector3d(pp);
-            StarSystem sysTarget = null;
-            if (traveling && DestinationSystem != null)
+            // CROCIERA INTERSTELLARE (verso un SISTEMA distante): in mezzo allo spazio NON c'è un corpo vicino a cui
+            // agganciarsi, e ancorare a casa o alla destinazione fa esplodere la pos-scena a metà strada (a milioni di
+            // metri il float TREMA → jitter, errori di proiezione). FLOATING ORIGIN VERA: ancora a un PUNTO fisso che
+            // RI-CENTRO sul giocatore appena si allontana oltre una soglia → la pos-scena resta sempre piccola (≤~50 km).
+            bool wantDeep = traveling && DestinationSystem != null;
+            if (wantDeep)
             {
-                double dSys = (DestinationSystem.SystemOrigin - playerU).sqrMagnitude;
-                double dBody = bodyTarget != null ? (bodyTarget.UniversePosition - playerU).sqrMagnitude : double.MaxValue;
-                if (dSys < dBody) sysTarget = DestinationSystem;
-            }
-
-            if (sysTarget != null)
-            {
-                if (currentAnchorSys != sysTarget)   // switch a PUNTO (da un corpo o da un altro sistema): vel del punto = 0
-                    SwitchAnchor(sysTarget.SystemOrigin, currentAnchor != null ? currentAnchor.UniverseVelocity : Vector3d.Zero,
-                                 Vector3d.Zero, currentAnchor != null || currentAnchorSys != null);
-                currentAnchor = null; currentAnchorSys = sysTarget;
-                FloatingOrigin.SceneOrigin = sysTarget.SystemOrigin;
-                Reference = null;   // relativo al punto fisso = relativo all'universo (HUD usa GravityBody per l'altitudine)
+                if (!deepMode)
+                {
+                    Vector3d playerU = FloatingOrigin.SceneOrigin + new Vector3d(pp);
+                    SwitchAnchor(playerU, currentAnchor != null ? currentAnchor.UniverseVelocity : Vector3d.Zero, Vector3d.Zero, currentAnchor != null);
+                    deepAnchor = playerU; deepMode = true; currentAnchor = null;
+                }
+                else if (pp.sqrMagnitude > RebaseThresholdSq)   // troppo lontano dall'origine → RI-CENTRA sul giocatore
+                {
+                    Vector3d newDeep = FloatingOrigin.SceneOrigin + new Vector3d(pp);
+                    SwitchAnchor(newDeep, Vector3d.Zero, Vector3d.Zero, false);   // punto→punto (vel 0): solo traslazione, niente correzione
+                    deepAnchor = newDeep;
+                }
+                FloatingOrigin.SceneOrigin = deepAnchor;
+                Reference = null;   // spazio profondo: niente corpo di riferimento (HUD usa il reticolo del bersaglio per la velocità)
             }
             else if (bodyTarget != null)
             {
-                // Allo SWITCH di corpo correggi la velocità della differenza tra vecchia e nuova ancora (× TimeScale):
-                // la velocità-UNIVERSO non cambia → cambiare ancora non altera mai il moto reale, solo i numeri. Lo
-                // stesso vale arrivando DA un punto-sistema (vel 0). I Loose dinamici (sonda) ricevono la stessa correzione.
-                if (currentAnchor != bodyTarget)
-                    SwitchAnchor(bodyTarget.UniversePosition, currentAnchor != null ? currentAnchor.UniverseVelocity : Vector3d.Zero,
-                                 bodyTarget.UniverseVelocity, currentAnchor != null || currentAnchorSys != null);
-                currentAnchor = bodyTarget; currentAnchorSys = null;
+                // Allo SWITCH di ancora correggi la velocità della differenza vecchia−nuova (× TimeScale) → la velocità
+                // UNIVERSO non cambia. Uscendo dallo spazio profondo l'ancora vecchia è un punto fermo (vel 0). I Loose
+                // dinamici (sonda) ricevono la stessa correzione.
+                if (deepMode || currentAnchor != bodyTarget)
+                    SwitchAnchor(bodyTarget.UniversePosition, deepMode || currentAnchor == null ? Vector3d.Zero : currentAnchor.UniverseVelocity,
+                                 bodyTarget.UniverseVelocity, deepMode || currentAnchor != null);
+                deepMode = false; currentAnchor = bodyTarget;
                 FloatingOrigin.SceneOrigin = bodyTarget.UniversePosition;
                 Reference = bodyTarget;
             }
