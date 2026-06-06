@@ -29,7 +29,8 @@ public class SettingsMenu : MonoBehaviour
     int activeTab;
     bool open;
     Vector2 scroll;
-    GUIStyle title, head, val, hint, tabStyle, toggleStyle, toggleBtn, sliderStyle, thumbStyle;
+    GUIStyle title, head, val, hint, tabStyle, toggleStyle, toggleBtn, thumbStyle;
+    Texture2D trackTex;
 
     public void Init(PlanetWalker w, Camera c)
     {
@@ -191,9 +192,12 @@ public class SettingsMenu : MonoBehaviour
         else
         {
             float v = k.get();
-            // slider con MANIGLIA e TRACCIA grandi (stili dedicati) → visibile e afferrabile.
-            float nv = GUILayout.HorizontalSlider(v, k.min, k.max, sliderStyle, thumbStyle,
-                                                  GUILayout.Width(300f * ui), GUILayout.Height(28f * ui));
+            // Rect ESPLICITO per lo slider: disegno la TRACCIA grigia centrata verticalmente e poi lo slider (senza
+            // groove) nello STESSO rect → maniglia e traccia sono allineate (prima la maniglia stava sopra la riga).
+            Rect sr = GUILayoutUtility.GetRect(300f * ui, 30f * ui, GUILayout.Width(300f * ui));
+            float th = 6f * ui;
+            GUI.DrawTexture(new Rect(sr.x, sr.y + (sr.height - th) * 0.5f, sr.width, th), trackTex);
+            float nv = GUI.HorizontalSlider(sr, v, k.min, k.max, GUIStyle.none, thumbStyle);
             GUILayout.Space(16f * ui);
             GUILayout.Label(Fmt(nv), val, GUILayout.Width(90f * ui));
             if (!Mathf.Approximately(nv, v))
@@ -231,13 +235,10 @@ public class SettingsMenu : MonoBehaviour
             tabStyle = new GUIStyle(GUI.skin.button);
             toggleStyle = new GUIStyle(GUI.skin.toggle) { normal = { textColor = Color.white }, onNormal = { textColor = Color.white } };
             toggleBtn = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
-            sliderStyle = new GUIStyle(GUI.skin.horizontalSlider);
             thumbStyle = new GUIStyle(GUI.skin.horizontalSliderThumb);
-            // TRACCIA VISIBILE: una barretta grigia (lo slot di default è quasi invisibile su sfondo nero).
-            var track = new Texture2D(1, 1, TextureFormat.RGBA32, false);
-            track.SetPixel(0, 0, new Color(0.5f, 0.55f, 0.62f, 1f)); track.Apply();
-            sliderStyle.normal.background = track;
-            sliderStyle.border = new RectOffset(0, 0, 0, 0);   // 1x1 → stiramento pulito, niente slicing
+            // TRACCIA VISIBILE: barretta grigia disegnata a mano (lo slot di default è quasi invisibile su nero).
+            trackTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            trackTex.SetPixel(0, 0, new Color(0.5f, 0.55f, 0.62f, 1f)); trackTex.Apply();
         }
         title.fontSize = Mathf.RoundToInt(22f * ui);
         head.fontSize = Mathf.RoundToInt(16f * ui);
@@ -246,8 +247,7 @@ public class SettingsMenu : MonoBehaviour
         tabStyle.fontSize = Mathf.RoundToInt(15f * ui);
         toggleStyle.fontSize = Mathf.RoundToInt(14f * ui);
         toggleBtn.fontSize = Mathf.RoundToInt(15f * ui);
-        // MANIGLIA e TRACCIA dello slider INGRANDITE (le default sono minuscole su schermi ad alta densità).
-        sliderStyle.fixedHeight = 14f * ui;
+        // MANIGLIA dello slider INGRANDITA (la default è minuscola su schermi ad alta densità).
         thumbStyle.fixedWidth = 22f * ui;
         thumbStyle.fixedHeight = 22f * ui;
     }
