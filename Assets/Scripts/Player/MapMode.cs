@@ -503,7 +503,11 @@ public class MapMode : MonoBehaviour
                 // REALE → zoomando il corpo CRESCE alla sua taglia vera (lo ispezioni). RefRadius = i pianeti grandi.
                 const float RefRadius = 700f, SizePow = 0.8f, GlobalShrink = 0.82f;
                 float constScreen = screen * Mathf.Pow((float)b.Radius / RefRadius, SizePow) * GlobalShrink;
-                float R = Mathf.Max(constScreen, (float)b.Radius);
+                float Rnear = Mathf.Max(constScreen, (float)b.Radius);   // vicino: dimensione-schermo visibile
+                // LONTANO (verso lo zoom galattico) i corpi tornano alla SCALA REALE → il sistema si rimpicciolisce in
+                // modo sensato (un puntino lontano), invece di restare palle giganti a dimensione-schermo costante.
+                float far01 = Mathf.InverseLerp(SystemRadius() * 0.6f, SystemRadius() * 3f, mapDist);
+                float R = Mathf.Lerp(Rnear, (float)b.Radius, far01);
                 if (b == selected) R *= 1.15f;
                 px.position = b.transform.position;
                 px.localScale = Vector3.one * (R / Mathf.Max(1f, (float)b.Radius));   // mesh a raggio reale → scala a R
