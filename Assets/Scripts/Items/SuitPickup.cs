@@ -33,8 +33,11 @@ public class SuitPickup : MonoBehaviour
 
     void Update()
     {
-        transform.up = axisUp;
-        transform.Rotate(axisUp, spinSpeed * Time.deltaTime, Space.World);
+        // L'omino GUARDA il giocatore: il suo "davanti" (+Z) punta verso di te, proiettato sul piano tangente
+        // (perpendicolare ad axisUp) così resta in piedi. Niente più rotazione a trottola (era un faro; ora è un omino).
+        Vector3 fwd = player != null ? Vector3.ProjectOnPlane(player.position - transform.position, axisUp) : Vector3.zero;
+        if (fwd.sqrMagnitude > 1e-4f) transform.rotation = Quaternion.LookRotation(fwd.normalized, axisUp);
+        else transform.up = axisUp;
         transform.position = basePos + axisUp * (Mathf.Sin(Time.time * bobSpeed) * bobAmplitude);
 
         if (player == null || walker == null) return;

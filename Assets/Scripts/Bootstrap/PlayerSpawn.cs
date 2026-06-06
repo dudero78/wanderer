@@ -53,13 +53,19 @@ public static class PlayerSpawn
         Vector3 suitDir = (playerSpawnPos + sunDir * 8f - bodyGo.transform.position).normalized;
         Vector3 suitGround = bodyGo.transform.position + suitDir * terrain.SampleHeight(suitDir);
 
-        // TUTA = OMINO stilizzato METALLICO LUMINOSO: TORSO + 2 GAMBE (3 cilindri acciaio) + TESTA (sfera che brilla).
-        // Parent vuoto (lo SuitPickup lo fa ondeggiare/ruotare); i pezzi sono figli, costruiti col +Y in alto → stanno
-        // dritti lungo axisUp (radiale). La testa glow + la luce point danno il "luminoso".
+        // TUTA = OMINO stilizzato METALLICO LUMINOSO. Pezzi (capsule = estremità ARROTONDATE per mani/piedi/bombole):
+        // TORSO + 2 GAMBE + 2 BRACCIA + 2 BOMBOLE/MOTORI sullo zaino (dietro), con UGELLI luminosi in fondo. TESTA =
+        // sfera che brilla. Parent vuoto (SuitPickup lo fa ondeggiare e lo gira verso il giocatore). +Y in alto, +Z
+        // davanti (verso di te); le bombole stanno dietro (-Z). Capsule → niente spigoli vivi alle estremità.
         var suitGo = new GameObject("Tuta");
-        MetalPart(suitGo.transform, PrimitiveType.Cylinder, "Torso", new Vector3(0f, 0.5f, 0f), new Vector3(0.5f, 0.5f, 0.5f));
-        MetalPart(suitGo.transform, PrimitiveType.Cylinder, "GambaSx", new Vector3(-0.17f, -0.45f, 0f), new Vector3(0.17f, 0.45f, 0.17f));
-        MetalPart(suitGo.transform, PrimitiveType.Cylinder, "GambaDx", new Vector3(0.17f, -0.45f, 0f), new Vector3(0.17f, 0.45f, 0.17f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "Torso", new Vector3(0f, 0.5f, 0f), new Vector3(0.44f, 0.5f, 0.34f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "GambaSx", new Vector3(-0.17f, -0.42f, 0.02f), new Vector3(0.16f, 0.42f, 0.16f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "GambaDx", new Vector3(0.17f, -0.42f, 0.02f), new Vector3(0.16f, 0.42f, 0.16f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BraccioSx", new Vector3(-0.42f, 0.58f, 0.02f), new Vector3(0.13f, 0.4f, 0.13f), new Vector3(0f, 0f, 13f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BraccioDx", new Vector3(0.42f, 0.58f, 0.02f), new Vector3(0.13f, 0.4f, 0.13f), new Vector3(0f, 0f, -13f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BombolaSx", new Vector3(-0.2f, 0.62f, -0.34f), new Vector3(0.16f, 0.5f, 0.16f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BombolaDx", new Vector3(0.2f, 0.62f, -0.34f), new Vector3(0.16f, 0.5f, 0.16f));
+
         var head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         head.name = "Testa";
         var headCol = head.GetComponent<Collider>(); if (headCol) Object.Destroy(headCol);
@@ -68,9 +74,13 @@ public static class PlayerSpawn
         head.transform.localScale = Vector3.one * 0.55f;
         SetColor(head, new Color(0.4f, 0.95f, 1f), emissive: true);   // testa che BRILLA (Unlit, sopravvive al build)
 
+        // UGELLI dei MOTORI: piccole sfere LUMINOSE in fondo alle bombole (l'"accensione" dei motori).
+        GlowBall(suitGo.transform, "UgelloSx", new Vector3(-0.2f, 0.30f, -0.34f), 0.17f, new Color(0.4f, 0.9f, 1f));
+        GlowBall(suitGo.transform, "UgelloDx", new Vector3(0.2f, 0.30f, -0.34f), 0.17f, new Color(0.4f, 0.9f, 1f));
+
         var glowGo = new GameObject("Glow");
         glowGo.transform.SetParent(suitGo.transform, false);
-        glowGo.transform.localPosition = new Vector3(0f, 1.28f, 0f);   // alla testa
+        glowGo.transform.localPosition = new Vector3(0f, 1.0f, 0f);
         var glow = glowGo.AddComponent<Light>();
         glow.type = LightType.Point;
         glow.color = new Color(0.3f, 0.95f, 1f);
@@ -78,7 +88,7 @@ public static class PlayerSpawn
         glow.intensity = 1.4f;
 
         var pickup = suitGo.AddComponent<SuitPickup>();
-        pickup.surfaceClearance = 0.95f;   // i piedi (gambe a y≈−0.9) sfiorano il suolo
+        pickup.surfaceClearance = 0.9f;    // i piedi (gambe a y≈−0.85) sfiorano il suolo
         pickup.pickupRadius = 3.5f;
         pickup.Init(playerGo.transform, walker, suitGround, suitDir);
         solar.Loose.Add(suitGo.transform);   // oggetto sciolto: va traslato allo switch di corpo
@@ -126,12 +136,16 @@ public static class PlayerSpawn
     /// illuminato dal sole), senza collider, figlio del parent dato. (Niente keyword: metallic/smoothness sono
     /// float dello Standard, sopravvivono al build.)</summary>
     static void MetalPart(Transform parent, PrimitiveType type, string name, Vector3 localPos, Vector3 localScale)
+        => MetalPart(parent, type, name, localPos, localScale, Vector3.zero);
+
+    static void MetalPart(Transform parent, PrimitiveType type, string name, Vector3 localPos, Vector3 localScale, Vector3 localEuler)
     {
         var go = GameObject.CreatePrimitive(type);
         go.name = name;
         var col = go.GetComponent<Collider>(); if (col) Object.Destroy(col);
         go.transform.SetParent(parent, false);
         go.transform.localPosition = localPos;
+        go.transform.localRotation = Quaternion.Euler(localEuler);
         go.transform.localScale = localScale;
         var sh = Shader.Find("Standard");
         if (sh != null)
@@ -141,6 +155,18 @@ public static class PlayerSpawn
             m.SetFloat("_Glossiness", 0.6f);
             go.GetComponent<Renderer>().material = m;
         }
+    }
+
+    /// <summary>Una pallina LUMINOSA (Unlit, sopravvive al build) figlia del parent: ugello di motore, dettaglio glow.</summary>
+    static void GlowBall(Transform parent, string name, Vector3 localPos, float diameter, Color col)
+    {
+        var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        go.name = name;
+        var c = go.GetComponent<Collider>(); if (c) Object.Destroy(c);
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = localPos;
+        go.transform.localScale = Vector3.one * diameter;
+        SetColor(go, col, emissive: true);
     }
 
     static void SetColor(GameObject go, Color c, bool emissive = false)
