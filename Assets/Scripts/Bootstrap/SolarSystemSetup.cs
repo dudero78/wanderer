@@ -51,18 +51,75 @@ public static class SolarSystemSetup
     }
 
     /// <summary>Descrizione DATA-DRIVEN di un corpo in orbita: tutto ciò che lo distingue dagli altri.</summary>
-    struct OrbitBody
+    public struct OrbitBody
     {
         public string Name;
         public float Radius;
         public double Gravity;
-        public bool AroundStar;     // true = orbita la stella; false = orbita il pianeta-casa
+        public bool AroundStar;     // true = orbita la stella (del SUO sistema); false = orbita il pianeta-casa
         public string ParentName;   // se valorizzato, orbita QUESTO corpo (per nome, dev'essere costruito PRIMA) → lune di lune
         public KeplerOrbit Orbit;
         public string BakedDir;
         public int ProxyRes;        // risoluzione del proxy nella mappa
         public System.Func<PlanetTerrain, bool> Apply;   // applica la ricetta (false se assente → il corpo si salta)
     }
+
+    /// <summary>
+    /// RICETTA DI UN SISTEMA STELLARE (Tappa 3 multi-sistema): la composizione di QUALUNQUE sistema come DATO —
+    /// stella (raggio/gravità/colore) + posizione nello spazio-galassia (`SystemOrigin`, double) + i suoi corpi.
+    /// Il sistema-CASA resta costruito dal percorso bespoke di <see cref="Build"/> (PlanetPresets + binario), identico
+    /// a prima (rischio zero a N=1); i sistemi DISTANTI sono interamente data-driven e li costruisce
+    /// <see cref="BuildSystem"/> SOLO quando vengono "svegliati" (Tappa 4). Finché dormono esistono solo come questo
+    /// dato (kB) → zero corpi, zero fette del pool, zero BodyId.
+    /// </summary>
+    public class SystemRecipe
+    {
+        public string Name;
+        public Vector3d SystemOrigin = Vector3d.Zero;
+        public float StarRadius = 1500f;
+        public double StarGravity = 100;
+        public Color StarColor = new Color(1f, 0.88f, 0.55f);
+        public OrbitBody[] Bodies;   // i corpi del sistema (orbitano la SUA stella). Senza binario/baricentro per i distanti.
+    }
+
+    /// <summary>
+    /// La GALASSIA: i sistemi stellari come DATO (modo Carmack — a mano, non un generatore). L'indice 0 è il sistema
+    /// CASA (SystemOrigin = Zero, costruito da Build nel suo percorso bespoke); gli altri sono DISTANTI e dormienti,
+    /// costruibili da BuildSystem alla sveglia (Tappa 4) e mostrati come stelle nella mappa galattica (Tappa 5).
+    /// Riusano le ricette ufficiali esistenti (Luna6/Cetra/…) → corpi veri quando svegliati, niente arte nuova.
+    /// Galassia STATICA (i SystemOrigin non derivano nel tempo): coerente con le orbite on-rails (vedi STARSYSTEM_DESIGN).
+    /// </summary>
+    public static readonly SystemRecipe[] Galaxy =
+    {
+        new SystemRecipe { Name = "Casa", SystemOrigin = Vector3d.Zero, StarRadius = 2000f, StarGravity = 100,
+                           StarColor = new Color(1f, 0.88f, 0.55f), Bodies = null },   // Bodies=null: la casa la costruisce Build (bespoke)
+        // Sistema distante "Helios" (~6 Mm sull'asse X): stella rossastra + 2 corpi (riusano ricette esistenti).
+        new SystemRecipe {
+            Name = "Helios", SystemOrigin = new Vector3d(6_000_000, 0, 0), StarRadius = 1600f, StarGravity = 90,
+            StarColor = new Color(1f, 0.62f, 0.42f),
+            Bodies = new[] {
+                new OrbitBody { Name = "Helios-I", Radius = Luna6Radius, Gravity = 9.81, AroundStar = true, ProxyRes = 32,
+                    BakedDir = Luna6BakedDir, Apply = ApplyLuna6Recipe,
+                    Orbit = new KeplerOrbit { SemiMajorAxis = 70000, Eccentricity = 0.06, Period = 900, Inclination = 0.2 } },
+                new OrbitBody { Name = "Helios-II", Radius = CetraRadius, Gravity = 3.0, AroundStar = true, ProxyRes = 24,
+                    BakedDir = CetraBakedDir, Apply = ApplyCetraRecipe,
+                    Orbit = new KeplerOrbit { SemiMajorAxis = 120000, Eccentricity = 0.1, Period = 1500, Inclination = 0.35 } },
+            },
+        },
+        // Sistema distante "Vega" (~ -5 Mm X, +4 Mm Z): stella azzurra + 2 corpi.
+        new SystemRecipe {
+            Name = "Vega", SystemOrigin = new Vector3d(-5_000_000, 0, 4_000_000), StarRadius = 2400f, StarGravity = 120,
+            StarColor = new Color(0.72f, 0.82f, 1f),
+            Bodies = new[] {
+                new OrbitBody { Name = "Vega-I", Radius = Valentina2Radius, Gravity = 9.81, AroundStar = true, ProxyRes = 32,
+                    BakedDir = Valentina2BakedDir, Apply = ApplyValentina2Recipe,
+                    Orbit = new KeplerOrbit { SemiMajorAxis = 90000, Eccentricity = 0.04, Period = 1100, Inclination = 0.12 } },
+                new OrbitBody { Name = "Vega-II", Radius = Luna7Radius, Gravity = 3.0, AroundStar = true, ProxyRes = 24,
+                    BakedDir = Luna7BakedDir, Apply = ApplyLuna7Recipe,
+                    Orbit = new KeplerOrbit { SemiMajorAxis = 150000, Eccentricity = 0.08, Period = 1900, Inclination = 0.28 } },
+            },
+        },
+    };
 
     // I corpi in orbita, in un solo posto. L'ordine non conta. Per aggiungerne uno: una riga qui.
     static readonly OrbitBody[] Orbiting =
@@ -144,6 +201,8 @@ public static class SolarSystemSetup
         // (= posizione della stella, che si propaga giù per la catena dei genitori → niente cambio di coordinate);
         // Bodies riferisce la STESSA lista di solar.Bodies (che Register popola) → nessuna vista divergente.
         var system = new StarSystem { Name = "Casa", SystemOrigin = Vector3d.Zero, Star = star, Bodies = solar.Bodies, Active = true };
+        system.Recipe = Galaxy[0]; system.StarTransform = starGo.transform;
+        system.StarColor = Galaxy[0].StarColor; system.StarRadius = Galaxy[0].StarRadius;
         solar.Systems.Add(system);
         solar.Active = system;
 
@@ -220,6 +279,18 @@ public static class SolarSystemSetup
         // corpi al tempo 0 PRIMA che GameBootstrap legga la posizione del corpo per lo spawn del giocatore.
         foreach (var b in solar.Bodies) if (b != null) b.System = system;   // Tappa 1: ogni corpo conosce il suo sistema (a N=1 = "Casa")
 
+        // SISTEMI DISTANTI (Tappa 3): registrati DORMIENTI — solo dato (Name+SystemOrigin+Recipe+colore stella), zero
+        // corpi/fette/BodyId. Li sveglia BuildSystem alla promozione (Tappa 4); la mappa galattica li mostra (Tappa 5).
+        for (int gi = 1; gi < Galaxy.Length; gi++)
+        {
+            var rec = Galaxy[gi];
+            solar.Systems.Add(new StarSystem {
+                Name = rec.Name, SystemOrigin = rec.SystemOrigin, Recipe = rec,
+                StarColor = rec.StarColor, StarRadius = rec.StarRadius,
+                Bodies = null, Star = null, Active = false, SceneObjects = null,
+            });
+        }
+
         solar.Anchor = spawnBody;
         spawnBody.UpdatePosition(0);
         solar.Step();
@@ -252,6 +323,58 @@ public static class SolarSystemSetup
 
         solar.Register(body);
         return body;
+    }
+
+    /// <summary>TAPPA 4 — SVEGLIA un sistema DORMIENTE: costruisce la sua stella + i suoi corpi (data-driven dalla
+    /// SystemRecipe), li registra nel SolarSystem e li posiziona al tempo corrente. Riusa BuildOrbitBody (stesso
+    /// percorso del sistema-casa) → renderer GPU + walker + mappa "gratis". Il limite di corpi vivi non c'è più
+    /// (region-stamp uint), quindi il sistema-casa può restare residente mentre un sistema distante si sveglia.</summary>
+    public static bool BuildSystem(SolarSystem solar, StarSystem sys, bool useQuadtree, bool useGpuSurface, int gpuSurfaceRes)
+    {
+        if (sys == null || sys.Recipe == null || sys.Recipe.Bodies == null || sys.Active) return false;
+        var rec = sys.Recipe;
+
+        // stella del sistema: corpo SENZA orbita, fissa al proprio SystemOrigin (frame del sistema nello spazio-galassia)
+        var starGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        starGo.name = rec.Name + "-Stella";
+        var starCol = starGo.GetComponent<Collider>(); if (starCol) Object.Destroy(starCol);
+        var star = starGo.AddComponent<CelestialBody>();
+        star.Radius = rec.StarRadius; star.SurfaceGravity = rec.StarGravity;
+        star.UniversePosition = rec.SystemOrigin;
+        starGo.transform.localScale = Vector3.one * (float)(star.Radius * 2);
+        var unlit = Shader.Find("Unlit/Color");
+        if (unlit != null) starGo.GetComponent<Renderer>().material = new Material(unlit) { color = rec.StarColor };
+        star.System = sys;
+        solar.Register(star);
+
+        var objs = new List<GameObject> { starGo };
+        var bodies = new List<CelestialBody>();
+        var byName = new Dictionary<string, CelestialBody>();
+        foreach (var def in rec.Bodies)
+        {
+            CelestialBody parent = !string.IsNullOrEmpty(def.ParentName) && byName.TryGetValue(def.ParentName, out var p) ? p : star;
+            var b = BuildOrbitBody(def, solar, parent, useQuadtree, useGpuSurface, gpuSurfaceRes);
+            if (b == null) continue;
+            b.System = sys; byName[def.Name] = b; bodies.Add(b); objs.Add(b.gameObject);
+        }
+        sys.Star = star; sys.StarTransform = starGo.transform; sys.Bodies = bodies; sys.SceneObjects = objs; sys.Active = true;
+
+        star.UpdatePosition(solar.SimTime);
+        foreach (var b in bodies) b.UpdatePosition(solar.SimTime);
+        Debug.Log($"[multi-sistema] svegliato '{rec.Name}' a SystemOrigin {rec.SystemOrigin} ({bodies.Count} corpi).");
+        return true;
+    }
+
+    /// <summary>TAPPA 4 — ADDORMENTA un sistema attivo: distrugge stella + corpi (i GpuPlanetRenderer.OnDestroy
+    /// rendono fette e BodyId al pool) e li toglie dal SolarSystem. Torna a sola DATO (Recipe + SystemOrigin).</summary>
+    public static void DestroySystem(SolarSystem solar, StarSystem sys)
+    {
+        if (sys == null || !sys.Active || sys.SceneObjects == null) return;
+        if (sys.Bodies != null) foreach (var b in sys.Bodies) if (b != null) solar.Unregister(b);
+        if (sys.Star != null) solar.Unregister(sys.Star);
+        foreach (var go in sys.SceneObjects) if (go != null) Object.Destroy(go);   // OnDestroy del renderer GPU restituisce fette+BodyId
+        Debug.Log($"[multi-sistema] addormentato '{sys.Name}'.");
+        sys.SceneObjects = null; sys.Bodies = null; sys.Star = null; sys.StarTransform = null; sys.Active = false;
     }
 
     /// <summary>Aggiunge la superficie renderizzata a un corpo roccioso. GERARCHIA DEI RENDERER (decisa — audit #2):

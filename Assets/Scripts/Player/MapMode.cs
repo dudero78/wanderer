@@ -55,6 +55,11 @@ public class MapMode : MonoBehaviour
     readonly List<CelestialBody> orbitBody = new List<CelestialBody>();
     CelestialBody selected;
 
+    // TAPPA 5 — MAPPA GALATTICA: billboard delle stelle dei sistemi DISTANTI (alla loro SystemOrigin). Compaiono
+    // quando zoomi oltre il sistema-casa; danno la "galassia da navigare". Niente corpi/fette: solo un disco unlit.
+    readonly List<GameObject> systemMarkers = new List<GameObject>();
+    readonly List<StarSystem> systemMarkerSys = new List<StarSystem>();
+
     // Camera ORBITALE della mappa: yaw/pitch (trascina col DESTRO), distanza (rotella), attorno a un FOCUS.
     // Il focus insegue il corpo SELEZIONATO (focusFollows, con smoothing) finché non PANni con WASD → si sgancia
     // e roami libero; la selezione successiva lo ri-aggancia. Click sinistro = seleziona.
@@ -155,6 +160,24 @@ public class MapMode : MonoBehaviour
             }
         }
 
+        // TAPPA 5 — billboard delle stelle dei sistemi DISTANTI (SystemOrigin != Zero): disco unlit del colore della
+        // stella. Niente collider (non sono bersagli di volo per ora): solo presentazione del livello galattico.
+        if (solar.Systems != null)
+            foreach (var s in solar.Systems)
+            {
+                if (s == null || s.SystemOrigin.sqrMagnitude < 1.0) continue;   // salta il sistema-casa (origine Zero)
+                var smk = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                smk.name = "System_" + s.Name;
+                var sc2 = smk.GetComponent<Collider>(); if (sc2 != null) Destroy(sc2);
+                if (markerShader != null)
+                {
+                    var m = new Material(markerShader); m.SetColor("_Color", s.StarColor);
+                    smk.GetComponent<MeshRenderer>().sharedMaterial = m;
+                }
+                smk.transform.SetParent(transform, false);
+                systemMarkers.Add(smk); systemMarkerSys.Add(s);
+            }
+
         // marker "TU SEI QUI": verde acceso, distinto dai corpi. Niente collider → non intercetta i
         // click (non è selezionabile) e non copre i corpi dietro di sé.
         playerMarker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -213,6 +236,17 @@ public class MapMode : MonoBehaviour
     /// <summary>Distanza di inquadratura iniziale: l'intero sistema entra in campo (come il vecchio overview).</summary>
     float DefaultDist() => SystemRadius() / Mathf.Tan(mapCam.fieldOfView * 0.5f * Mathf.Deg2Rad) * 1.25f;
 
+    /// <summary>TAPPA 5 — raggio GALATTICO: distanza-scena al sistema distante più lontano (0 se non ce ne sono).
+    /// Limita lo zoom-out al livello galattico così le stelle distanti entrano in campo senza perdersi nel vuoto.</summary>
+    float GalaxyRadius()
+    {
+        float r = 0f;
+        if (solar.Systems != null)
+            foreach (var s in solar.Systems)
+                if (s != null) r = Mathf.Max(r, (s.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3().magnitude);
+        return r;
+    }
+
     /// <summary>Punto attorno a cui orbita la camera: il corpo selezionato (così zoomi/ruoti su di lui) o il
     /// centro del sistema se niente è selezionato.</summary>
     Vector3 FocusTarget() => selected != null ? selected.transform.position : SystemCenter();
@@ -266,7 +300,10 @@ public class MapMode : MonoBehaviour
             // min: vicino al corpo selezionato (per ispezionarlo da presso) o una frazione del sistema; max: cappato
             // (oltre il sistema sparisce nel vuoto). Il far clip è dinamico → niente corpi che scompaiono in zoom-out.
             float minD = selected != null ? (float)selected.Radius * 1.6f : SystemRadius() * 0.04f;
-            mapDist = Mathf.Clamp(mapDist * Mathf.Pow(0.82f, sc), minD, SystemRadius() * 3f);
+            // TAPPA 5: lo zoom-out arriva al livello GALATTICO (le stelle distanti in campo), se la galassia ha più
+            // di un sistema; altrimenti resta al sistema-casa come prima.
+            float maxD = Mathf.Max(SystemRadius() * 3f, GalaxyRadius() * 1.4f);
+            mapDist = Mathf.Clamp(mapDist * Mathf.Pow(0.82f, sc), minD, maxD);
         }
     }
 
@@ -310,7 +347,7 @@ public class MapMode : MonoBehaviour
             // PIANI DI CLIP dinamici: in zoom-out i corpi (fino a ~SystemRadius dal focus) superavano il far clip
             // fisso (500k) → sparivano. Qui il far segue lo zoom; il near sale con la distanza (precisione di profondità).
             float sysR = SystemRadius();
-            mapCam.farClipPlane = mapDist + sysR * 4f;
+            mapCam.farClipPlane = mapDist + Mathf.Max(sysR * 4f, GalaxyRadius() * 1.2f);   // raggiunge le stelle distanti (Tappa 5)
             mapCam.nearClipPlane = Mathf.Clamp(mapDist * 0.001f, 0.5f, sysR);
             UpdateVisuals();
         }
@@ -432,6 +469,20 @@ public class MapMode : MonoBehaviour
             }
         }
 
+        // TAPPA 5 — stelle dei sistemi distanti: posizione = SystemOrigin - SceneOrigin (scena), scala screen-costante.
+        // Visibili solo a zoom GALATTICO (mapDist oltre ~2× il sistema-casa) per non affollare la vista locale.
+        bool galacticZoom = mapDist > SystemRadius() * 2f;
+        for (int i = 0; i < systemMarkers.Count; i++)
+        {
+            var smk = systemMarkers[i]; var s = systemMarkerSys[i];
+            if (smk == null || s == null) continue;
+            Vector3 sp = (s.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
+            smk.transform.position = sp;
+            float sz = Mathf.Max(Vector3.Distance(camPos, sp) * markerScreenSize * 1.6f, s.StarRadius);
+            smk.transform.localScale = Vector3.one * sz;
+            smk.SetActive(galacticZoom);
+        }
+
         for (int i = 0; i < orbits.Count; i++)
         {
             var b = orbitBody[i];
@@ -455,6 +506,7 @@ public class MapMode : MonoBehaviour
     void ShowVisuals(bool on)
     {
         for (int i = 0; i < markers.Count; i++) markers[i].SetActive(on);
+        for (int i = 0; i < systemMarkers.Count; i++) if (systemMarkers[i] != null) systemMarkers[i].SetActive(false);   // accesi solo a zoom galattico (UpdateVisuals)
         foreach (var px in proxies.Values) if (px != null) px.gameObject.SetActive(on);
         for (int i = 0; i < orbits.Count; i++) orbits[i].enabled = on;
         if (playerMarker != null) playerMarker.SetActive(on);
@@ -488,5 +540,16 @@ public class MapMode : MonoBehaviour
             if (sp.z > 0f)
                 GUI.Label(new Rect(sp.x - 100f * ui, Screen.height - sp.y - 10f * ui, 200f * ui, 20f * ui), "TU SEI QUI", hereStyle);
         }
+
+        // TAPPA 5 — etichette dei sistemi distanti (solo a zoom galattico, quando i loro billboard sono accesi)
+        if (hereStyle != null)
+            for (int i = 0; i < systemMarkers.Count; i++)
+            {
+                var smk = systemMarkers[i]; var s = systemMarkerSys[i];
+                if (smk == null || !smk.activeSelf || s == null) continue;
+                Vector3 ssp = mapCam.WorldToScreenPoint(smk.transform.position + mapCam.transform.up * (smk.transform.localScale.x * 0.9f));
+                if (ssp.z > 0f)
+                    GUI.Label(new Rect(ssp.x - 100f * ui, Screen.height - ssp.y - 10f * ui, 200f * ui, 20f * ui), s.Name, hereStyle);
+            }
     }
 }

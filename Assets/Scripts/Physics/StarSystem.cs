@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 
 /// <summary>
 /// Un SISTEMA STELLARE: contenitore-dato di una stella + i suoi corpi, con la sua posizione nello spazio-galassia.
@@ -21,4 +22,16 @@ public class StarSystem
     // Register continua a popolare quell'unica lista e nessun consumatore può vederne una versione divergente.
     public List<CelestialBody> Bodies;
     public bool Active;                             // un solo sistema Active per volta (con N=1 sempre true)
+
+    // --- Tappa 3+: dati per costruire/distruggere il sistema su richiesta (sleep/wake interstellare) ---
+    // Recipe: la composizione del sistema (stella + corpi) come DATO → BuildSystem la sa costruire (Tappa 4). I sistemi
+    // DORMIENTI esistono solo come (Name + SystemOrigin + Recipe + colore stella per la mappa), zero corpi/fette/BodyId.
+    public SolarSystemSetup.SystemRecipe Recipe;
+    public Color StarColor = new Color(1f, 0.88f, 0.55f);   // per il billboard nella mappa galattica (Tappa 5)
+    public float StarRadius = 2000f;
+    // GameObject creati quando il sistema è ATTIVO (stella + corpi): si distruggono alla retrocessione (Tappa 4).
+    // null quando dormiente. La stella vive qui (NON è in Bodies del SolarSystem se dormiente).
+    public System.Collections.Generic.List<GameObject> SceneObjects;
+    public Transform StarTransform;                 // per SunLight.Retarget alla promozione
+    public double WakeRadius = 400000;              // distanza-galassia entro cui il sistema si SVEGLIA (isteresi ×1.4 per dormire)
 }

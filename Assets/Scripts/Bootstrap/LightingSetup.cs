@@ -9,7 +9,7 @@ using UnityEngine;
 /// </summary>
 public static class LightingSetup
 {
-    public static void Setup(GameObject host, SolarSystem solar, Transform star, Transform planet)
+    public static EclipseDriver Setup(GameObject host, SolarSystem solar, Transform star, Transform planet)
     {
         // --- Luce stellare (direzionale) ---
         var lightGo = new GameObject("SunLight");
@@ -29,5 +29,6 @@ public static class LightingSetup
         // sarà lo scattering a rialzare la luce sul lato in ombra.
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.05f, 0.054f, 0.065f);
+        return eclipse;   // serve a GameBootstrap per il Rebuild allo switch di sistema (Tappa 4)
     }
 }

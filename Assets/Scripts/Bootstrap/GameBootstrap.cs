@@ -30,6 +30,10 @@ public class GameBootstrap : MonoBehaviour
            + "(blob 'sciolti' / spuntoni) sui crateri densi a bassa quota.")]
     public bool useGeomorph = true;
 
+    [Tooltip("PBR per PENDENZA (GPU-4): roccia esposta sui versanti ripidi (bordi/pareti dei crateri) + speculare "
+           + "GGX leggero del suolo. Look SC/ED. Spegnilo per A/B o se preferisci il suolo puramente Lambert.")]
+    public bool usePbrTerrain = true;
+
     [Tooltip("OVERDRAW: interno Cull Back + skirt Cull Off in 2 draw (due materiali) → dimezza l'ombreggiatura "
            + "per-pixel del terreno. Se l'INTERNO del pianeta SPARISCE accendendolo, metti interiorCull=1 (Front).")]
     public bool useCullSplit = true;
@@ -75,6 +79,7 @@ public class GameBootstrap : MonoBehaviour
         //     spawn del giocatore → illuminazione → interfaccia. Aggiungere/cambiare un pezzo = nel suo Setup, non qui. ---
         GpuPlanetRenderer.UseBatchFill = useBatchFill;   // PRIMA della Build: la verifica gira nel Setup di ogni corpo
         GpuPlanetRenderer.UseGeomorph = useGeomorph;     // A/B per isolare gli artefatti di geometria
+        GpuPlanetRenderer.UsePbrTerrain = usePbrTerrain; // PBR per pendenza + GGX (GPU-4), A/B
         GpuPlanetRenderer.CullSplit = useCullSplit;      // overdraw: interno Cull Back + skirt Cull Off (2 materiali)
         GpuPlanetRenderer.InteriorCull = interiorCull;
         GpuPlanetRenderer.DebugView = debugView;          // diagnosi superficie (poi pilotabile live dal menu à)
@@ -82,7 +87,29 @@ public class GameBootstrap : MonoBehaviour
         PlanetRecipe.DebugDisableTypes = debugDisablePipelines;   // diagnosi: salta tipi di pipeline (build-time, GPU+CPU)
         var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody);
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);
-        LightingSetup.Setup(gameObject, solar, sys.StarTransform, sys.HomePlanetGo.transform);
+        var eclipse = LightingSetup.Setup(gameObject, solar, sys.StarTransform, sys.HomePlanetGo.transform);
         UiSetup.Setup(gameObject, solar, rig, sys);
+
+        // TAPPA 4 multi-sistema: cabla sveglia/sonno dei sistemi DISTANTI (SolarSystem decide il QUANDO per
+        // prossimità; qui il COSA: costruisci/distruggi i corpi + ri-punta la luce alla stella giusta + ricostruisci
+        // le eclissi sui nuovi corpi). Il sistema-casa resta residente. Identico a prima finché resti nel sistema-casa.
+        Transform homeStar = sys.StarTransform; Transform homePlanet = sys.HomePlanetGo.transform;
+        solar.WakeSystem = s =>
+        {
+            bool ok = SolarSystemSetup.BuildSystem(solar, s, useQuadtree, useGpuSurface, gpuSurfaceRes);
+            if (ok)
+            {
+                if (SunLight.Instance != null && s.StarTransform != null && s.Bodies != null && s.Bodies.Count > 0)
+                    SunLight.Instance.Retarget(s.StarTransform, s.Bodies[0].transform);
+                eclipse?.Rebuild();
+            }
+            return ok;
+        };
+        solar.SleepSystem = s =>
+        {
+            SolarSystemSetup.DestroySystem(solar, s);
+            if (SunLight.Instance != null) SunLight.Instance.Retarget(homeStar, homePlanet);   // la luce torna al sistema-casa
+            eclipse?.Rebuild();
+        };
     }
 }
