@@ -323,8 +323,10 @@ public class RouteIndicator : MonoBehaviour
 
         if (onScreen)
         {
-            DrawTex(triTex, g, 22f * ui, 22f * ui, 0f, pcol);
-            Shadowed(new Rect(g.x - 90f * ui, g.y + 14f * ui, 180f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.UpperCenter);
+            // marker SOPRA la sonda (non sovrapposto): triangolo apice in GIÙ che la indica, etichetta sopra di esso.
+            Vector2 mk = new Vector2(g.x, g.y - 40f * ui);
+            DrawTex(triTex, mk, 20f * ui, 20f * ui, 180f, pcol);   // 180° → apice verso il basso, punta la sonda
+            Shadowed(new Rect(mk.x - 90f * ui, mk.y - 22f * ui, 180f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.LowerCenter);
         }
         else
         {
