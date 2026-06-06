@@ -109,11 +109,16 @@ public class SettingsMenu : MonoBehaviour
         for (int i = 0; i < tabs.Count; i++) tabNames[i] = tabs[i].name;
     }
 
+    public bool IsOpen => open;
+    public void Open() { SetOpen(true); }
+    public void Close() { SetOpen(false); }
+
     void Update()
     {
-        // toggle con à (inputString cattura il carattere a prescindere dal layout fisico). Esc chiude se aperta.
+        // toggle con à (inputString cattura il carattere a prescindere dal layout fisico). Esc chiude SE il menu di
+        // pausa è SPENTO (altrimenti l'ESC lo gestisce il PauseMenu, che chiude le impostazioni → niente doppio handling).
         bool toggleKey = Input.inputString.Contains("à") || Input.inputString.Contains("À");
-        if (toggleKey || (open && Input.GetKeyDown(KeyCode.Escape)))
+        if (toggleKey || (!PauseMenu.Enabled && open && Input.GetKeyDown(KeyCode.Escape)))
             SetOpen(!open);
     }
 

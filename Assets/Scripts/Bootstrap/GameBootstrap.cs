@@ -48,6 +48,10 @@ public class GameBootstrap : MonoBehaviour
            + "difetto è geometria/ricetta (dentro un colore-fetta) o struttura del LOD (sui bordi/livelli).")]
     public int debugView = 0;
 
+    [Tooltip("Menu di PAUSA con ESC (Riprendi/Opzioni/Comandi/Esci). Se OFF, ESC non apre nulla (come prima: "
+           + "libera solo il cursore).")]
+    public bool enablePauseMenu = true;
+
     [Tooltip("DIAGNOSI ricetta (build-time): salta interi TIPI di pipeline per scoprire chi genera un difetto. "
            + "Bitmask: 1=Crateri, 2=Mare, 4=Tettonica (somma per più di uno; es. 5 = niente crateri+tettonica). "
            + "0 = tutte attive. Salta sia su GPU che sul walker → la parità resta verde. Cambialo e ri-premi Play.")]
@@ -69,6 +73,17 @@ public class GameBootstrap : MonoBehaviour
         // quanto il pitch, anche quando il rendering scende a 30.
         Time.fixedDeltaTime = 1f / 60f;
 
+        // SCHERMATA DI CARICAMENTO: appare subito; la costruzione gira in COROUTINE, così la schermata si vede prima
+        // del lavoro pesante e resta un minimo (i messaggi buffi scorrono, lo spinner gira).
+        var loading = new GameObject("LoadingScreen").AddComponent<LoadingScreen>();
+        StartCoroutine(Boot(loading));
+    }
+
+    System.Collections.IEnumerator Boot(LoadingScreen loading)
+    {
+        float bootT0 = Time.realtimeSinceStartup;
+        yield return null; yield return null;   // 2 frame: la schermata appare e gira PRIMA del build pesante (bloccante)
+
         var solar = gameObject.AddComponent<SolarSystem>();
         // 1 = ritmo di gioco. La velocità orbitale del pianeta (~628 m/s) è già quella che il freno X
         // deve domare per sincronizzarti con un corpo: accelerare il tempo la gonfia e rende il match
@@ -85,7 +100,9 @@ public class GameBootstrap : MonoBehaviour
         GpuPlanetRenderer.DebugView = debugView;          // diagnosi superficie (poi pilotabile live dal menu à)
         GpuPlanetRenderer.SuppressDraw = false;           // la mappa lo mette true: con domain-reload OFF sopravvivrebbe fra le sessioni Play → pianeta GPU muto. Azzera all'avvio scena
         PlanetRecipe.DebugDisableTypes = debugDisablePipelines;   // diagnosi: salta tipi di pipeline (build-time, GPU+CPU)
+        PauseMenu.Enabled = enablePauseMenu;                      // menu ESC (debug: off = ESC come prima)
         var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody);
+        yield return null;
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);
         var eclipse = LightingSetup.Setup(gameObject, solar, sys.StarTransform, sys.HomePlanetGo.transform);
         UiSetup.Setup(gameObject, solar, rig, sys);
@@ -111,5 +128,10 @@ public class GameBootstrap : MonoBehaviour
             if (SunLight.Instance != null) SunLight.Instance.Retarget(homeStar, homePlanet);   // la luce torna al sistema-casa
             eclipse?.Rebuild();
         };
+
+        yield return null;
+        // tieni la schermata un minimo (i messaggi scorrono, niente "flash"), poi dissolvi.
+        while (Time.realtimeSinceStartup - bootT0 < 2.5f) yield return null;
+        loading.Done();
     }
 }

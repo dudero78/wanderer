@@ -78,6 +78,13 @@ public class DebugHud : MonoBehaviour
                 "TUTA EQUIPAGGIATA — tieni premuto Space per volare", banner);
         }
 
+        // HINT transitorio (es. perché l'autopilota non aggancia): centrato, in basso.
+        if (walker != null && !string.IsNullOrEmpty(walker.ActionHint) && Time.unscaledTime < walker.ActionHintUntil)
+        {
+            banner.fontSize = Mathf.RoundToInt(20f * ui);
+            GUI.Label(new Rect(0, Screen.height * 0.62f, Screen.width, 40f * ui), walker.ActionHint, banner);
+        }
+
         // arrivato a destinazione: l'autopilota tiene la stazione, avvisa che un comando riprende il controllo.
         if (walker != null && walker.AutoHolding)
         {
@@ -105,10 +112,11 @@ public class DebugHud : MonoBehaviour
         double sceneOrigin = FloatingOrigin.SceneOrigin.magnitude;
         float starDist = star != null ? star.transform.position.magnitude : 0f;
 
+        // HUD: solo gli ESSENZIALI (l'elenco completo è in ESC → Comandi).
         bool jetpack = walker != null && walker.HasJetpack;
         string controls = jetpack
-            ? "A terra: WASD cammina.  In volo: WASD spinge · Space sale · Shift scende · Q/E rollio · N cambia volo · X freno · T autopilota.  F torcia · M mappa · O orbite · à impostazioni · Mouse guarda · Esc cursore"
-            : "WASD muovi  ·  Space salta  ·  Mouse guarda  ·  Esc libera il cursore";
+            ? "WASD/Space/Shift vola  ·  X freno  ·  T autopilota  ·  M mappa  ·  ESC menu"
+            : "WASD muovi  ·  Space salta  ·  Mouse guarda  ·  ESC menu";
 
         // velocità/radiale relative al RIFERIMENTO: "ti avvicini" parla del corpo verso cui viaggi.
         float spd = walker != null ? walker.Speed : 0f;

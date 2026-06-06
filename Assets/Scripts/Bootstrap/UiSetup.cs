@@ -30,6 +30,10 @@ public static class UiSetup
         var settings = host.AddComponent<SettingsMenu>();
         settings.Init(rig.Walker, rig.Cam);
 
+        // Menu di PAUSA (ESC): Riprendi/Opzioni/Comandi/Esci. Disattivabile da debug (PauseMenu.Enabled).
+        var pause = host.AddComponent<PauseMenu>();
+        pause.Init(rig.Walker, settings, map);
+
         // Sonda alla Outer Wilds (P lancia · V guarda attraverso · K richiama · G foto): oggetto fisico veloce con
         // gravità sommata + collisione analitica, registrato in Loose + ExtraViewpoints (il renderer le dà dettaglio).
         var probe = host.AddComponent<ProbeController>();

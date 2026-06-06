@@ -77,6 +77,8 @@ public class PlanetWalker : MonoBehaviour
     public float Boost01 => boost01;   // 0 = manovra, 1 = crociera piena (per l'HUD)
     public float ThrustSpool01 => thrustSpool01;   // regime motori newtoniani 0..1 (per l'HUD)
     public bool Braking { get; private set; }         // freno di assetto attivo (per l'HUD)
+    [System.NonSerialized] public string ActionHint;        // messaggio HUD transitorio (es. perché l'autopilota non aggancia)
+    [System.NonSerialized] public float ActionHintUntil;    // Time.unscaledTime fino a cui mostrare ActionHint
     public bool Autopilot { get; private set; }        // autopilota inserito (toggle T): vola da solo verso la destinazione
     public bool AutoHolding { get; private set; }       // arrivato: tiene la stazione (hover) finché non dai un comando
     public bool SoftStopping { get; private set; }      // hai interrotto l'autopilota: auto-freno fino a v≈0, poi molla
@@ -130,6 +132,15 @@ public class PlanetWalker : MonoBehaviour
             AutoHolding = false;
             if (Autopilot) { Model = FlightModel.Newtonian; autoTransitTime = 0f; autoLastTarget = null; autoAligned = false; SoftStopping = false; }
             else if (wasAuto) SoftStopping = GameSettings.AutopilotSoftStop;   // interrotto a mano → frena fino a v≈0 (se l'opzione è ON)
+            // DIAGNOSI (compare anche nel Player.log della BUILD): perché T non aggancia? Requisiti: destinazione
+            // selezionata sulla mappa (M) + essere IN VOLO (altitudine > soglia di decollo). Mostra anche un hint a schermo.
+            if (!Autopilot && !wasAuto)
+            {
+                ActionHint = dest == null ? "Autopilota: seleziona una destinazione sulla mappa (M)"
+                                          : (Altitude <= 3f ? "Autopilota: decolla prima (tieni Space)" : "Autopilota non disponibile ora");
+                ActionHintUntil = Time.unscaledTime + 3f;
+                Debug.Log($"[autopilota] T: HasJetpack={HasJetpack} dest={(dest != null ? dest.name : "null")} altitudine={Altitude:F1} modello={Model} → non agganciato");
+            }
         }
 
         // ARRIVATO → l'autopilota TIENE LA STAZIONE (hover) finché non dai un comando: a quel punto molla e
@@ -160,7 +171,8 @@ public class PlanetWalker : MonoBehaviour
             if (cameraPivot) cameraPivot.localRotation = Quaternion.Euler(pitch, 0f, 0f);
         }
 
-        if (Input.GetKeyDown(KeyCode.Escape)) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+        // ESC libera il cursore SOLO se il menu di pausa è SPENTO (debug): se acceso, l'ESC lo gestisce il PauseMenu.
+        if (!PauseMenu.Enabled && Input.GetKeyDown(KeyCode.Escape)) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         if (Input.GetMouseButtonDown(0)) { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
 
         // N commuta il modello di volo (solo con la tuta: senza non si vola). Disinserisce l'autopilota:
