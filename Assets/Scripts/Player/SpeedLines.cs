@@ -44,40 +44,24 @@ public class SpeedLines : MonoBehaviour
         Vector3 vd = walker.Velocity.sqrMagnitude > 1f ? walker.Velocity.normalized : cam.transform.forward;
         float facing = Vector3.Dot(cam.transform.forward, vd);
 
-        // DUE passate PESATE che si fondono → nessun "buco" a 90°. AVANTI: le righe emanano dal PROGRADE (dove vai).
-        // INDIETRO: convergono verso il RETROGRADE (dove eri). A 90° entrambe ~0.5 → si sovrappongono, sempre visibili.
-        float wF = Mathf.SmoothStep(-0.45f, 0.45f, facing);   // peso passata "avanti"
-        Vector2 pro = ProjectVanish(vd, screenC);              // prograde a schermo (o centro se dietro)
-        Vector2 retro = ProjectVanish(-vd, screenC);           // retrograde a schermo
+        // UNA SOLA passata (com'era — pulita). AVANTI: le righe EMANANO dal prograde; INDIETRO: CONVERGONO verso il
+        // retrograde (davanti a te). Vicino a 90° il punto di fuga schizza al bordo (buco nero): lo riporto verso il
+        // CENTRO schermo man mano che |facing|→0 → le righe riempiono lo schermo e le due animazioni si toccano (no gap).
+        bool inward = facing < 0f;
+        Vector2 vanish = ProjectVanish(inward ? -vd : vd, screenC);
+        float gap = 1f - Mathf.Clamp01(Mathf.Abs(facing) / 0.5f);   // 1 a 90°, 0 oltre ±30°
+        Vector2 center = Vector2.Lerp(vanish, screenC, gap);
 
         float maxR = Mathf.Sqrt((float)Screen.width * Screen.width + (float)Screen.height * Screen.height);
         float innerFrac = Mathf.Lerp(0.5f, 0.04f, intensity);
         float baseLen = Mathf.Lerp(40f, 190f, intensity) + 120f * hot;
         float thick = (2.4f + 3.2f * hot) * ui;
         float t = Time.unscaledTime;
-
-        DrawPass(pro, false, intensity * wF, innerFrac, baseLen, thick, maxR, t, ui);          // avanti: emana
-        DrawPass(retro, true, intensity * (1f - wF), innerFrac, baseLen, thick, maxR, t, ui);   // indietro: converge
-    }
-
-    // Proietta una direzione-mondo (da camPos) in coordinate GUI; se è dietro la camera, ripiega sul centro schermo.
-    Vector2 ProjectVanish(Vector3 dir, Vector2 fallback)
-    {
-        Vector3 sp = cam.WorldToScreenPoint(cam.transform.position + dir * 1000f);
-        if (sp.z <= 0f) return fallback;
-        float sx = cam.pixelWidth > 0 ? sp.x * Screen.width / cam.pixelWidth : sp.x;
-        float sy = cam.pixelHeight > 0 ? sp.y * Screen.height / cam.pixelHeight : sp.y;
-        return new Vector2(sx, Screen.height - sy);
-    }
-
-    void DrawPass(Vector2 center, bool inward, float intensity, float innerFrac, float baseLen, float thick, float maxR, float t, float ui)
-    {
-        if (intensity <= 0.01f) return;
         Matrix4x4 m0 = GUI.matrix;
         Color prev = GUI.color;
         for (int i = 0; i < N; i++)
         {
-            float phase = Mathf.Repeat(t * Rate + off[i] + (inward ? 0.5f : 0f), 1f);   // sfasate → le due passate si interlacciano
+            float phase = Mathf.Repeat(t * Rate + off[i], 1f);
             float r = inward ? Mathf.Lerp(maxR * 1.05f, maxR * innerFrac, phase)
                              : Mathf.Lerp(maxR * innerFrac, maxR * 1.05f, phase);
             float len = baseLen * (0.35f + phase) * ui;
@@ -91,5 +75,15 @@ public class SpeedLines : MonoBehaviour
             GUI.DrawTexture(new Rect(p.x - len * 0.5f, p.y - thick * 0.5f, len, thick), tex);
         }
         GUI.matrix = m0; GUI.color = prev;
+    }
+
+    // Proietta una direzione-mondo (da camPos) in coordinate GUI; se è dietro la camera, ripiega sul centro schermo.
+    Vector2 ProjectVanish(Vector3 dir, Vector2 fallback)
+    {
+        Vector3 sp = cam.WorldToScreenPoint(cam.transform.position + dir * 1000f);
+        if (sp.z <= 0f) return fallback;
+        float sx = cam.pixelWidth > 0 ? sp.x * Screen.width / cam.pixelWidth : sp.x;
+        float sy = cam.pixelHeight > 0 ? sp.y * Screen.height / cam.pixelHeight : sp.y;
+        return new Vector2(sx, Screen.height - sy);
     }
 }

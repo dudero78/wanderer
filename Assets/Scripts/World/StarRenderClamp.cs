@@ -40,7 +40,9 @@ public class StarRenderClamp : MonoBehaviour
         else
         {
             transform.position = main.transform.position + toStar / dist * clampDist;
-            transform.localScale = Vector3.one * (baseScale * clampDist / dist);   // dimensione apparente invariata
+            // dimensione apparente invariata, ma con un MINIMO → a distanze enormi resta un PUNTO visibile (non sparisce nel sub-pixel).
+            float scale = Mathf.Max(baseScale * clampDist / dist, clampDist * 0.01f);
+            transform.localScale = Vector3.one * scale;
         }
     }
 }

@@ -358,11 +358,12 @@ public class MapMode : MonoBehaviour
             float oldD = mapDist;
             mapDist = Mathf.Clamp(mapDist * Mathf.Pow(0.82f, sc), minD, maxD);
 
-            // ZOOM VERSO IL CURSORE: prendi il punto sotto il mouse sul piano che passa per il focus (perpendicolare
-            // alla vista) e sposta il focus verso di lui in proporzione al cambio di zoom → zoommi dove indichi.
+            // ZOOM VERSO IL CURSORE: punto sotto il mouse sul piano per il focus, sposto il focus verso di lui in
+            // proporzione al cambio di zoom. GUARDIA: col cursore ai bordi il raggio è quasi PARALLELO al piano →
+            // ent enorme → il focus schizzava lontano e poi la mappa "rimbalzava" (il glitch). Applico solo se ent è sano.
             var ray = mapCam.ScreenPointToRay(Input.mousePosition);
             var plane = new Plane(-mapCam.transform.forward, focusPos);
-            if (plane.Raycast(ray, out float ent))
+            if (plane.Raycast(ray, out float ent) && ent > 0f && ent < mapDist * 3f)
             {
                 Vector3 hit = ray.GetPoint(ent);
                 focusPos = hit + (focusPos - hit) * (mapDist / Mathf.Max(oldD, 1e-4f));
