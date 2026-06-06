@@ -38,6 +38,17 @@ public class GameBootstrap : MonoBehaviour
     [Tooltip("DEBUG/test: nasci su questo corpo invece che sul pianeta-casa (es. \"terra-test3\"). Vuoto = pianeta-casa.")]
     public string spawnOnBody = "Valentina2";
 
+    [Header("Diagnosi superficie (anche live dal menu à in gioco)")]
+    [Tooltip("Colorazione di debug del terreno: 0=off · 1=posizione radiale (geometria pura) · 2=normale di mondo "
+           + "(shading) · 3=livello di LOD · 4=faccia del cubo · 5=fetta (ogni slab un colore). Serve a capire se un "
+           + "difetto è geometria/ricetta (dentro un colore-fetta) o struttura del LOD (sui bordi/livelli).")]
+    public int debugView = 0;
+
+    [Tooltip("DIAGNOSI ricetta (build-time): salta interi TIPI di pipeline per scoprire chi genera un difetto. "
+           + "Bitmask: 1=Crateri, 2=Mare, 4=Tettonica (somma per più di uno; es. 5 = niente crateri+tettonica). "
+           + "0 = tutte attive. Salta sia su GPU che sul walker → la parità resta verde. Cambialo e ri-premi Play.")]
+    public int debugDisablePipelines = 0;
+
     void Start()
     {
         // impostazioni di gioco (facilitazioni opzionali, regolabili dal menù à) lette da PlayerPrefs.
@@ -66,6 +77,8 @@ public class GameBootstrap : MonoBehaviour
         GpuPlanetRenderer.UseGeomorph = useGeomorph;     // A/B per isolare gli artefatti di geometria
         GpuPlanetRenderer.CullSplit = useCullSplit;      // overdraw: interno Cull Back + skirt Cull Off (2 materiali)
         GpuPlanetRenderer.InteriorCull = interiorCull;
+        GpuPlanetRenderer.DebugView = debugView;          // diagnosi superficie (poi pilotabile live dal menu à)
+        PlanetRecipe.DebugDisableTypes = debugDisablePipelines;   // diagnosi: salta tipi di pipeline (build-time, GPU+CPU)
         var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody);
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);
         LightingSetup.Setup(gameObject, solar, sys.StarTransform, sys.HomePlanetGo.transform);

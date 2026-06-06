@@ -63,7 +63,7 @@ public class GpuShapeBuffers : System.IDisposable
 
             foreach (var p in rec.processes)
             {
-                if (p == null || !p.enabled) continue;
+                if (p == null || !p.enabled || PlanetRecipe.TypeDisabled(p.type)) continue;   // diagnosi: salta tipo disabilitato
                 if (p.type == ProcessType.Crateri)
                 {
                     procs.Add(new ProcessGPU { type = 0, index = craters.Count });

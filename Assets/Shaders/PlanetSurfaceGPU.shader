@@ -68,6 +68,9 @@ Shader "Wanderer/PlanetSurfaceGPU"
             #pragma vertex vert
             #pragma fragment frag
             #pragma target 4.5          // StructuredBuffer + SV_InstanceID nel vertex shader (Metal lo regge)
+            // VISTE DEBUG isolate: in gioco (keyword OFF) tutto il codice di diagnosi è STRIPPATO dalla variante →
+            // costo ZERO. La C# accende PLANET_DEBUG_VIEW solo quando DebugView>0 (cambia la variante on-demand).
+            #pragma multi_compile _ PLANET_DEBUG_VIEW
             #include "UnityCG.cginc"
             #include "PlanetProceduralShade.cginc"
 
@@ -118,6 +121,9 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 float3 wp  : TEXCOORD4;   // posizione MONDO (per il vettore vista del glint)
                 float  baseN : TEXCOORD5; // ondulazione di base per-vertice (interpolata → niente rumore per-pixel)
                 float  seaSurf : TEXCOORD6; // quota del pelo del mare per-vertice (maschera esatta)
+            #ifdef PLANET_DEBUG_VIEW
+                float3 dbg : TEXCOORD7;   // DIAGNOSI (solo variante debug): colore per-istanza (livello/faccia/fetta)
+            #endif
             };
 
             v2f vert(uint vid : SV_VertexID, uint iid : SV_InstanceID)
@@ -148,18 +154,22 @@ Shader "Wanderer/PlanetSurfaceGPU"
                     // per gli skirt il delta è quello del vertice di BORDO (pRef = posizione del bordo, non dello skirt)
                     float3 pRef = (vid < interior) ? p : GeoLoadPos(slabBase + (uint)(i + j * (int)_NN));
                     float3 delta = GeoMorphDelta(slabBase, i, j, pRef);
+                    // CLAMP di sicurezza: lo spostamento non può superare la SCALA del nodo (anti-spuntone su vicino anomalo).
                     float splitDist = _SplitDistOfInstance[iid];
+                    float dl = length(delta);
+                    if (splitDist > 0.0 && dl > splitDist) delta *= splitDist / dl;
+                    // MORPH CDLOD CONTINUO (la sola cosa che chiude le cuciture, senza skirt né stitch): il fattore mf è una
+                    // funzione CONTINUA della distanza, uguale per tutte le foglie dello stesso livello → due foglie vicine
+                    // alla stessa distanza calcolano lo STESSO mf e combaciano per costruzione. Completa quando il nodo si
+                    // FONDE nel genitore (≈2·splitDist): a quel confine la foglia è sulla forma del genitore (mf=1) e il
+                    // vicino più grosso, lì appena comparso a pieno dettaglio, È quella stessa forma → niente crepa. Richiede
+                    // confini di LOD NETTI (mergeHysteresis=1, lato CPU): senza banda morta il mf combacia esatto.
                     if (splitDist > 0.0)
                     {
-                        // CLAMP di sicurezza: lo spostamento di morph non può superare la SCALA del nodo (splitDist).
-                        // Sul morph normale delta è piccolissimo (curvatura locale ≪ splitDist) → nessun effetto; ma
-                        // se per qualunque ragione un vicino fosse anomalo, il vertice NON può schizzare via e
-                        // ribaltare il triangolo in uno spuntone. Rete di sicurezza, non cambia la transizione liscia.
-                        float dl = length(delta);
-                        if (dl > splitDist) delta *= splitDist / dl;
                         float3 w0 = mul(_ObjectToWorld, float4(p, 1.0)).xyz;
                         float d = distance(w0, _CamPosWorld);
-                        float mf = saturate((d - splitDist * (1.0 - _MorphRange)) / (splitDist * _MorphRange));
+                        float mergeDist = splitDist * 2.0;
+                        float mf = saturate((d - mergeDist * (1.0 - _MorphRange)) / (mergeDist * _MorphRange));
                         p += delta * mf;
                     }
                 }
@@ -193,17 +203,48 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 o.depth = _VDepth[g];
                 o.baseN = _VField[g];
                 o.seaSurf = _VSurf[g];
+            #ifdef PLANET_DEBUG_VIEW
+                // DIAGNOSI per-istanza (mostrata nel frag come colore piatto). Modalità in _DebugView:
+                //   3 = LIVELLO di LOD (da splitDist)  ·  4 = FACCIA del cubo  ·  5 = FETTA (hash dell'indice)
+                o.dbg = float3(0.0, 0.0, 0.0);
+                if (_DebugView > 4.5)        // 5: ogni fetta un colore (vedi bordi di fetta + dimensioni)
+                {
+                    uint si = _SlabOfInstance[iid];
+                    uint hh = si * 2654435761u; hh ^= hh >> 15; hh *= 2246822519u; hh ^= hh >> 13;
+                    o.dbg = float3((hh & 255u) / 255.0, ((hh >> 8) & 255u) / 255.0, ((hh >> 16) & 255u) / 255.0);
+                }
+                else if (_DebugView > 3.5)   // 4: colore per faccia del cubo (cuciture fra facce)
+                {
+                    float3 cd = _DirOfInstance[iid].xyz; float3 ad = abs(cd);
+                    float fidx = (ad.x >= ad.y && ad.x >= ad.z) ? (cd.x > 0.0 ? 0.0 : 1.0)
+                               : (ad.y >= ad.z)                 ? (cd.y > 0.0 ? 2.0 : 3.0)
+                                                                : (cd.z > 0.0 ? 4.0 : 5.0);
+                    o.dbg = frac(fidx * float3(0.37, 0.61, 0.83) + 0.13);
+                }
+                else if (_DebugView > 2.5)   // 3: colore per livello di LOD (transizioni di livello)
+                {
+                    o.dbg = frac(log2(max(_SplitDistOfInstance[iid], 1e-3)) * float3(0.37, 0.61, 0.83) + 0.5);
+                }
+            #endif
                 return o;
             }
 
             fixed4 frag(v2f IN) : SV_Target
             {
-                // DIAGNOSI. 2 = NORMALE di mondo (ciò che la luce consuma): rainbow liscio = normali OK → il bug è
-                // il sole; nero/uniforme/garbage = normali rotte. 1 = posizione radiale (geometria, già confermata OK).
+            #ifdef PLANET_DEBUG_VIEW
+                // DIAGNOSI (solo variante debug, strippata in gioco). _DebugView: 1=posizione radiale (geometria) ·
+                // 2=normale di mondo (shading) · 3=livello LOD · 4=faccia del cubo · 5=fetta. Le 3/4/5 usano o.dbg
+                // (per-istanza) × luce semplice; un taglio DENTRO lo stesso colore-fetta = feature della geometria.
+                if (_DebugView > 2.5)
+                {
+                    float lit = 0.35 + 0.65 * saturate(dot(normalize(IN.nrm), _SunDir));
+                    return fixed4(IN.dbg * lit, 1);
+                }
                 if (_DebugView > 1.5)
                     return fixed4(normalize(IN.nrm) * 0.5 + 0.5, 1);
                 if (_DebugView > 0.5)
                     return fixed4(normalize(IN.lp) * 0.5 + 0.5, 1);
+            #endif
 
                 // ANTI-ALIASING della normale (mipmap ANALITICO): da lontano il corpo è piccolo e il rilievo dei
                 // crateri cade sotto il pixel → la normale "scintilla" (sale e pepe). fwidth(N) misura quanto la

@@ -356,7 +356,13 @@ float CraterApply(CraterGPU c, float3 unitDir, float baseRadius)
             }
             else
             {
-                float radOff = abs(cm - 1.0) / CR_SHELL_HALF;
+                // GUARDIA ANTI-TAGLIO: il guscio deve STARE DENTRO la finestra ±2 celle. Per le ottave fini
+                // (gscale grande) CR_SHELL_HALF=0.6 sfora la finestra → un cratere-duplicato sfasato in radiale,
+                // alla stessa direzione (= al suo centro, scavo pieno), ha peso non-nullo sul bordo finestra e
+                // POPPA quando il campione si muove → gradino = taglio. Limitando il guscio a ~1.7 celle il peso
+                // arriva a 0 PRIMA del bordo → niente pop. Ottave grosse: 1.7/gscale>0.6 → invariate. Identico al C#.
+                float shellHalf = min(CR_SHELL_HALF, 1.7 / gscale);
+                float radOff = abs(cm - 1.0) / shellHalf;
                 if (radOff >= 1.0) continue;
                 weight = Smooth01(1.0 - radOff);
             }
@@ -445,7 +451,11 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
             if (mtn > 0.001)
             {
                 float ridge = Ridged(unitDir * 3.0, 4, 2.0, 0.5, seed + 821);
-                elev += t.continentalRelief * contW * mtn * (ridge - 0.30) * 1.8;
+                // GUARDIA C0 (anti-taglio): sfuma il termine A ZERO sulle soglie di skip (contW=0.01, mtn=0.001)
+                // invece di accenderlo a un valore non-nullo (~0.2m) → niente gradino di quota lungo la linea-contorno
+                // (era il "taglio" sottile). Smooth01 ha pendenza 0 ai bordi → C1. Identico al C# per la parità.
+                float w = Smooth01(saturate((contW - 0.01) / 0.05)) * Smooth01(saturate((mtn - 0.001) / 0.009));
+                elev += t.continentalRelief * contW * mtn * (ridge - 0.30) * 1.8 * w;
             }
         }
     }
@@ -472,7 +482,10 @@ float TectonicApply(TectonicGPU t, float3 unitDir)
             bool rift = conv < 0.0;
             float convEff = rift ? conv * t.riftBalance : conv;
             float rg = rift ? (0.70 + 0.30 * rough) : (0.45 + 0.55 * rough);
-            float profile = boundary * gate * (0.30 + 0.70 * along) * rg;
+            // GUARDIA C0 (anti-taglio): sfuma a zero sulla soglia di skip (boundary·gate=0.001) → niente gradino
+            // al margine della catena/rift. Identico al C# per la parità.
+            float w = Smooth01(saturate((boundary * gate - 0.001) / 0.009));
+            float profile = boundary * gate * (0.30 + 0.70 * along) * rg * w;
             elev += t.uplift * profile * convEff;
         }
     }

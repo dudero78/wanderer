@@ -16,6 +16,12 @@ using UnityEngine;
 [System.Serializable]
 public class PlanetRecipe
 {
+    // DIAGNOSI (build-time, da GameBootstrap): salta interi TIPI di pipeline per isolare chi genera un artefatto.
+    // Bitmask: bit0=Crateri, bit1=Mare, bit2=Tettonica. Controllato sia dal fill GPU che dal walker CPU → parità OK.
+    // (Build-time: i buffer GPU si costruiscono all'avvio; cambiarlo richiede un riavvio del play.)
+    public static int DebugDisableTypes = 0;
+    public static bool TypeDisabled(ProcessType t) => (DebugDisableTypes & (1 << (int)t)) != 0;
+
     public string name = "Nuovo corpo";
     public float baseRadius = 500f;
     public float surfaceGravity = 9.81f;

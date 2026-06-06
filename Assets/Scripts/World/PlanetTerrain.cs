@@ -77,7 +77,7 @@ public class PlanetTerrain : MonoBehaviour
             // PROCESSI in ORDINE: ogni passo opera sull'altezza lasciata dai precedenti (sequenza geologica).
             foreach (var p in Recipe.processes)
             {
-                if (p == null || !p.enabled) continue;
+                if (p == null || !p.enabled || PlanetRecipe.TypeDisabled(p.type)) continue;   // diagnosi: salta tipo disabilitato (parità col fill GPU)
                 if (p.type == ProcessType.Crateri)
                 {
                     var cl = new CraterTerrainLayer(Recipe.baseRadius, p.seed, p.octaves,

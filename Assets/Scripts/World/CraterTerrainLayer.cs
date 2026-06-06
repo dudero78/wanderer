@@ -173,7 +173,10 @@ public class CraterTerrainLayer : TerrainLayer
                 }
                 else
                 {
-                    float radOff = Mathf.Abs(cm - 1f) / SHELL_HALF;
+                    // GUARDIA ANTI-TAGLIO: il guscio sta DENTRO la finestra ±2 celle (le ottave fini lo sforavano →
+                    // un duplicato radiale poppava → gradino = taglio). Identico all'HLSL (parità).
+                    float shellHalf = Mathf.Min(SHELL_HALF, 1.7f / gscale);
+                    float radOff = Mathf.Abs(cm - 1f) / shellHalf;
                     if (radOff >= 1f) continue;
                     weight = Smooth01(1f - radOff);
                 }

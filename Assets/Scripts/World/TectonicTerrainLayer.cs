@@ -146,7 +146,10 @@ public class TectonicTerrainLayer : TerrainLayer
                 if (mtn > 0.001f)
                 {
                     float ridge = Noise3D.Ridged(unitDir * ContReliefScale, 4, 2f, 0.5f, seed + 821);   // [0,1] crinali
-                    elev += continentalRelief * contW * mtn * (ridge - 0.30f) * 1.8f;
+                    // GUARDIA C0 (anti-taglio): sfuma il termine a zero sulle soglie di skip (contW=0.01, mtn=0.001)
+                    // invece di accenderlo a ~0.2m → niente gradino lungo la linea-contorno. Identico all'HLSL (parità).
+                    float w = Smooth01(Mathf.Clamp01((contW - 0.01f) / 0.05f)) * Smooth01(Mathf.Clamp01((mtn - 0.001f) / 0.009f));
+                    elev += continentalRelief * contW * mtn * (ridge - 0.30f) * 1.8f * w;
                 }
             }
         }
@@ -181,13 +184,18 @@ public class TectonicTerrainLayer : TerrainLayer
                 bool rift = conv < 0f;
                 float convEff = rift ? conv * riftBalance : conv;
                 float rg = rift ? (0.70f + 0.30f * rough) : (0.45f + 0.55f * rough);
-                float profile = boundary * gate * (0.30f + 0.70f * along) * rg;
+                // GUARDIA C0 (anti-taglio): sfuma a zero sulla soglia di skip (boundary·gate=0.001). Identico all'HLSL.
+                float w = Smooth01(Mathf.Clamp01((boundary * gate - 0.001f) / 0.009f));
+                float profile = boundary * gate * (0.30f + 0.70f * along) * rg * w;
                 elev += uplift * profile * convEff;
             }
         }
 
         return height + elev;
     }
+
+    // smoothstep su t∈[0,1] (pendenza 0 ai bordi) — IDENTICO a Smooth01 in PlanetHeightCore.hlsl (parità).
+    static float Smooth01(float t) => t * t * (3f - 2f * t);
 
     // --- RNG locale deterministico (LCG): niente UnityEngine.Random (globale, non thread-safe) ---
     static float Rand01(ref uint s) { s = s * 1664525u + 1013904223u; return (s >> 8) * (1f / 16777216f); }

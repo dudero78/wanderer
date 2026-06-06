@@ -95,6 +95,16 @@ public class SettingsMenu : MonoBehaviour
             camTab.knobs.Add(F("Campo visivo (FOV)", "fov", 35f, 80f, () => cam.fieldOfView, v => cam.fieldOfView = v));
         tabs.Add(camTab);
 
+        // DIAGNOSI: colorazioni di debug del terreno, live. Slider 0-5 (snappa a interi). key=null → non persiste
+        // tra le sessioni (è uno strumento, non una taratura): al riavvio riparte da 0 (off).
+        var dg = new Tab { name = "Diagnosi" };
+        dg.knobs.Add(new Knob {
+            label = "Vista terreno  (0 off · 1 radiale · 2 normale · 3 livello LOD · 4 faccia cubo · 5 fetta)",
+            key = null, min = 0f, max = 5f, def = 0f,
+            get = () => GpuPlanetRenderer.DebugView,
+            set = v => GpuPlanetRenderer.DebugView = Mathf.RoundToInt(v) });
+        tabs.Add(dg);
+
         tabNames = new string[tabs.Count];
         for (int i = 0; i < tabs.Count; i++) tabNames[i] = tabs[i].name;
     }
