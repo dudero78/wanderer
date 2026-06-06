@@ -52,6 +52,10 @@ public class GameBootstrap : MonoBehaviour
            + "libera solo il cursore).")]
     public bool enablePauseMenu = true;
 
+    [Tooltip("Verifiche di parità GPU per-corpo all'avvio (readback SINCRONI che bloccano il caricamento). OFF di "
+           + "default: la parità è comunque garantita da PlanetParityGate a ogni ricompila. Accendi per ri-verificare.")]
+    public bool verifyGpuParity = false;
+
     [Tooltip("DIAGNOSI ricetta (build-time): salta interi TIPI di pipeline per scoprire chi genera un difetto. "
            + "Bitmask: 1=Crateri, 2=Mare, 4=Tettonica (somma per più di uno; es. 5 = niente crateri+tettonica). "
            + "0 = tutte attive. Salta sia su GPU che sul walker → la parità resta verde. Cambialo e ri-premi Play.")]
@@ -101,6 +105,7 @@ public class GameBootstrap : MonoBehaviour
         GpuPlanetRenderer.SuppressDraw = false;           // la mappa lo mette true: con domain-reload OFF sopravvivrebbe fra le sessioni Play → pianeta GPU muto. Azzera all'avvio scena
         PlanetRecipe.DebugDisableTypes = debugDisablePipelines;   // diagnosi: salta tipi di pipeline (build-time, GPU+CPU)
         PauseMenu.Enabled = enablePauseMenu;                      // menu ESC (debug: off = ESC come prima)
+        GpuPlanetRenderer.VerifyGpu = verifyGpuParity;            // verifiche parità per-corpo (readback sincroni): off = caricamento fluido
         // BUILD a tappe (coroutine): cede tra i corpi → la schermata di caricamento continua ad animarsi.
         var holder = new SolarSystemSetup.Built[1];
         yield return SolarSystemSetup.BuildAsync(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody, holder);

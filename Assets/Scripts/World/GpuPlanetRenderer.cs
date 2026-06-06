@@ -192,19 +192,19 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         // resto sul per-nodo (sicuro). Vedi R1: il batch corruppe la geometria una volta → niente fede cieca.
         if (UseBatchFill)
         {
-#if UNITY_EDITOR
-            // In EDITOR la verifica gira (gate di sviluppo). Fa un readback GPU SINCRONO (stallo) → la teniamo fuori
-            // dalla BUILD: lì il batch è già verificato in editor + da PlanetParityGate a ogni ricompila → ci fidiamo.
-            batchReady = VerifyBatchFill();
-            if (!batchReady) Debug.LogWarning($"{terrain.name}: batch fill NON attivato (parità fallita) → resto sul per-nodo.");
-#else
-            batchReady = true;
-#endif
+            // Le verifiche (VerifyBatchFill/VerifyParityRuntime) fanno un READBACK GPU SINCRONO che STALLA il main
+            // thread per corpo → è la causa del "freeze" del caricamento (lo spinner si blocca). Girano SOLO se
+            // VerifyGpu è acceso (gate di sviluppo); spente → si fida (la parità altezza è comunque verificata da
+            // PlanetParityGate a OGNI ricompila). In build sono sempre spente.
+            if (VerifyGpu)
+            {
+                batchReady = VerifyBatchFill();
+                if (!batchReady) Debug.LogWarning($"{terrain.name}: batch fill NON attivato (parità fallita) → resto sul per-nodo.");
+            }
+            else batchReady = true;
         }
 
-#if UNITY_EDITOR
-        VerifyParityRuntime();   // #9: gate CPU↔GPU (un readback dei root). Readback SINCRONO → solo in editor, non in build
-#endif
+        if (VerifyGpu) VerifyParityRuntime();   // #9: gate CPU↔GPU (readback SINCRONO) → solo con VerifyGpu acceso
         ApplyColor();
 
         Ready = true;
@@ -381,6 +381,11 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     /// <summary>LUCE AUSILIARIA point che illumina il terreno (oltre a sole+torcia): es. la SONDA. Chi la possiede la
     /// registra qui (e la azzera quando sparisce). NULL = nessuna (costo/effetto zero). Una sola per ora, espandibile.</summary>
     public static Light AuxPointLight;
+
+    /// <summary>Verifiche di parità GPU per-corpo all'avvio (VerifyBatchFill + VerifyParityRuntime). Fanno readback
+    /// SINCRONI che stallano il caricamento → spente di default (la parità è comunque garantita da PlanetParityGate a
+    /// ogni ricompila). Accendile (GameBootstrap / Diagnosi) quando cambi geometria/shader e vuoi ri-verificare.</summary>
+    public static bool VerifyGpu;
 
     void Update()
     {
