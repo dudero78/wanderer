@@ -67,14 +67,14 @@ public class Probe : MonoBehaviour
             body.GetComponent<Renderer>().material = bm;
         }
 
-        // SCANALATURA: disco sottile equatoriale (sfera schiacciata sull'asse Y), Unlit CIANO brillante → linea che
-        // GLOWa attorno al centro (look pokeball/hi-tech). Unlit/Color = niente variante _EMISSION strippata in build.
-        var groove = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        var gcol = groove.GetComponent<Collider>(); if (gcol != null) Destroy(gcol);
-        groove.transform.SetParent(vis.transform, false);
-        groove.transform.localScale = new Vector3(ProbeRadius * 2.08f, ProbeRadius * 0.18f, ProbeRadius * 2.08f);
+        // SCANALATURE LUMINOSE che "bucano" il metallo: l'EQUATORE (banda larga) + i due TROPICI (±23.4°, righe più
+        // sottili). Ogni solco è un disco sottile (sfera schiacciata sull'asse Y) Unlit CIANO brillante → glow, look
+        // pokeball/hi-tech. Unlit/Color = niente variante _EMISSION strippata in build.
         var unlit = Shader.Find("Unlit/Color");
-        if (unlit != null) groove.GetComponent<Renderer>().material = new Material(unlit) { color = new Color(0.55f, 0.95f, 1f) };
+        Color glow = new Color(0.55f, 0.95f, 1f);
+        MakeGroove(vis.transform, unlit, ProbeRadius, 0f, 1.04f, 0.18f, glow);      // equatore (largo)
+        MakeGroove(vis.transform, unlit, ProbeRadius, 23.4f, 1.06f, 0.11f, glow);   // tropico nord
+        MakeGroove(vis.transform, unlit, ProbeRadius, -23.4f, 1.06f, 0.11f, glow);  // tropico sud
 
         // LUCE EMESSA: point light ciano → la sonda è una piccola lampada (illumina oggetti Standard vicini e si
         // legge come sorgente luminosa). NB: il terreno GPU usa luce MANUALE (sole+torcia) e non la cattura ancora.
@@ -107,6 +107,21 @@ public class Probe : MonoBehaviour
 
         go.SetActive(false);   // dormiente finché non viene lanciata
         return p;
+    }
+
+    /// <summary>Un SOLCO luminoso a una latitudine data: disco sottile (sfera schiacciata su Y) che sporge appena dal
+    /// corpo (widthFactor>1 → "buca il metallo") all'altezza lat. ringR=cos(lat) = raggio del cerchio a quella
+    /// latitudine; offset y=sin(lat)·R. thick = spessore (frazione di R).</summary>
+    static void MakeGroove(Transform parent, Shader unlit, float R, float latDeg, float widthFactor, float thick, Color col)
+    {
+        var g = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        var c = g.GetComponent<Collider>(); if (c != null) Destroy(c);
+        g.transform.SetParent(parent, false);
+        float lat = latDeg * Mathf.Deg2Rad;
+        float ringR = Mathf.Cos(lat);
+        g.transform.localPosition = new Vector3(0f, Mathf.Sin(lat) * R, 0f);
+        g.transform.localScale = new Vector3(R * 2f * ringR * widthFactor, R * thick, R * 2f * ringR * widthFactor);
+        if (unlit != null) g.GetComponent<Renderer>().material = new Material(unlit) { color = col };
     }
 
     /// <summary>Lancia la sonda da una posizione con una velocità iniziale (di solito = velocità del giocatore +

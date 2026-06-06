@@ -53,6 +53,7 @@ public class ProbeController : MonoBehaviour
         Vector3 pos = camT.position + camT.forward * 2f;
         Vector3 baseVel = walker != null ? walker.Velocity : Vector3.zero;   // eredita lo slancio del giocatore
         probe.Launch(pos, baseVel + camT.forward * launchSpeed, camT.forward);
+        camYaw = 0f; camPitch = 0f;   // nuova sonda → visuale ri-centrata (la persistenza vale tra i toggle, non tra i lanci)
     }
 
     void ToggleView()
@@ -65,7 +66,9 @@ public class ProbeController : MonoBehaviour
             if (probe.Cam != null) probe.Cam.enabled = true;
             if (probe.Visual != null) probe.Visual.SetActive(false);   // prima persona: non vedi la tua stessa sonda
             probe.FreezeOrient = true;                                  // frame fermo → il free-look non combatte
-            camYaw = 0f; camPitch = 0f;
+            // NON azzero camYaw/camPitch: la visuale RIPRENDE dove l'avevi lasciata (toggle avanti/indietro la conserva).
+            // Si resetta solo al LANCIO di una nuova sonda (LaunchFromCamera).
+            if (probe.Cam != null) probe.Cam.transform.localRotation = Quaternion.Euler(camPitch, camYaw, 0f);
             if (walker != null) walker.ControlsActive = false;                    // congela il giocatore (l'input va alla sonda)
             Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;
         }

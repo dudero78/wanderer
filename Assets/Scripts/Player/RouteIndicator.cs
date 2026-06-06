@@ -311,11 +311,12 @@ public class RouteIndicator : MonoBehaviour
         Vector2 g = ToGui(wp, out _, out bool onScreen);
         float dist = Vector3.Distance(cam.transform.position, wp);
         string txt = (ProbeTarget.Landed ? "SONDA · posata · " : "SONDA · ") + FmtDist(dist);
+        Color pcol = ProbeTarget.Landed ? Green : Amber;   // VERDE da posata, ambra in volo
 
         if (onScreen)
         {
-            DrawTex(triTex, g, 22f * ui, 22f * ui, 0f, Amber);
-            Shadowed(new Rect(g.x - 90f * ui, g.y + 14f * ui, 180f * ui, 20f * ui), txt, Amber, 1f, TextAnchor.UpperCenter);
+            DrawTex(triTex, g, 22f * ui, 22f * ui, 0f, pcol);
+            Shadowed(new Rect(g.x - 90f * ui, g.y + 14f * ui, 180f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.UpperCenter);
         }
         else
         {
@@ -326,8 +327,8 @@ public class RouteIndicator : MonoBehaviour
             float m = 64f * ui;
             Vector2 edge = ClampToRect(ctr, dir, new Rect(m, m, Screen.width - 2f * m, Screen.height - 2f * m));
             float ang = Mathf.Atan2(dir.x, -dir.y) * Mathf.Rad2Deg;   // triangolo: apice in su → ruota verso dir
-            DrawTex(triTex, edge, 24f * ui, 24f * ui, ang, Amber);
-            Shadowed(new Rect(edge.x - 90f * ui, edge.y + 16f * ui, 180f * ui, 20f * ui), txt, Amber, 1f, TextAnchor.UpperCenter);
+            DrawTex(triTex, edge, 24f * ui, 24f * ui, ang, pcol);
+            Shadowed(new Rect(edge.x - 90f * ui, edge.y + 16f * ui, 180f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.UpperCenter);
         }
     }
 
