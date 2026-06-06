@@ -329,7 +329,20 @@ public class MapMode : MonoBehaviour
             // TAPPA 5: lo zoom-out arriva al livello GALATTICO (le stelle distanti in campo), se la galassia ha più
             // di un sistema; altrimenti resta al sistema-casa come prima.
             float maxD = Mathf.Max(SystemRadius() * 3f, GalaxyRadius() * 1.4f);
+            float oldD = mapDist;
             mapDist = Mathf.Clamp(mapDist * Mathf.Pow(0.82f, sc), minD, maxD);
+
+            // ZOOM VERSO IL CURSORE: prendi il punto sotto il mouse sul piano che passa per il focus (perpendicolare
+            // alla vista) e sposta il focus verso di lui in proporzione al cambio di zoom → zoommi dove indichi.
+            var ray = mapCam.ScreenPointToRay(Input.mousePosition);
+            var plane = new Plane(-mapCam.transform.forward, focusPos);
+            if (plane.Raycast(ray, out float ent))
+            {
+                Vector3 hit = ray.GetPoint(ent);
+                focusPos = hit + (focusPos - hit) * (mapDist / Mathf.Max(oldD, 1e-4f));
+                focusFollows = false;
+                ClampFocus();
+            }
         }
     }
 

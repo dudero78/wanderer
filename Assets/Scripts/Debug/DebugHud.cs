@@ -152,6 +152,14 @@ public class DebugHud : MonoBehaviour
             string ds = dd > 1000f ? (dd / 1000f).ToString("F1") + " km" : dd.ToString("F0") + " m";
             destLine = $"Distanza ({solar.Destination.gameObject.name}) : {ds}\n";
         }
+        else if (solar != null && solar.DestinationSystem != null)
+        {
+            // sistema distante selezionato (waypoint galattico): stessa riga-target di un corpo, ma verso la stella lontana.
+            Vector3 sp = (solar.DestinationSystem.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
+            float dd = (sp - player.position).magnitude;
+            string ds = dd > 1000f ? (dd / 1000f).ToString("F1") + " km" : dd.ToString("F0") + " m";
+            destLine = $"Sistema ★ {solar.DestinationSystem.Name} : {ds}\n";
+        }
 
         string perfLine = showPerf
             ? $"FPS {(avgMs > 0f ? 1000f / avgMs : 0f):F0}   ·   fotogramma {avgMs:F1} ms   ·   picco/sec {displayWorst:F1} ms (trav {dTrav:F1}·fill {dFill:F1}·invio {dSend:F1})   ('è' nascondi)\n"
