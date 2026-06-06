@@ -103,11 +103,39 @@ public class ProbeController : MonoBehaviour
         if (probe != null) probe.Recall();
     }
 
+    static bool sMigrated;
+
+    /// <summary>Cartella delle foto in DOCUMENTI (cross-platform: MyDocuments → ~/Documents su Mac/Windows,
+    /// $HOME/Documents su Linux). Creata SMART alla prima foto (anche i genitori). Alla prima chiamata MIGRA le foto
+    /// già scattate dalla vecchia cartella (persistentDataPath, nascosta) → Documenti.</summary>
+    static string PhotoDir()
+    {
+        string dir = System.IO.Path.Combine(
+            System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), "Wanderer", "Foto");
+        System.IO.Directory.CreateDirectory(dir);   // la crea se non esiste (no-op se c'è)
+        if (!sMigrated)
+        {
+            sMigrated = true;
+            try
+            {
+                string old = Application.persistentDataPath;
+                if (System.IO.Directory.Exists(old))
+                    foreach (var f in System.IO.Directory.GetFiles(old, "sonda_*.png"))
+                    {
+                        string dest = System.IO.Path.Combine(dir, System.IO.Path.GetFileName(f));
+                        if (!System.IO.File.Exists(dest)) System.IO.File.Move(f, dest);
+                    }
+            }
+            catch (System.Exception e) { Debug.LogWarning($"[sonda] migrazione foto saltata: {e.Message}"); }
+        }
+        return dir;
+    }
+
     void TakePhoto()
     {
-        lastPhoto = $"{Application.persistentDataPath}/sonda_{Time.frameCount}.png";
+        lastPhoto = System.IO.Path.Combine(PhotoDir(), $"sonda_{Time.frameCount}.png");
         ScreenCapture.CaptureScreenshot(lastPhoto);
-        Debug.Log($"[sonda] foto salvata: {lastPhoto}");   // così la trovi al volo (cartella persistentDataPath, nascosta)
+        Debug.Log($"[sonda] foto salvata: {lastPhoto}");   // path completo in console
         photoFlash = 0.8f;
     }
 
