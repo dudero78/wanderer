@@ -38,6 +38,51 @@ guardie C0 nelle pipeline, strumenti di diagnosi, rimozione skirt). Dettaglio te
 > una RT poi rilasciata) → aggiunto `cb.SetRenderTarget(CameraTarget)`. Verifica: apri editor, premi Bake.
 > La RESA in gioco usa la RICETTA (non il bake) → ribakare non serve per forma/colore.
 
+## 🎯 OBIETTIVO: tutte le aree di "Salute per area" (AUDIT3) ad **A**
+
+Voti di partenza (Audit #3): Architettura B+, Rendering B, Fisica B−, Performance A−, Robustezza B, Shader B+, Prodotto C+.
+Legenda: ✅ fatto · 🟢 sicuro/autonomo (compile-gate) · 🟡 a gioco aperto (shader/feel, non verificabile alla cieca) · 🔵 serve una DECISIONE di Dario.
+
+- **Architettura B+ → A**
+  - ✅ bodyId riciclato (Tappa 2) · ✅ statici resettati (SuppressDraw, SunLight.OnDestroy)
+  - 🟡 **region-stamp da float a uint** → rimuove il limite ~7-15 corpi vivi (vedi sotto) + irrobustisce l'invariante
+  - 🟢 nodeRes divergente: da LogError a guardia dura · 🟢 incapsulare gli array-paralleli visibili (un solo struct per istanza)
+- **Rendering B → A** (tutti 🟡 shader)
+  - colore per-vertice (3 fbm → compute) · keyword `_HAS_SEA` · eclissi nel renderer autoritativo · base PBR (pendenza/quota + triplanare)
+- **Fisica B− → A**
+  - ✅ isteresi riferimento walker
+  - 🟡 #8 Step in FixedUpdate + SimTime deterministico (50Hz vs 60fps → serve interpolazione/feel)
+  - 🟢 `UniverseVelocityAt`: velocità analitica chiusa invece di differenza finita dt=0.01
+- **Performance A− → A**
+  - ✅ strumentazione dev-only · ✅ alloc Stopwatch rimossa
+  - 🟢 saltare i SetData quando il set visibile non cambia (camera ferma) · 🟢 `EclipseDriver` O(n²): cadenza ridotta / early-out
+- **Robustezza B → A** (quasi già A dopo stanotte)
+  - ✅ gate NaN/Inf · ✅ SuppressDraw reset · ✅ render target dopo bake
+  - 🟡 editor bug #1 (il mare non allaga al max)
+- **Shader B+ → A**
+  - 🟡 eclissi GPU (overlap con Rendering) · 🟡 blindare il draw indirect per DX12/Vulkan (test su altra piattaforma)
+- **Prodotto C+ → A** (🔵 serve la tua direzione artistica)
+  - cielo stellato · bloom + tonemapping (HDR) · atmosfera · sole come sfera/glow (non disco piatto) · milestone "vertical slice estetico" · 🔵 decisione pipeline (built-in vs HDRP)
+
+**Posso fare in autonomia ORA (🟢, compile-gated):** velocità analitica orbitale, SetData a camera ferma, EclipseDriver cadenza, guardia nodeRes, struct-per-istanza. **Insieme a gioco aperto (🟡):** tutti gli shader + #8. **Servono tue scelte (🔵):** la parte Prodotto (arte) + pipeline HDRP.
+
+## 🛰️ Limite di 7 corpi per sistema — da rimuovere (richiesta di Dario)
+
+NON è un vero limite di 7: il marchio anti-spuntone (region-stamp) è un FLOAT, esatto per interi fino a 2²⁴ →
+con l'encoding attuale regge fino a ~15 corpi VIVI insieme (il "7" nel codice è una soglia conservativa a 2²³).
+**Fix per toglierlo del tutto:** memorizzare/confrontare il region-stamp come **uint** invece che float (buffer
+`_SlabRegion`, `dirOfInstance.w`, confronto nel vertex shader di `PlanetSurfaceGPU`) → fino a 2³² id, limite sparito.
+Tocca lo shader → 🟡 a gioco aperto. NB: il limite è sui corpi rocciosi WALKABLE renderizzati INSIEME (non gas/stelle,
+non i corpi lontani cullati sub-pixel), e la Tappa 2 (bodyId riciclato) lo conta sui corpi VIVI, non sul totale storico.
+
+## 🛰️ Sonda alla Outer Wilds (entro un sistema) — fattibile, additivo
+
+Non rompe l'architettura: la sonda è un oggetto fisico veloce → si registra in `SolarSystem.Loose` (così trasla
+con l'origine al cambio d'ancora, niente salti), riceve la STESSA gravità radiale sommata del walker, e collide col
+terreno in modo ANALITICO (quota sonda vs `SampleHeight` nella sua direzione, ogni FixedUpdate — niente collider mesh).
+Entro un sistema (~130 km) la doppia precisione + floating origin reggono benissimo. Lavoro NUOVO = la feature in sé
+(lancio · volo · impatto/aggancio · richiamo · foto da camera della sonda), non un cambio di fondamenta.
+
 > ## (storico) 🔴 i 3 BUG dell'EDITOR — RISOLTI (vedi sopra)
 > Tutti e tre nell'**editor di pianeti** (scena "Apri editor pianeti"), su Valentina2 (mare + tettonica + crateri):
 >
