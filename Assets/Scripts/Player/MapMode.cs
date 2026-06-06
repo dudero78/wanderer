@@ -292,7 +292,14 @@ public class MapMode : MonoBehaviour
             focusPos = Vector3.Lerp(focusPos, FocusTarget(), 1f - Mathf.Exp(-Time.deltaTime * 6f));
 
         // ROTAZIONE col tasto DESTRO trascinato. Asse verticale INVERTITO (trascini su → guardi più di lato).
-        if (Input.GetMouseButtonDown(1)) lastMousePx = Input.mousePosition;
+        // All'inizio del trascinamento il PIVOT diventa il punto sotto il cursore → ruoti attorno a dove clicchi.
+        if (Input.GetMouseButtonDown(1))
+        {
+            lastMousePx = Input.mousePosition;
+            var rray = mapCam.ScreenPointToRay(Input.mousePosition);
+            var rplane = new Plane(-mapCam.transform.forward, focusPos);
+            if (rplane.Raycast(rray, out float rent)) { focusPos = rray.GetPoint(rent); focusFollows = false; ClampFocus(); }
+        }
         if (Input.GetMouseButton(1))
         {
             Vector2 d = (Vector2)Input.mousePosition - (Vector2)lastMousePx; lastMousePx = Input.mousePosition;
@@ -501,14 +508,13 @@ public class MapMode : MonoBehaviour
                 // DUE regimi, presi col max: (1) da LONTANO una dimensione-schermo COSTANTE ma proporzionale-compressa
                 // al raggio (lune più piccole dei pianeti, ma sempre visibili/cliccabili); (2) da VICINO il raggio
                 // REALE → zoomando il corpo CRESCE alla sua taglia vera (lo ispezioni). RefRadius = i pianeti grandi.
-                const float RefRadius = 700f, SizePow = 0.8f, GlobalShrink = 0.82f;
-                float constScreen = screen * Mathf.Pow((float)b.Radius / RefRadius, SizePow) * GlobalShrink;
-                float Rnear = Mathf.Max(constScreen, (float)b.Radius);   // vicino: dimensione-schermo visibile
-                // LONTANO (verso lo zoom galattico) i corpi tornano alla SCALA REALE → il sistema si rimpicciolisce in
-                // modo sensato (un puntino lontano), invece di restare palle giganti a dimensione-schermo costante.
-                float far01 = Mathf.InverseLerp(SystemRadius() * 0.6f, SystemRadius() * 3f, mapDist);
-                float R = Mathf.Lerp(Rnear, (float)b.Radius, far01);
-                if (b == selected) R *= 1.15f;
+                // Scala SENSATA con la distanza: raggio REALE (così da vicino il corpo cresce alla sua taglia e i
+                // più grandi appaiono più grandi), MA con un PAVIMENTO a dimensione-schermo (∝ distanza dalla camera)
+                // così da lontano nessun corpo diventa un puntino non cliccabile. Niente più "palle giganti" né "troppo
+                // piccoli": floor generoso (selezionabili) ma il raggio vero domina quando ti avvicini.
+                float screenFloor = screen * 1.5f;   // dimensione-schermo minima (markerScreenSize la scala con la distanza) — generosa, ben cliccabile
+                float R = Mathf.Max((float)b.Radius, screenFloor);
+                if (b == selected) R *= 1.2f;
                 px.position = b.transform.position;
                 px.localScale = Vector3.one * (R / Mathf.Max(1f, (float)b.Radius));   // mesh a raggio reale → scala a R
                 mk.transform.localScale = Vector3.one * (R * 2f);   // sfera-collider (raggio 0.5) → copre il proxy
@@ -531,10 +537,14 @@ public class MapMode : MonoBehaviour
             if (smk == null || s == null) continue;
             Vector3 sp = (s.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
             smk.transform.position = sp;
+            bool selectedSys = s == solar.DestinationSystem;
             float sz = Mathf.Max(Vector3.Distance(camPos, sp) * markerScreenSize * 1.6f, s.StarRadius);
-            if (s == solar.DestinationSystem) sz *= 1.6f;   // evidenzia il sistema selezionato
+            if (selectedSys) sz *= 2.2f;   // selezione BEN visibile (più grande)
             smk.transform.localScale = Vector3.one * sz;
-            smk.SetActive(galacticZoom);
+            // visibile a zoom galattico OPPURE se è quello che stai guardando (vicino al focus) → zoomando su Vega
+            // NON sparisce più (prima si spegneva uscendo dallo zoom galattico → schermo nero).
+            bool nearFocus = (focusPos - sp).magnitude < mapDist * 2.5f;
+            smk.SetActive(galacticZoom || nearFocus);
         }
 
         for (int i = 0; i < orbits.Count; i++)
