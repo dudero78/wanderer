@@ -267,7 +267,12 @@ public class MapMode : MonoBehaviour
 
     /// <summary>Punto attorno a cui orbita la camera: il corpo selezionato (così zoomi/ruoti su di lui) o il
     /// centro del sistema se niente è selezionato.</summary>
-    Vector3 FocusTarget() => selected != null ? selected.transform.position : SystemCenter();
+    Vector3 FocusTarget()
+    {
+        if (selected != null) return selected.transform.position;
+        if (solar.DestinationSystem != null) return (solar.DestinationSystem.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
+        return SystemCenter();
+    }
 
     /// <summary>Tiene il focus entro un limite (raggio del sistema, o GALATTICO se ci sono sistemi distanti) → non ci
     /// si perde nel vuoto, ma si può arrivare fino alle stelle lontane.</summary>
@@ -313,7 +318,19 @@ public class MapMode : MonoBehaviour
             lastMousePx = Input.mousePosition;
             var rray = mapCam.ScreenPointToRay(Input.mousePosition);
             var rplane = new Plane(-mapCam.transform.forward, focusPos);
-            if (rplane.Raycast(rray, out float rent)) { focusPos = rray.GetPoint(rent); focusFollows = false; ClampFocus(); }
+            if (rplane.Raycast(rray, out float rent))
+            {
+                // PIVOT = punto cliccato, MA senza far saltare la camera: ricalcola distanza/angoli dal nuovo pivot
+                // tenendo ferma la posizione della camera → poi il trascinamento ruota attorno a dove hai cliccato.
+                Vector3 camP = mapCam.transform.position;
+                focusPos = rray.GetPoint(rent);
+                focusFollows = false; ClampFocus();
+                Vector3 d = camP - focusPos;
+                mapDist = Mathf.Max(d.magnitude, 1f);
+                Vector3 dn = d / mapDist;
+                mapPitch = Mathf.Clamp(Mathf.Asin(Mathf.Clamp(dn.y, -1f, 1f)) * Mathf.Rad2Deg, 8f, 88f);
+                mapYaw = Mathf.Atan2(-dn.x, -dn.z) * Mathf.Rad2Deg;
+            }
         }
         if (Input.GetMouseButton(1))
         {
@@ -475,6 +492,7 @@ public class MapMode : MonoBehaviour
             solar.DestinationSystem = sys;
             solar.Destination = null;
             selected = null;
+            focusFollows = true;   // centra la mappa sul sistema selezionato (come per i corpi)
         }
     }
 
@@ -496,6 +514,17 @@ public class MapMode : MonoBehaviour
             trailRing[trailHead] = uni;                                     // pieno: sovrascrivi il più vecchio, avanza la testa
             trailHead = (trailHead + 1) % MaxTrailPoints;
         }
+    }
+
+    // Dimensione di un corpo in mappa: IN SCALA tra corpi (∝ raggio reale) e che RIMPICCIOLISCE zoomando out
+    // (∝ d^0.7, sotto-lineare → i corpi calano RISPETTO alle orbite e non si fondono), con un PAVIMENTO a
+    // dimensione-schermo (sempre selezionabile/visibile, anche il sole da lontanissimo) e mai sotto la taglia reale da vicino.
+    float MapBodySize(CelestialBody b, Vector3 camPos)
+    {
+        float d = Vector3.Distance(camPos, b.transform.position);
+        float R = 0.001f * (float)b.Radius * Mathf.Pow(Mathf.Max(d, 1f), 0.7f);
+        R = Mathf.Max(R, (float)b.Radius);
+        return Mathf.Max(R, d * 0.004f);
     }
 
     void UpdateVisuals()
@@ -521,18 +550,9 @@ public class MapMode : MonoBehaviour
             var b = markerBody[mk];
             if (b == null) { mk.SetActive(false); continue; }
             mk.transform.position = b.transform.position;
-            float screen = Vector3.Distance(camPos, b.transform.position) * markerScreenSize;
             if (proxies.TryGetValue(b, out var px))
             {
-                // DUE regimi, presi col max: (1) da LONTANO una dimensione-schermo COSTANTE ma proporzionale-compressa
-                // al raggio (lune più piccole dei pianeti, ma sempre visibili/cliccabili); (2) da VICINO il raggio
-                // REALE → zoomando il corpo CRESCE alla sua taglia vera (lo ispezioni). RefRadius = i pianeti grandi.
-                // Scala SENSATA con la distanza: raggio REALE (così da vicino il corpo cresce alla sua taglia e i
-                // più grandi appaiono più grandi), MA con un PAVIMENTO a dimensione-schermo (∝ distanza dalla camera)
-                // così da lontano nessun corpo diventa un puntino non cliccabile. Niente più "palle giganti" né "troppo
-                // piccoli": floor generoso (selezionabili) ma il raggio vero domina quando ti avvicini.
-                float screenFloor = screen * 1.5f;   // dimensione-schermo minima (markerScreenSize la scala con la distanza) — generosa, ben cliccabile
-                float R = Mathf.Max((float)b.Radius, screenFloor);
+                float R = MapBodySize(b, camPos);
                 if (b == selected) R *= 1.2f;
                 px.position = b.transform.position;
                 px.localScale = Vector3.one * (R / Mathf.Max(1f, (float)b.Radius));   // mesh a raggio reale → scala a R
@@ -540,9 +560,9 @@ public class MapMode : MonoBehaviour
             }
             else
             {
-                // la stella: disco stilizzato. Da lontano dimensione-schermo, da vicino il raggio reale (cresce zoomando).
-                float sz = Mathf.Max(screen * 1.4f, (float)b.Radius);
-                if (b == selected) sz *= 1.5f;
+                // la stella: disco stilizzato, STESSA scala dei pianeti (in scala tra loro).
+                float sz = MapBodySize(b, camPos);
+                if (b == selected) sz *= 1.4f;
                 mk.transform.localScale = Vector3.one * sz;
             }
         }
