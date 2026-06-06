@@ -29,7 +29,7 @@ public class SettingsMenu : MonoBehaviour
     int activeTab;
     bool open;
     Vector2 scroll;
-    GUIStyle title, head, val, hint, tabStyle, toggleStyle;
+    GUIStyle title, head, val, hint, tabStyle, toggleStyle, toggleBtn, sliderStyle, thumbStyle;
 
     public void Init(PlanetWalker w, Camera c)
     {
@@ -100,6 +100,8 @@ public class SettingsMenu : MonoBehaviour
         var dg = new Tab { name = "Diagnosi" };
         dg.knobs.Add(B("Menu ESC (pausa) attivo", true,
             () => PauseMenu.Enabled, v => PauseMenu.Enabled = v));   // off → ESC libera solo il cursore (per screenshot senza menu)
+        dg.knobs.Add(B("Verifiche parità GPU (readback: rallenta il caricamento)", false,
+            () => GpuPlanetRenderer.VerifyGpu, v => GpuPlanetRenderer.VerifyGpu = v));   // vale per i corpi costruiti dopo (sistemi svegliati)
         dg.knobs.Add(new Knob {
             label = "Vista terreno  (0 off · 1 radiale · 2 normale · 3 livello LOD · 4 faccia cubo · 5 fetta)",
             key = null, min = 0f, max = 5f, def = 0f,
@@ -172,21 +174,27 @@ public class SettingsMenu : MonoBehaviour
 
     void DrawKnob(Knob k, float ui)
     {
-        GUILayout.BeginHorizontal(GUILayout.Height(30f * ui));
-        GUILayout.Label(k.label, head, GUILayout.Width(300f * ui));
+        GUILayout.BeginHorizontal(GUILayout.Height(40f * ui));
+        GUILayout.Label(k.label, head, GUILayout.Width(330f * ui));
 
         if (k.isToggle)
         {
+            // toggle come BOTTONE grande e leggibile (non la casellina minuscola): verde = attivo, grigio = spento.
             bool b = k.get() > 0.5f;
-            bool nb = GUILayout.Toggle(b, b ? " attivo" : " spento", toggleStyle, GUILayout.Width(120f * ui));
-            if (nb != b) k.set(nb ? 1f : 0f);   // toggle persiste da sé (GameSettings)
+            Color prevBg = GUI.backgroundColor;
+            GUI.backgroundColor = b ? new Color(0.3f, 0.7f, 0.4f) : new Color(0.35f, 0.35f, 0.4f);
+            if (GUILayout.Button(b ? "ATTIVO" : "SPENTO", toggleBtn, GUILayout.Width(150f * ui), GUILayout.Height(34f * ui)))
+                k.set(b ? 0f : 1f);
+            GUI.backgroundColor = prevBg;
         }
         else
         {
             float v = k.get();
-            float nv = GUILayout.HorizontalSlider(v, k.min, k.max, GUILayout.Width(240f * ui), GUILayout.Height(22f * ui));
-            GUILayout.Space(10f * ui);
-            GUILayout.Label(Fmt(nv), val, GUILayout.Width(70f * ui));
+            // slider con MANIGLIA e TRACCIA grandi (stili dedicati) → visibile e afferrabile.
+            float nv = GUILayout.HorizontalSlider(v, k.min, k.max, sliderStyle, thumbStyle,
+                                                  GUILayout.Width(260f * ui), GUILayout.Height(28f * ui));
+            GUILayout.Space(12f * ui);
+            GUILayout.Label(Fmt(nv), val, GUILayout.Width(80f * ui));
             if (!Mathf.Approximately(nv, v))
             {
                 k.set(nv);
@@ -194,7 +202,7 @@ public class SettingsMenu : MonoBehaviour
             }
         }
         GUILayout.EndHorizontal();
-        GUILayout.Space(8f * ui);
+        GUILayout.Space(10f * ui);
     }
 
     // Ripristina ogni manopola della scheda al suo default originale (catturato al primo avvio) e cancella la
@@ -221,12 +229,20 @@ public class SettingsMenu : MonoBehaviour
             hint = new GUIStyle(GUI.skin.label) { normal = { textColor = new Color(0.7f, 0.74f, 0.8f) }, wordWrap = true };
             tabStyle = new GUIStyle(GUI.skin.button);
             toggleStyle = new GUIStyle(GUI.skin.toggle) { normal = { textColor = Color.white }, onNormal = { textColor = Color.white } };
+            toggleBtn = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
+            sliderStyle = new GUIStyle(GUI.skin.horizontalSlider);
+            thumbStyle = new GUIStyle(GUI.skin.horizontalSliderThumb);
         }
         title.fontSize = Mathf.RoundToInt(22f * ui);
-        head.fontSize = Mathf.RoundToInt(15f * ui);
-        val.fontSize = Mathf.RoundToInt(15f * ui);
+        head.fontSize = Mathf.RoundToInt(16f * ui);
+        val.fontSize = Mathf.RoundToInt(16f * ui);
         hint.fontSize = Mathf.RoundToInt(13f * ui);
         tabStyle.fontSize = Mathf.RoundToInt(15f * ui);
         toggleStyle.fontSize = Mathf.RoundToInt(14f * ui);
+        toggleBtn.fontSize = Mathf.RoundToInt(15f * ui);
+        // MANIGLIA e TRACCIA dello slider INGRANDITE (le default sono minuscole su schermi ad alta densità).
+        sliderStyle.fixedHeight = 14f * ui;
+        thumbStyle.fixedWidth = 22f * ui;
+        thumbStyle.fixedHeight = 22f * ui;
     }
 }
