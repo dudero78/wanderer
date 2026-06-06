@@ -1,8 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// Torcia inclusa nella tuta: uno spotlight che segue lo sguardo (è figlio della camera).
-/// Si accende/spegne con F, ma solo dopo aver raccolto la tuta. Prima resta spenta.
+/// Torcia in dotazione al giocatore DA SUBITO: uno spotlight che segue lo sguardo (è figlio della camera).
+/// Si accende/spegne con F fin dall'inizio (anche prima di raccogliere la tuta).
 /// </summary>
 public class Flashlight : MonoBehaviour
 {
@@ -20,9 +20,8 @@ public class Flashlight : MonoBehaviour
     {
         if (lamp == null) return;
 
-        // La luce resta SEMPRE enabled: commutiamo solo l'intensità.
-        bool available = walker != null && walker.HasJetpack;
-        if (!available) { on = false; lamp.intensity = 0f; return; }
+        // La luce resta SEMPRE enabled: commutiamo solo l'intensità. Disponibile DA SUBITO (non più legata alla tuta).
+        if (walker == null) { on = false; lamp.intensity = 0f; return; }
 
         if (Input.GetKeyDown(toggleKey)) on = !on;
 
