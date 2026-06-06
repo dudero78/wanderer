@@ -87,8 +87,22 @@ public class Probe : MonoBehaviour
         p.lamp = lampGo.AddComponent<Light>();
         p.lamp.type = LightType.Point;
         p.lamp.color = new Color(0.6f, 0.95f, 1f);
-        p.lamp.intensity = 3.2f;
-        p.lamp.range = 110f;   // ILLUMINA LONTANO: una sonda lanciata in una stanza la illumina tutta (utile per orientarsi al buio)
+        p.lamp.intensity = 5.5f;   // più forte a breve-media distanza
+        p.lamp.range = 130f;       // ILLUMINA LONTANO: una sonda lanciata in una stanza la illumina tutta (orientarsi al buio)
+
+        // BAGLIORE (halo): quad additivo billboard attorno alla sonda → si vede che è luminosa e proietta luce.
+        // Sotto Visual (sparisce in prima persona). Cull Off nello shader: l'orientamento serve solo a tenerlo piatto a schermo.
+        var glowSh = Shader.Find("Wanderer/AdditiveGlow");
+        if (glowSh != null)
+        {
+            var halo = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            var hc = halo.GetComponent<Collider>(); if (hc != null) Destroy(hc);
+            halo.name = "Bagliore";
+            halo.transform.SetParent(vis.transform, false);
+            halo.transform.localScale = Vector3.one * (ProbeRadius * 7f);
+            halo.GetComponent<Renderer>().material = new Material(glowSh) { color = new Color(0.45f, 0.85f, 1f, 1f) };
+            halo.AddComponent<Billboard>();
+        }
 
         p.visual = vis;
 
