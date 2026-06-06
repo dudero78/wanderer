@@ -1,7 +1,5 @@
 #pragma kernel CSNodeSlab
-#pragma kernel CSNodeSkirt
 #pragma kernel CSNodeSlabBatch
-#pragma kernel CSNodeSkirtBatch
 #include "PlanetHeightCore.hlsl"
 
 [numthreads(8, 8, 1)]
@@ -46,40 +44,10 @@ void CSNodeSlab(uint3 id : SV_DispatchThreadID)
     _VBedNrm[o] = bn.x; _VBedNrm[o + 1] = bn.y; _VBedNrm[o + 2] = bn.z;
 }
 
-[numthreads(64, 1, 1)]
-void CSNodeSkirt(uint3 id : SV_DispatchThreadID)
-{
-    // indice del bordo in UINT: su Metal div/mod interi con segno sono più lenti (warning) — qui k,res ≥ 0.
-    uint res = (uint)(_NN - 1);
-    if (id.x >= 4u * res) return;
-    uint k = id.x;
-    uint e = k / res, t = k % res;    // edge e (0..3), posizione t lungo il bordo
-    int rr = (int)res, tt = (int)t;
-    int i, j;
-    if (e == 0u)      { i = tt;      j = 0; }
-    else if (e == 1u) { i = rr;      j = tt; }
-    else if (e == 2u) { i = rr - tt; j = rr; }
-    else              { i = 0;       j = rr - tt; }
-    float tx = _U0 + i * _Step;
-    float ty = _V0 + j * _Step;
-    float3 dir = ParamToDir(tx, ty);
-    float depth, surf;
-    float3 p = dir * SampleHeightD(dir, depth, surf);
-    float3 sp = p - dir * _NSkirtDrop;     // abbassa lungo il radiale
-    int vi = _NSlabOff + _NSkirtStart + (int)k;
-    int o = vi * 3;
-    _VPos[o] = sp.x; _VPos[o + 1] = sp.y; _VPos[o + 2] = sp.z;
-    _VNrm[o] = dir.x; _VNrm[o + 1] = dir.y; _VNrm[o + 2] = dir.z;       // radiale → si illumina come terreno piatto
-    _VBedNrm[o] = dir.x; _VBedNrm[o + 1] = dir.y; _VBedNrm[o + 2] = dir.z;
-    _VDepth[vi] = 0.0;
-    _VSurf[vi] = surf;     // pelo continuo col bordo interno; lo skirt è abbassato (sp sotto il pelo) → la maschera lo legge asciutto
-    _VField[vi] = Fbm(dir * _Frequency, 2, _Lacunarity, _Gain, _Seed);   // baseN per-vertice (come l'interno)
-}
-
 // =================================================================================================
-// VARIANTI BATCH: identiche alle due sopra ma con i parametri per-nodo letti da _Jobs[NODO] invece che dagli
-// uniform globali. Il NODO è l'asse z (slab) / y (skirt) del dispatch → UN solo dispatch riempie molti nodi.
-// _NN/_NSkirtStart e la ricetta (SampleHeightD/BedHeight/Fbm) restano globali (uguali per tutti i nodi del corpo).
+// VARIANTE BATCH: identica a CSNodeSlab ma coi parametri per-nodo letti da _Jobs[NODO] invece che dagli uniform
+// globali. Il NODO è l'asse z del dispatch → UN solo dispatch riempie molti nodi. _NN e la ricetta
+// (SampleHeightD/BedHeight/Fbm) restano globali (uguali per tutti i nodi del corpo).
 // =================================================================================================
 
 [numthreads(8, 8, 1)]
@@ -122,39 +90,4 @@ void CSNodeSlabBatch(uint3 id : SV_DispatchThreadID)
         if (dot(bn, dir) < 0.0) bn = -bn;
     }
     _VBedNrm[o] = bn.x; _VBedNrm[o + 1] = bn.y; _VBedNrm[o + 2] = bn.z;
-}
-
-[numthreads(64, 1, 1)]
-void CSNodeSkirtBatch(uint3 id : SV_DispatchThreadID)
-{
-    uint res = (uint)(_NN - 1);
-    if (id.x >= 4u * res) return;
-    NodeJobGPU jb = _Jobs[id.y];
-    float3 up = jb.faceUp.xyz, ax = jb.axisA.xyz, bx = jb.axisB.xyz;
-    float u0 = jb.uv.x, v0 = jb.uv.y, step = jb.uv.z;
-    int slabOff = (int)jb.uv.w;
-    float drop = jb.misc.x;
-
-    uint k = id.x;
-    uint e = k / res, t = k % res;
-    int rr = (int)res, tt = (int)t;
-    int i, jj;
-    if (e == 0u)      { i = tt;      jj = 0; }
-    else if (e == 1u) { i = rr;      jj = tt; }
-    else if (e == 2u) { i = rr - tt; jj = rr; }
-    else              { i = 0;       jj = rr - tt; }
-    float tx = u0 + i * step;
-    float ty = v0 + jj * step;
-    float3 dir = ParamToDirA(tx, ty, up, ax, bx);
-    float depth, surf;
-    float3 p = dir * SampleHeightD(dir, depth, surf);
-    float3 sp = p - dir * drop;
-    int vi = slabOff + _NSkirtStart + (int)k;
-    int o = vi * 3;
-    _VPos[o] = sp.x; _VPos[o + 1] = sp.y; _VPos[o + 2] = sp.z;
-    _VNrm[o] = dir.x; _VNrm[o + 1] = dir.y; _VNrm[o + 2] = dir.z;
-    _VBedNrm[o] = dir.x; _VBedNrm[o + 1] = dir.y; _VBedNrm[o + 2] = dir.z;
-    _VDepth[vi] = 0.0;
-    _VSurf[vi] = surf;
-    _VField[vi] = Fbm(dir * _Frequency, 2, _Lacunarity, _Gain, _Seed);
 }

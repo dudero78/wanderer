@@ -50,19 +50,16 @@ Shader "Wanderer/PlanetSurfaceGPU"
         _SeaClarity ("Mare: limpidezza (m)", Float) = 8
 
         _Saturation ("Saturazione", Range(0,2)) = 1
-        _Cull ("Cull mode (0=Off 1=Front 2=Back)", Float) = 0   // guidato dal MATERIALE (interno=Back, skirt=Off): dimezza l'overdraw
+        _Cull ("Cull mode (0=Off 1=Front 2=Back)", Float) = 0   // guidato dal MATERIALE: scartare le retro-facce dimezza l'overdraw
     }
     SubShader
     {
         Tags { "RenderType" = "Opaque" }
         Pass
         {
-            // Cull Off: gli SKIRT (anelli tappabuchi ai confini di LOD) DEVONO essere a doppia faccia — coprono la
-            // fessura da qualunque angolo. Con Cull Back sparivano dal lato sbagliato → buchi/muri. La superficie
-            // interna avrebbe verso coerente, ma non si può avere Cull diverso per interno e skirt nello stesso draw.
-            // OVERDRAW: il valore è guidato dal MATERIALE (NON da un MaterialPropertyBlock, che in built-in non
-            // cambia lo stato fisso Cull — verificato). Due materiali: interno con Cull Back (verso coerente → niente
-            // retro-facce ombreggiate = metà overdraw del fragment) e skirt con Cull Off (devono restare doppia faccia).
+            // OVERDRAW: il _Cull è guidato dal MATERIALE (NON da un MaterialPropertyBlock, che in built-in non cambia
+            // lo stato fisso Cull — verificato). Front scarta le retro-facce della superficie (verso coerente, niente
+            // skirt da tenere a doppia faccia) → metà ombreggiatura per-pixel del terreno in un solo draw.
             Cull [_Cull]
             CGPROGRAM
             #pragma vertex vert
@@ -91,7 +88,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
             StructuredBuffer<float>  _SlabRegion;           // region-stamp: id regione DAVVERO nella fetta (scritto dal fill)
             uint _NN;                            // vertici per lato del nodo (nodeRes+1): per ricavare (i,j) dal vid e leggere i vicini
             float _MorphRange;                   // ampiezza della banda di morph (frazione di splitDist)
-            float _UseGeomorph;                  // 1 = geomorph attivo, 0 = solo skirt (confronto A/B)
+            float _UseGeomorph;                  // 1 = geomorph attivo, 0 = spento (confronto A/B)
             float3 _CamPosWorld;                 // posizione camera in mondo (shader dai-buffer: passata a mano)
 
             float3 GeoLoadPos(uint gi) { return float3(_VPos[gi * 3], _VPos[gi * 3 + 1], _VPos[gi * 3 + 2]); }
@@ -139,21 +136,8 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 if (_UseGeomorph > 0.5)
                 {
                     uint slabBase = _SlabOfInstance[iid] * _VertsPerSlab;
-                    uint interior = _NN * _NN;
-                    int i, j;
-                    if (vid < interior) { i = (int)(vid % _NN); j = (int)(vid / _NN); }
-                    else
-                    {   // SKIRT: morfa col vertice di BORDO corrispondente (resta attaccato mentre il bordo morfa)
-                        uint res = _NN - 1u;
-                        uint k = vid - interior, e = k / res, t = k % res;
-                        if (e == 0u)      { i = (int)t;          j = 0; }
-                        else if (e == 1u) { i = (int)res;        j = (int)t; }
-                        else if (e == 2u) { i = (int)(res - t);  j = (int)res; }
-                        else              { i = 0;               j = (int)(res - t); }
-                    }
-                    // per gli skirt il delta è quello del vertice di BORDO (pRef = posizione del bordo, non dello skirt)
-                    float3 pRef = (vid < interior) ? p : GeoLoadPos(slabBase + (uint)(i + j * (int)_NN));
-                    float3 delta = GeoMorphDelta(slabBase, i, j, pRef);
+                    int i = (int)(vid % _NN), j = (int)(vid / _NN);   // la fetta è solo griglia interna (niente skirt)
+                    float3 delta = GeoMorphDelta(slabBase, i, j, p);
                     // CLAMP di sicurezza: lo spostamento non può superare la SCALA del nodo (anti-spuntone su vicino anomalo).
                     float splitDist = _SplitDistOfInstance[iid];
                     float dl = length(delta);
@@ -179,8 +163,8 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 // diversa dal centro del nodo = la fetta tiene la geometria di un'ALTRA regione del pianeta (lunghezza
                 // giusta, posto sbagliato — ed è la causa vera trovata dall'audit: la sola magnitudine non la vedeva).
                 // In entrambi i casi collasso sull'ÀNCORA valida data dalla CPU (direzione-centro × raggio): la
-                // geometria invalida sparisce in un triangolo degenere vicino, mai uno spuntone in cielo. Gli skirt
-                // (direzione del bordo, lunghezza < raggio) e l'interno (direzione entro il nodo) passano indenni.
+                // geometria invalida sparisce in un triangolo degenere vicino, mai uno spuntone in cielo. I vertici
+                // interni (direzione entro il nodo, lunghezza ≈ raggio) passano indenni.
                 float3 expectedDir = _DirOfInstance[iid].xyz;
                 float plen = length(p);
                 float3 vdir = (plen > 1e-4) ? (p / plen) : expectedDir;

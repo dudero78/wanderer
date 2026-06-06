@@ -98,11 +98,9 @@ RWStructuredBuffer<float> _VSurf; // QUOTA del pelo del mare attivo per vertice 
 RWStructuredBuffer<float> _VField;  // baseN per-vertice (ondulazione di BASE [0,1]): il fragment lo usa per le maschere maria/vette invece di rifare il rumore per-pixel
 
 // ---- LOD in gioco (B1 Tappa 2): una FETTA del pool per NODO del quadtree. Riusa _FaceUp/_AxisA/_AxisB +
-// _U0/_V0/_Step (sotto-regione del nodo) + _HasSea. La fetta = griglia interna (_NN×_NN) + anello di SKIRT.
+// _U0/_V0/_Step (sotto-regione del nodo) + _HasSea. La fetta = griglia interna (_NN×_NN).
 int   _NN;            // vertici per lato del nodo (nodeRes+1)
 int   _NSlabOff;      // offset (in vertici) del primo vertice della fetta nel pool condiviso
-int   _NSkirtStart;   // offset dello skirt DENTRO la fetta (= _NN*_NN)
-float _NSkirtDrop;    // abbassamento radiale dello skirt (nasconde le crepe ai confini di LOD)
 // REGION-STAMP: il fill scrive l'id REGIONE nella fetta (insieme alla geometria) → il vertex shader smaschera una fetta
 // che tiene ancora la geometria di una regione vecchia (churn). _SlabRegion[indice fetta] = id; per-nodo da uniform,
 // batch da job.misc (z = indice fetta, w = id). float per la fetta = id esatto (≤ 2^23).
@@ -112,8 +110,8 @@ float _SlabRegionId;   // id regione da scrivere (path per-nodo)
 
 // ---- LOD BATCH (un SOLO dispatch per molti nodi): invece di settare gli uniform e fare 1 dispatch PER NODO
 // (~centinaia di chiamate API/frame nel churn), i parametri per-nodo stanno in un buffer e si dispatcha una
-// volta sola con il NODO sull'asse z (slab) o y (skirt). Tutto float4 per evitare il disallineamento dei float3
-// su Metal. uv = (u0,v0,step,slabOff); misc.x = skirtDrop, misc.z = indice fetta, misc.w = id regione (region-stamp).
+// volta sola con il NODO sull'asse z. Tutto float4 per evitare il disallineamento dei float3 su Metal.
+// uv = (u0,v0,step,slabOff); misc.z = indice fetta, misc.w = id regione (region-stamp). misc.x/y inutilizzati.
 struct NodeJobGPU { float4 faceUp; float4 axisA; float4 axisB; float4 uv; float4 misc; };
 StructuredBuffer<NodeJobGPU> _Jobs;
 
@@ -602,8 +600,6 @@ float3 NPosAt(float tx, float ty)
     return d * SampleHeight(d);
 }
 
-// ---- LOD: griglia INTERNA di un nodo nella sua fetta del pool (pos + normale analitica + profondità) ----
-
-// ---- LOD: anello di SKIRT del nodo (bordo abbassato radialmente) → nasconde le crepe fra LOD diversi ----
+// ---- LOD: i kernel di fill (griglia interna del nodo: pos + normale analitica + profondità) sono in PlanetHeight.compute ----
 
 #endif

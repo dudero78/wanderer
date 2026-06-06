@@ -8,7 +8,7 @@ using UnityEngine.Rendering;
 /// QUADTREE GPU su cubo-sfera: 6 facce-radice, ogni nodo è una patch [u0,u0+size]×[v0,v0+size] del dominio
 /// parametrico della faccia. Si suddivide quando la camera è vicina → densità che segue la distanza: fitta
 /// sotto i piedi (crateri nitidi), rada all'orizzonte, CULLATA dietro la curvatura. Ogni nodo-foglia possiede
-/// una FETTA del pool GPU (griglia interna + skirt), riempita da PlanetHeight.compute (CSNodeSlab/CSNodeSkirt).
+/// una FETTA del pool GPU (la griglia interna), riempita da PlanetHeight.compute (CSNodeSlab/CSNodeSlabBatch).
 /// La lista delle foglie visibili va a UN solo Graphics.RenderPrimitivesIndexedIndirect — niente Mesh Unity,
 /// niente upload, niente readback, niente draw call per-nodo.
 ///
@@ -18,7 +18,7 @@ using UnityEngine.Rendering;
 /// Il walker NON dipende da questo (legge SampleHeight analitico in 1 punto) → collisione intatta. La luce è
 /// MANUALE (lo shader dai-buffer non riceve le luci di Unity): sole + torcia passati a mano.
 ///
-/// Tappa 2 = LOD + skirt (niente fessure ai confini). Tappa 2b: geomorph (transizioni LOD lisce, niente pop).
+/// LOD: CDLOD col morph continuo nel vertex shader (transizioni lisce, crack-free senza skirt né stitch).
 /// Robustezza: senza compute o shader, Ready resta false e SolarSystemSetup ripiega sul quadtree.
 /// </summary>
 public class GpuPlanetRenderer : MonoBehaviour
@@ -31,9 +31,6 @@ public class GpuPlanetRenderer : MonoBehaviour
                                          // (>1) farebbe morfare i due lati di un confine a misure diverse → crepe. Il flip
                                          // alla soglia è invisibile (mf=1 = forma del genitore su entrambi i lati) e in cache.
     public int maxDepth = 6;
-    public float skirtFactor = 0.5f;   // profondità skirt = worldSize·questo. Tenerlo BASSO: lo skirt è un muretto al
-                                       // confine di LOD, e più è profondo più si vede come lamella scura. Il fix vero
-                                       // delle cuciture è il GEOMORPH (Tappa 2b), non skirt più profondi.
     public int maxSlabs = 1024;  // fette nel pool CONDIVISO fra i corpi (free + cache + visibili). Pre-allocate.
                                  // (~459 MB). Il "nero all'orizzonte" NON era esaurimento del pool ma l'horizon
                                  // culling che mangiava i picchi → risolto in BeyondHorizon, qui resta il valore VRAM-ottimo.
@@ -42,13 +39,10 @@ public class GpuPlanetRenderer : MonoBehaviour
     public float lookaheadTime = 0.7f;   // LOD PREDITTIVO: valuta lo split dalla posizione DOVE SARAI fra ~tot secondi
                                          // (verso cui voli) → il dettaglio è pronto PRIMA di arrivarci (niente "carica tardi")
     public static bool UseGeomorph = true;   // GEOMORPH CDLOD nel vertex shader: transizioni LOD lisce. Statico (da GameBootstrap), toggle A/B
-    // DIAGNOSI spuntoni: false = NON disegna gli SKIRT (i muretti ai confini di LOD). Se gli spuntoni nei crateri
-    // spariscono spegnendoli (lasciando magari fessure), sono gli skirt → cura = quadtree 2:1. Toggle A/B temporaneo.
-    public static bool DrawSkirts = false;
     public float morphRange = 0.5f;      // ampiezza della banda di morph (frazione di splitDist): 0.1 stretta, 0.9 larga
-    // OVERDRAW: interno con Cull Back + skirt con Cull Off, in 2 draw (il _Cull lo guida il MATERIALE, deterministico).
-    // STATICI (impostati da GameBootstrap). InteriorCull 2=Back; se l'INTERNO sparisce accendendolo, il verso è
-    // invertito → mettilo a 1 (Front). Dimezza l'ombreggiatura per-pixel del terreno (niente retro-facce).
+    // OVERDRAW: un solo draw col _Cull del materiale (deterministico). STATICI (impostati da GameBootstrap).
+    // InteriorCull 2=Back; se l'INTERNO sparisce accendendolo, il verso è invertito → mettilo a 1 (Front).
+    // Dimezza l'ombreggiatura per-pixel del terreno (niente retro-facce).
     public static bool CullSplit = true;
     public static int InteriorCull = 1;   // 1=Front: il verso dell'interno è Front-facing (Cull Back ribaltava tutto). Verificato in gioco
 
@@ -60,16 +54,14 @@ public class GpuPlanetRenderer : MonoBehaviour
     int lastDebugView = -1;   // per accendere/spegnere la keyword PLANET_DEBUG_VIEW solo al cambio
 
     int n;             // nodeRes+1 (vertici per lato)
-    int vertsPerSlab;  // n*n + 4*nodeRes (interno + skirt)
-    int skirtStart;    // n*n
-    int indexCountPerSlab;
-    int interiorIndexCount;   // indici dei tris INTERNI (primi nodeRes²·6): il resto dell'index buffer è skirt
+    int vertsPerSlab;  // n*n (la sola griglia interna; niente skirt)
+    int indexCountPerSlab;   // indici della griglia interna (nodeRes²·6) — è tutto, non ci sono più skirt
     float radius;
 
     ComputeShader cs;
-    int kSlab, kSkirt;
+    int kSlab;
     // ID di proprietà cachati: SetX per NOME ri-hasha la stringa a ogni chiamata (×~600/frame nei fill); con
-    // ID interi l'overhead per-chiamata crolla. _NN/_NSkirtStart sono costanti → settati una volta nel Setup.
+    // ID interi l'overhead per-chiamata crolla. _NN è costante → settato una volta nel Setup.
     static readonly int ID_FaceUp = Shader.PropertyToID("_FaceUp");
     static readonly int ID_AxisA = Shader.PropertyToID("_AxisA");
     static readonly int ID_AxisB = Shader.PropertyToID("_AxisB");
@@ -77,23 +69,19 @@ public class GpuPlanetRenderer : MonoBehaviour
     static readonly int ID_V0 = Shader.PropertyToID("_V0");
     static readonly int ID_Step = Shader.PropertyToID("_Step");
     static readonly int ID_NSlabOff = Shader.PropertyToID("_NSlabOff");
-    static readonly int ID_NSkirtDrop = Shader.PropertyToID("_NSkirtDrop");
     // POOL geometria: ALIAS dei buffer CONDIVISI statici (sPos…), assegnati in AcquirePool. Un solo pool serve
     // tutti i corpi (#2 sez. A): un corpo solo è "attivo" per volta, gli altri stanno alle radici → 1×~843 MB, non 6×.
     GraphicsBuffer posBuf, nrmBuf, bedNrmBuf, depthBuf, fieldBuf, surfBuf;
     GraphicsBuffer slabRegion;   // alias del marchio di regione CONDIVISO (parallelo al pool: un marchio per fetta fisica)
-    GraphicsBuffer idxBuf;                                // topologia di UNA fetta (interno + skirt), condivisa
+    GraphicsBuffer idxBuf;                                // topologia di UNA fetta (griglia interna), condivisa
     GraphicsBuffer slabOfInstance;                        // istanza visibile → indice di fetta
     GraphicsBuffer splitDistOfInstance;                   // geomorph: splitDist (worldSize·lodFactor) per istanza, parallelo a slabOfInstance
     GraphicsBuffer dirOfInstance;                         // ANTI-SPUNTONE: direzione-centro del nodo per istanza (float4, w inusato). Il vertex collassa chi devia troppo in direzione = fetta di regione sbagliata
     Vector4[] dirScratch;
     GraphicsBuffer argsBuf;
     GraphicsBuffer.IndirectDrawIndexedArgs[] argsData = new GraphicsBuffer.IndirectDrawIndexedArgs[1];
-    GraphicsBuffer argsSkirtBuf;   // secondo draw (solo skirt, Cull Off) quando cullSplit è ON
-    GraphicsBuffer.IndirectDrawIndexedArgs[] argsSkirtData = new GraphicsBuffer.IndirectDrawIndexedArgs[1];
     GpuShapeBuffers shape;
-    Material mat;        // INTERNO: Cull Back quando cullSplit è ON
-    Material matSkirt;   // SKIRT: Cull Off (doppia faccia). Stessi buffer/uniform di mat, solo il _Cull diverso
+    Material mat;        // superficie: _Cull = Front (CullSplit) o Off → dimezza l'overdraw del fragment in un draw solo
     Transform planetTf;
     PlanetTerrain terrain;
 
@@ -154,11 +142,11 @@ public class GpuPlanetRenderer : MonoBehaviour
     // resta il path per-nodo (sicuro). R1: il batch corruppe la geometria una volta → ora è dietro al banco di verifica.
     public static bool UseBatchFill;   // acceso da GameBootstrap PRIMA del Setup (la verifica gira nel Setup)
     bool batchReady;             // true = verifica passata → uso il path batch
-    int kSlabBatch, kSkirtBatch;
+    int kSlabBatch;
     GraphicsBuffer jobsBuf;      // parametri per-nodo del frame
     NodeJob[] jobScratch;        // CPU side, riempito durante la traversata, caricato una volta al flush
     int jobCount;
-    struct NodeJob { public Vector4 faceUp, axisA, axisB, uv, misc; }   // = NodeJobGPU (uv: u0,v0,step,slabOff; misc.x: skirtDrop)
+    struct NodeJob { public Vector4 faceUp, axisA, axisB, uv, misc; }   // = NodeJobGPU (uv: u0,v0,step,slabOff; misc.z: indice fetta, w: id regione)
 
     public bool Ready { get; private set; }
 
@@ -183,10 +171,9 @@ public class GpuPlanetRenderer : MonoBehaviour
         // ~1.8× la memoria per fetta con un calo di dettaglio modesto (il quadtree si suddivide comunque per
         // distanza). È un DIAL: 128 = dettaglio pieno/più VRAM, 64 = ~4× meno VRAM/più grossolano. Cap, non default,
         // così vale qualunque gpuSurfaceRes serializzato in scena. (Editor preview = altra classe, non toccata.)
-        nodeRes = Mathf.Clamp(res, 4, 96) & ~1;   // PARI obbligatorio: il geomorph/skirt assumono bordi pari; dispari → letture fuori-griglia = spuntoni
+        nodeRes = Mathf.Clamp(res, 4, 96) & ~1;   // PARI obbligatorio: il geomorph assume bordi pari; dispari → letture fuori-griglia
         n = nodeRes + 1;
-        skirtStart = n * n;
-        vertsPerSlab = n * n + 4 * nodeRes;
+        vertsPerSlab = n * n;   // CDLOD: niente skirt → solo la griglia interna (pool più piccolo, fill più leggero)
 
         if (!SystemInfo.supportsComputeShaders) return;
         // ISTANZA PROPRIA del compute: in scena ci sono più corpi, e il ComputeShader condiviso (Resources.Load
@@ -201,16 +188,14 @@ public class GpuPlanetRenderer : MonoBehaviour
             return;
         }
         kSlab = cs.FindKernel("CSNodeSlab");
-        kSkirt = cs.FindKernel("CSNodeSkirt");
         kSlabBatch = cs.FindKernel("CSNodeSlabBatch");
-        kSkirtBatch = cs.FindKernel("CSNodeSkirtBatch");
 
         AcquirePool();   // alloca (o riusa) il pool CONDIVISO → alias posBuf…surfBuf + free-list/cache + bodyId
         jobsBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 5 * 16); // NodeJob = 5×float4 (per-corpo, ~82 KB)
         jobScratch = new NodeJob[maxSlabs];
 
-        // i 4 kernel (per-nodo + batch) scrivono lo STESSO pool; i batch leggono anche _Jobs
-        foreach (int k in new[] { kSlab, kSkirt, kSlabBatch, kSkirtBatch })
+        // i 2 kernel (per-nodo + batch) scrivono lo STESSO pool; il batch legge anche _Jobs
+        foreach (int k in new[] { kSlab, kSlabBatch })
         {
             cs.SetBuffer(k, "_VPos", posBuf);
             cs.SetBuffer(k, "_VNrm", nrmBuf);
@@ -220,12 +205,10 @@ public class GpuPlanetRenderer : MonoBehaviour
             cs.SetBuffer(k, "_VSurf", surfBuf);
         }
         cs.SetBuffer(kSlabBatch, "_Jobs", jobsBuf);
-        cs.SetBuffer(kSkirtBatch, "_Jobs", jobsBuf);
         cs.SetBuffer(kSlab, "_SlabRegion", slabRegion);          // marchio di regione: lo scrive il fill dell'interno
         cs.SetBuffer(kSlabBatch, "_SlabRegion", slabRegion);
-        shape = GpuShapeBuffers.Build(cs, terrain, new[] { kSlab, kSkirt, kSlabBatch, kSkirtBatch });   // base+ricetta a tutti
-        cs.SetInt("_NN", n);                 // costanti per i kernel dei fill (non più per-fill)
-        cs.SetInt("_NSkirtStart", skirtStart);
+        shape = GpuShapeBuffers.Build(cs, terrain, new[] { kSlab, kSlabBatch });   // base+ricetta a entrambi
+        cs.SetInt("_NN", n);                 // costante per i kernel dei fill (non più per-fill)
 
         BuildIndexBuffer();
 
@@ -239,7 +222,6 @@ public class GpuPlanetRenderer : MonoBehaviour
         // REGION-STAMP (anti fetta-fantasma): il marchio per fetta (slabRegion, CONDIVISO via AcquirePool) è scritto dal
         // kernel di fill INSIEME alla geometria → se la fetta tiene una regione vecchia (churn), il marchio lo svela.
         argsBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
-        argsSkirtBuf = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, GraphicsBuffer.IndirectDrawIndexedArgs.size);
 
         mat = new Material(sh);
         mat.SetBuffer("_VPos", posBuf);
@@ -280,16 +262,10 @@ public class GpuPlanetRenderer : MonoBehaviour
         VerifyParityRuntime();   // #9: gate non bloccante CPU↔GPU (un readback dei root, una volta sola)
         ApplyColor();
 
-        // SKIRT: secondo materiale = copia di mat ma con Cull Off. new Material(mat) copia gli uniform; i BUFFER li
-        // ri-lego esplicitamente (la copia non sempre li porta con sé) → robusto. Il Cull lo guida il MATERIALE.
-        matSkirt = new Material(mat);
-        BindSurfaceBuffers(matSkirt);
-        matSkirt.SetInt("_Cull", 0);   // skirt SEMPRE Cull Off (doppia faccia, tappano la fessura da ogni angolo)
-
         Ready = true;
     }
 
-    /// <summary>Lega i 6 buffer del pool + i due per-istanza a un materiale (mat e matSkirt condividono gli stessi).</summary>
+    /// <summary>Lega i 6 buffer del pool + i due per-istanza a un materiale.</summary>
     void BindSurfaceBuffers(Material m)
     {
         m.SetBuffer("_VPos", posBuf); m.SetBuffer("_VNrm", nrmBuf); m.SetBuffer("_VBedNrm", bedNrmBuf);
@@ -355,7 +331,7 @@ public class GpuPlanetRenderer : MonoBehaviour
         return nd;
     }
 
-    /// <summary>Centro (per la distanza di LOD) + dimensione mondo (per split/skirt), sulla SFERA BASE.
+    /// <summary>Centro (per la distanza di LOD) + dimensione mondo (per split), sulla SFERA BASE.
     /// NON chiama più SampleHeight: era il walker CPU (pesante: rumore+crateri+tettonica), 3 volte per nodo → 12
     /// per split → era il PICCO misurato durante la costruzione del LOD. Lo spostamento d'altezza (decine di m) è
     /// trascurabile per la DISTANZA di LOD e l'orizzonte (centinaia di m) → niente cambio visibile. La collisione
@@ -483,16 +459,11 @@ public class GpuPlanetRenderer : MonoBehaviour
         FillSlabImmediate(nd);
     }
 
-    // profondità dello skirt. UNA sola formula condivisa da per-nodo e batch → restano IDENTICI (parità). Cap a
-    // worldSize·3 (non più worldSize, che annullava skirtFactor>1): su pareti ripide serve uno skirt più profondo
-    // del nodo per coprire il salto di LOD.
-    float SkirtDrop(Node nd) => Mathf.Clamp(nd.worldSize * skirtFactor, 1f, nd.worldSize);
-
     NodeJob MakeJob(Node nd) => new NodeJob
     {
         faceUp = nd.up, axisA = nd.axisA, axisB = nd.axisB,
         uv = new Vector4(nd.u0, nd.v0, nd.size / nodeRes, nd.slab * vertsPerSlab),
-        misc = new Vector4(SkirtDrop(nd), 0f, nd.slab, RegionId(nd)),   // misc.z = indice fetta, misc.w = id regione (region-stamp)
+        misc = new Vector4(0f, 0f, nd.slab, RegionId(nd)),   // misc.z = indice fetta, misc.w = id regione (region-stamp)
     };
 
     /// <summary>Fill PER-NODO immediato (2 dispatch, uniform per-nodo). Path classico, sicuro.</summary>
@@ -507,17 +478,15 @@ public class GpuPlanetRenderer : MonoBehaviour
         cs.SetFloat(ID_V0, nd.v0);
         cs.SetFloat(ID_Step, nd.size / nodeRes);
         cs.SetInt(ID_NSlabOff, nd.slab * vertsPerSlab);
-        cs.SetFloat(ID_NSkirtDrop, SkirtDrop(nd));
         cs.SetInt("_SlabIndex", nd.slab);             // region-stamp (path per-nodo): il fill marchia questa fetta
         cs.SetFloat("_SlabRegionId", RegionId(nd));
         int g = (n + 7) / 8;
         cs.Dispatch(kSlab, g, g, 1);
-        cs.Dispatch(kSkirt, (4 * nodeRes + 63) / 64, 1, 1);
         fillTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
     }
 
-    /// <summary>Manda in UN dispatch (slab + skirt) tutti i job accumulati nel frame. Il nodo è sull'asse z (slab) /
-    /// y (skirt) del dispatch → ogni gruppo legge i suoi parametri da _Jobs[nodo]. Niente per-nodo SetX/Dispatch.</summary>
+    /// <summary>Manda in UN dispatch tutti i job-fetta accumulati nel frame. Il nodo è sull'asse z del dispatch →
+    /// ogni gruppo legge i suoi parametri da _Jobs[nodo]. Niente per-nodo SetX/Dispatch.</summary>
     void FlushFills()
     {
         if (!batchReady || jobCount == 0) return;
@@ -525,7 +494,6 @@ public class GpuPlanetRenderer : MonoBehaviour
         jobsBuf.SetData(jobScratch, 0, 0, jobCount);
         int g = (n + 7) / 8;
         cs.Dispatch(kSlabBatch, g, g, jobCount);
-        cs.Dispatch(kSkirtBatch, (4 * nodeRes + 63) / 64, jobCount, 1);
         fillTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
         jobCount = 0;
     }
@@ -565,7 +533,6 @@ public class GpuPlanetRenderer : MonoBehaviour
         foreach (var r in roots2) jobScratch[jobCount++] = MakeJob(r);
         jobsBuf.SetData(jobScratch, 0, 0, jobCount);
         cs.Dispatch(kSlabBatch, g, g, jobCount);
-        cs.Dispatch(kSkirtBatch, (4 * nodeRes + 63) / 64, jobCount, 1);
 
         float maxDiff = 0f; long compared = 0; string worst = "";
         for (int ri = 0; ri < roots2.Count; ri++)
@@ -714,15 +681,14 @@ public class GpuPlanetRenderer : MonoBehaviour
         // alla soglia il corpo è già invisibile, un eventuale flip è impercettibile.
         Vector3 bodyCenter = m.MultiplyPoint3x4(Vector3.zero);
         if (radius < Vector3.Distance(cam.position, bodyCenter) * 0.0006f) return;
-        // per-frame su ENTRAMBI i materiali (interno e skirt sono ombreggiati uguale). mat porta il _Cull dell'interno
-        // (Back se cullSplit, altrimenti Off = comportamento a draw singolo). matSkirt resta Cull Off (impostato nel Setup).
+        // per-frame sul materiale unico: porta il _Cull (Front se cullSplit, altrimenti Off = niente culling).
         // VISTE DEBUG: accendi la variante (keyword) solo quando serve, e solo al CAMBIO (toggle keyword ogni frame =
         // spreco). In gioco (DebugView=0) la keyword è spenta → la variante senza codice di diagnosi = costo zero.
         if (DebugView != lastDebugView)
         {
             lastDebugView = DebugView;
-            if (DebugView > 0) { mat.EnableKeyword("PLANET_DEBUG_VIEW"); if (matSkirt != null) matSkirt.EnableKeyword("PLANET_DEBUG_VIEW"); }
-            else               { mat.DisableKeyword("PLANET_DEBUG_VIEW"); if (matSkirt != null) matSkirt.DisableKeyword("PLANET_DEBUG_VIEW"); }
+            if (DebugView > 0) mat.EnableKeyword("PLANET_DEBUG_VIEW");
+            else               mat.DisableKeyword("PLANET_DEBUG_VIEW");
         }
         mat.SetMatrix("_ObjectToWorld", m);
         mat.SetVector("_CamPosWorld", cam.position);   // geomorph: distanza camera per il fattore di morph (shader dai-buffer)
@@ -730,14 +696,6 @@ public class GpuPlanetRenderer : MonoBehaviour
         mat.SetInt("_Cull", CullSplit ? InteriorCull : 0);
         RefreshLighting(mat);
         RefreshTorch(mat);
-        if (CullSplit && matSkirt != null)
-        {
-            matSkirt.SetMatrix("_ObjectToWorld", m);
-            matSkirt.SetVector("_CamPosWorld", cam.position);
-            matSkirt.SetFloat("_DebugView", DebugView);
-            RefreshLighting(matSkirt);
-            RefreshTorch(matSkirt);
-        }
 
         // LOD: decidi split/merge e raccogli le foglie visibili
         var sw = System.Diagnostics.Stopwatch.StartNew();   // diagnosi: costo CPU del mio lavoro per frame
@@ -790,37 +748,14 @@ public class GpuPlanetRenderer : MonoBehaviour
         dirOfInstance.SetData(dirScratch, 0, 0, visibleCount);           // anti-spuntone: parallelo a slabOfInstance
 
         var worldBounds = new Bounds(planetCenter, Vector3.one * (radius * 5f));
-        if (CullSplit && matSkirt != null)
-        {
-            // DUE materiali: INTERNO (mat, Cull Back → niente retro-facce ombreggiate = metà overdraw del fragment)
-            // sui primi interiorIndexCount indici, + SKIRT (matSkirt, Cull Off) sul resto. Il Cull lo guida il
-            // MATERIALE (deterministico, a differenza del MaterialPropertyBlock). Stessi buffer/uniform su entrambi.
-            argsData[0].indexCountPerInstance = (uint)interiorIndexCount;
-            argsData[0].instanceCount = (uint)visibleCount;
-            argsData[0].startIndex = 0;
-            argsBuf.SetData(argsData);
-            argsSkirtData[0].indexCountPerInstance = (uint)(indexCountPerSlab - interiorIndexCount);
-            argsSkirtData[0].instanceCount = (uint)visibleCount;
-            argsSkirtData[0].startIndex = (uint)interiorIndexCount;
-            argsSkirtBuf.SetData(argsSkirtData);
-            var rpI = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
-            Graphics.RenderPrimitivesIndexedIndirect(rpI, MeshTopology.Triangles, idxBuf, argsBuf, 1);
-            if (DrawSkirts)   // DIAGNOSI: salta il draw degli skirt quando spento
-            {
-                var rpS = new RenderParams(matSkirt) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
-                Graphics.RenderPrimitivesIndexedIndirect(rpS, MeshTopology.Triangles, idxBuf, argsSkirtBuf, 1);
-            }
-        }
-        else
-        {
-            // UN draw, tutto l'index buffer, Cull Off (mat._Cull=0). DIAGNOSI: solo l'interno se gli skirt sono spenti.
-            argsData[0].indexCountPerInstance = (uint)(DrawSkirts ? indexCountPerSlab : interiorIndexCount);
-            argsData[0].instanceCount = (uint)visibleCount;
-            argsData[0].startIndex = 0;
-            argsBuf.SetData(argsData);
-            var rp = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
-            Graphics.RenderPrimitivesIndexedIndirect(rp, MeshTopology.Triangles, idxBuf, argsBuf, 1);
-        }
+        // UN draw indiretto: la sola griglia interna (niente skirt). Il _Cull del materiale (Front se CullSplit, Off
+        // altrimenti) dimezza l'overdraw del fragment scartando le retro-facce — senza bisogno di un secondo draw.
+        argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
+        argsData[0].instanceCount = (uint)visibleCount;
+        argsData[0].startIndex = 0;
+        argsBuf.SetData(argsData);
+        var rp = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
+        Graphics.RenderPrimitivesIndexedIndirect(rp, MeshTopology.Triangles, idxBuf, argsBuf, 1);
 
         // diagnosi: logga SOLO i frame "pesanti" (il mio lavoro CPU ≥ 4 ms) con quante patch ha generato.
         // Se vedi spesso fills alti o ms alti = è il LOD (CPU). Se i frame scattano ma qui i ms sono bassi = è la GPU.
@@ -835,13 +770,11 @@ public class GpuPlanetRenderer : MonoBehaviour
         if (ms >= 4.0) Debug.Log($"[GpuPlanet {name}] CPU {ms:F1} ms (trav {travMs:F1} · fill {fillMs:F1} · invio {sendMs:F1}) · fills={fillsThisFrame} · visibili={visibleCount}");
     }
 
-    /// <summary>Index buffer della topologia di UNA fetta: griglia interna n×n + anello di skirt. L'offset di
-    /// fetta lo aggiunge il vertex shader via SV_InstanceID → un solo index buffer per tutte le istanze.</summary>
+    /// <summary>Index buffer della topologia di UNA fetta: la griglia interna n×n. L'offset di fetta lo aggiunge
+    /// il vertex shader via SV_InstanceID → un solo index buffer per tutte le istanze.</summary>
     void BuildIndexBuffer()
     {
-        int per = 4 * nodeRes;
-        var idx = new List<int>(nodeRes * nodeRes * 6 + per * 6);
-        // interno (Cull Off → il verso non conta)
+        var idx = new List<int>(nodeRes * nodeRes * 6);
         for (int j = 0; j < nodeRes; j++)
             for (int i = 0; i < nodeRes; i++)
             {
@@ -849,32 +782,9 @@ public class GpuPlanetRenderer : MonoBehaviour
                 idx.Add(i00); idx.Add(i01); idx.Add(i11);
                 idx.Add(i00); idx.Add(i11); idx.Add(i10);
             }
-        interiorIndexCount = idx.Count;   // tutto ciò che precede le skirt = i tris INTERNI (draw separato con Cull Back)
-        // skirt: collega ogni vertice di bordo al suo vertice di skirt abbassato
-        for (int k = 0; k < per; k++)
-        {
-            int a = PerimInterior(k);
-            int b = PerimInterior((k + 1) % per);
-            int as_ = skirtStart + k;
-            int bs = skirtStart + (k + 1) % per;
-            idx.Add(a); idx.Add(as_); idx.Add(bs);
-            idx.Add(a); idx.Add(bs); idx.Add(b);
-        }
         indexCountPerSlab = idx.Count;
         idxBuf = new GraphicsBuffer(GraphicsBuffer.Target.Index, indexCountPerSlab, 4);
         idxBuf.SetData(idx);
-    }
-
-    /// <summary>Indice (nella griglia interna n×n) del vertice di perimetro k. STESSA mappa di CSNodeSkirt.</summary>
-    int PerimInterior(int k)
-    {
-        int res = nodeRes;
-        int e = k / res, t = k % res, i, j;
-        if (e == 0)      { i = t;       j = 0; }
-        else if (e == 1) { i = res;     j = t; }
-        else if (e == 2) { i = res - t; j = res; }
-        else             { i = 0;       j = res - t; }
-        return i + j * n;
     }
 
     void ApplyColor()
@@ -956,10 +866,9 @@ public class GpuPlanetRenderer : MonoBehaviour
         ReturnMySlabs();   // streaming-safe: rendi le fette di questo corpo PRIMA di mollare il riferimento al pool
         ReleasePool();   // i 6 buffer geometria sono CONDIVISI e refcountati: liberati solo quando muore l'ultimo corpo
         jobsBuf?.Release();
-        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); dirOfInstance?.Release(); argsBuf?.Release(); argsSkirtBuf?.Release();
+        idxBuf?.Release(); slabOfInstance?.Release(); splitDistOfInstance?.Release(); dirOfInstance?.Release(); argsBuf?.Release();
         shape?.Dispose();
         if (mat != null) Destroy(mat);
-        if (matSkirt != null) Destroy(matSkirt);
         if (cs != null) Destroy(cs);   // l'istanza propria del compute
     }
 }
