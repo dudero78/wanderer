@@ -60,6 +60,7 @@ public class MapMode : MonoBehaviour
     readonly List<GameObject> systemMarkers = new List<GameObject>();
     readonly List<StarSystem> systemMarkerSys = new List<StarSystem>();
     readonly Dictionary<GameObject, StarSystem> systemOf = new Dictionary<GameObject, StarSystem>();
+    int builtBodyCount;   // n. corpi per cui sono costruite le visuali → se cambia (sistema svegliato) si ricostruisce
 
     // Camera ORBITALE della mappa: yaw/pitch (trascina col DESTRO), distanza (rotella), attorno a un FOCUS.
     // Il focus insegue il corpo SELEZIONATO (focusFollows, con smoothing) finché non PANni con WASD → si sgancia
@@ -105,63 +106,7 @@ public class MapMode : MonoBehaviour
         var lineShader = Shader.Find("Sprites/Default");
         float orbitWidth = SystemRadius() * 0.004f;
 
-        for (int i = 0; i < solar.Bodies.Count; i++)
-        {
-            var b = solar.Bodies[i];
-            if (b == null) continue;
-            bool isStar = b.Orbit == null;
-            Color col = isStar ? new Color(1f, 0.85f, 0.45f) : new Color(0.7f, 0.78f, 0.9f);
-
-            // Il BARICENTRO di un binario è un punto senza massa: niente marker/proxy (non è un bersaglio), ma la
-            // sua ORBITA attorno al sole va disegnata → salto solo il marker e cado dritto al blocco orbita.
-            if (!b.Massless)
-            {
-                // marker cliccabile (sfera unlit), posizionato e scalato ogni frame
-                var mk = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                mk.name = "Marker_" + b.gameObject.name;
-                if (markerShader != null)
-                {
-                    var m = new Material(markerShader);
-                    m.SetColor("_Color", col);
-                    mk.GetComponent<MeshRenderer>().sharedMaterial = m;
-                }
-                mk.transform.SetParent(transform, false);
-                markers.Add(mk);
-                markerBody[mk] = b;
-
-                // CORPO REALE: se ha una ricetta, costruisci un proxy a bassa res (mesh craterizzata + materiali
-                // bakeati) e rendi il marker un bersaglio di click INVISIBILE. La stella (niente terreno) resta disco.
-                var terr = b.GetComponent<PlanetTerrain>();
-                if (terr != null && terr.Recipe != null)
-                {
-                    mk.GetComponent<MeshRenderer>().enabled = false;
-                    var pgo = new GameObject("Proxy_" + b.gameObject.name);
-                    pgo.transform.SetParent(transform, false);
-                    var proxy = pgo.AddComponent<SingleMeshPlanet>();
-                    proxy.Build(terr, terr.FaceMaterials, MapProxyRes, MapProxyRes);
-                    proxies[b] = pgo.transform;
-                }
-            }
-
-            // orbita (solo per i corpi che orbitano)
-            if (b.Orbit != null && b.Parent != null && lineShader != null)
-            {
-                var lgo = new GameObject("Orbit_" + b.gameObject.name);
-                lgo.transform.SetParent(transform, false);
-                var lr = lgo.AddComponent<LineRenderer>();
-                lr.material = new Material(lineShader);
-                lr.useWorldSpace = true;
-                lr.loop = true;
-                lr.widthMultiplier = orbitWidth;
-                lr.numCapVertices = 2;
-                int n = 96;
-                lr.positionCount = n;
-                var faint = new Color(col.r, col.g, col.b, 0.5f);
-                lr.startColor = faint; lr.endColor = faint;
-                orbits.Add(lr);
-                orbitBody.Add(b);
-            }
-        }
+        BuildBodyVisuals(markerShader, lineShader, orbitWidth);
 
         // TAPPA 5 — billboard delle stelle dei sistemi DISTANTI (SystemOrigin != Zero): disco unlit del colore della
         // stella. CLICCABILI (collider) → selezionano il sistema come WAYPOINT galattico.
@@ -209,6 +154,76 @@ public class MapMode : MonoBehaviour
             trail.startColor = new Color(0.4f, 1f, 0.5f, 0.12f);   // capo VECCHIO (indice 0): quasi spento
             trail.endColor = new Color(0.45f, 1f, 0.55f, 0.9f);    // capo RECENTE: acceso
         }
+    }
+
+    // Visuali dei CORPI (marker cliccabili + proxy + orbite). Estratte così si possono RICOSTRUIRE quando un sistema
+    // distante si SVEGLIA (i suoi corpi entrano in solar.Bodies dopo l'avvio) → i suoi pianeti diventano selezionabili
+    // e mostrano l'orbita, come quelli di casa. I billboard dei sistemi / "tu sei qui" / scia NON cambiano (una volta).
+    void BuildBodyVisuals(Shader markerShader, Shader lineShader, float orbitWidth)
+    {
+        for (int i = 0; i < solar.Bodies.Count; i++)
+        {
+            var b = solar.Bodies[i];
+            if (b == null) continue;
+            bool isStar = b.Orbit == null;
+            Color col = isStar ? new Color(1f, 0.85f, 0.45f) : new Color(0.7f, 0.78f, 0.9f);
+
+            if (!b.Massless)   // il baricentro di un binario non è un bersaglio (niente marker/proxy), ma l'orbita sì
+            {
+                var mk = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                mk.name = "Marker_" + b.gameObject.name;
+                if (markerShader != null)
+                {
+                    var m = new Material(markerShader);
+                    m.SetColor("_Color", col);
+                    mk.GetComponent<MeshRenderer>().sharedMaterial = m;
+                }
+                mk.transform.SetParent(transform, false);
+                markers.Add(mk);
+                markerBody[mk] = b;
+
+                var terr = b.GetComponent<PlanetTerrain>();
+                if (terr != null && terr.Recipe != null)
+                {
+                    mk.GetComponent<MeshRenderer>().enabled = false;
+                    var pgo = new GameObject("Proxy_" + b.gameObject.name);
+                    pgo.transform.SetParent(transform, false);
+                    var proxy = pgo.AddComponent<SingleMeshPlanet>();
+                    proxy.Build(terr, terr.FaceMaterials, MapProxyRes, MapProxyRes);
+                    proxies[b] = pgo.transform;
+                }
+            }
+
+            if (b.Orbit != null && b.Parent != null && lineShader != null)
+            {
+                var lgo = new GameObject("Orbit_" + b.gameObject.name);
+                lgo.transform.SetParent(transform, false);
+                var lr = lgo.AddComponent<LineRenderer>();
+                lr.material = new Material(lineShader);
+                lr.useWorldSpace = true;
+                lr.loop = true;
+                lr.widthMultiplier = orbitWidth;
+                lr.numCapVertices = 2;
+                lr.positionCount = 96;
+                var faint = new Color(col.r, col.g, col.b, 0.5f);
+                lr.startColor = faint; lr.endColor = faint;
+                orbits.Add(lr);
+                orbitBody.Add(b);
+            }
+        }
+        builtBodyCount = solar.Bodies.Count;
+    }
+
+    // Ricostruisce SOLO le visuali dei corpi (quando l'insieme dei corpi cambia: un sistema svegliato/addormentato).
+    void RebuildBodyVisuals()
+    {
+        foreach (var mk in markers) if (mk) Destroy(mk);
+        markers.Clear(); markerBody.Clear();
+        foreach (var kv in proxies) if (kv.Value) Destroy(kv.Value.gameObject);
+        proxies.Clear();
+        foreach (var lr in orbits) if (lr) Destroy(lr.gameObject);
+        orbits.Clear(); orbitBody.Clear();
+        BuildBodyVisuals(Shader.Find("Unlit/Color"), Shader.Find("Sprites/Default"), SystemRadius() * 0.004f);
     }
 
     // Centro del sistema = la stella (corpo senza orbita); fallback: media dei corpi.
@@ -401,6 +416,10 @@ public class MapMode : MonoBehaviour
 
     void EnterMap()
     {
+        // se l'insieme dei corpi è cambiato (un sistema distante si è svegliato/addormentato), ricostruisci le
+        // visuali dei corpi → i pianeti del nuovo sistema diventano selezionabili e mostrano l'orbita.
+        if (solar.Bodies.Count != builtBodyCount) RebuildBodyVisuals();
+
         fromPos = playerCamT.position; fromRot = playerCamT.rotation;
         mapCam.transform.SetPositionAndRotation(fromPos, fromRot);
         // spegni il RenderScaler: renderizza la camera giocatore in una RT che una camera
