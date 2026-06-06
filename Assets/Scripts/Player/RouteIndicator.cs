@@ -20,8 +20,12 @@ public class RouteIndicator : MonoBehaviour
     MapMode map;     // per disegnare il reticolo anche in mappa (sul corpo selezionato), con la sua camera
     Camera view;     // camera ATTIVA in questo frame: quella del giocatore, o quella della mappa se aperta
 
-    Texture2D ringTex, chevronTex, discTex, progradeTex, retroTex, barTex, crossTex;
+    Texture2D ringTex, chevronTex, discTex, progradeTex, retroTex, barTex, crossTex, triTex;
     GUIStyle label;
+
+    // SONDA: il tracker della sonda riusa la stessa logica robusta del reticolo (proiezione/edge/distanza), ma con
+    // forma e colore DIVERSI per distinguerla a colpo d'occhio → triangolo AMBRA (il corpo selezionato è anello blu/verde).
+    public Probe ProbeTarget;
 
     // Tavolozza: blu di riposo, verde quando sincronizzato o in intercetto.
     static readonly Color Blue = new Color(0.55f, 0.72f, 1f, 1f);
@@ -101,6 +105,13 @@ public class RouteIndicator : MonoBehaviour
         // rettangolo pieno: barra/fondino della gauge di frenata (tinta via GUI.color in resa).
         barTex = Make(8, 8, (u, v) => 1f);
 
+        // SONDA: marker a TRIANGOLO pieno che punta in su (distinto dall'anello del corpo selezionato).
+        triTex = Make(64, 64, (u, v) =>
+        {
+            Vector2 P = new Vector2(u, v);
+            return InTri(P, new Vector2(0.5f, 0.92f), new Vector2(0.1f, 0.12f), new Vector2(0.9f, 0.12f)) ? 1f : 0f;
+        }, mip: true, ss: 4);
+
         // MIRINO al centro schermo: puntino + 4 tacche con un GAP centrale (reticolo di puntamento, non invasivo).
         crossTex = Make(64, 64, (u, v) =>
         {
@@ -125,6 +136,9 @@ public class RouteIndicator : MonoBehaviour
             float uic = Mathf.Max(1f, Screen.height / 1080f);
             DrawTex(crossTex, new Vector2(Screen.width * 0.5f, Screen.height * 0.5f), 26f * uic, 26f * uic, 0f, A(White, 0.5f));
         }
+
+        // TRACKER della SONDA (triangolo ambra): indipendente dal corpo selezionato → prima del return su Destination nullo.
+        DrawProbeTracker(Mathf.Max(1f, Screen.height / 1080f));
 
         var target = solar.Destination;
         if (target == null) return;
@@ -279,6 +293,41 @@ public class RouteIndicator : MonoBehaviour
             // in mappa la distanza dalla camera non significa nulla: solo la freccia, niente numero.
             Shadowed(new Rect(edge.x - 60f * ui, edge.y + 18f * ui, 120f * ui, 20f * ui),
                 mapActive ? target.gameObject.name : FmtDist(dist), White, fade, TextAnchor.UpperCenter);
+        }
+    }
+
+    // Tracker della SONDA: stessa logica del reticolo (proiezione robusta ToGui, freccia al bordo se fuori vista,
+    // distanza), ma TRIANGOLO AMBRA → si distingue a colpo d'occhio dall'anello blu/verde del corpo selezionato.
+    void DrawProbeTracker(float ui)
+    {
+        if (ProbeTarget == null || !ProbeTarget.gameObject.activeSelf) return;
+        if (map != null && map.Active) return;          // in mappa no
+        if (cam == null || !cam.enabled) return;        // es. stai guardando ATTRAVERSO la sonda → niente tracker
+        view = cam;
+        if (label == null) label = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
+        label.fontSize = Mathf.RoundToInt(14f * ui);
+
+        Vector3 wp = ProbeTarget.transform.position;
+        Vector2 g = ToGui(wp, out _, out bool onScreen);
+        float dist = Vector3.Distance(cam.transform.position, wp);
+        string txt = (ProbeTarget.Landed ? "SONDA · posata · " : "SONDA · ") + FmtDist(dist);
+
+        if (onScreen)
+        {
+            DrawTex(triTex, g, 22f * ui, 22f * ui, 0f, Amber);
+            Shadowed(new Rect(g.x - 90f * ui, g.y + 14f * ui, 180f * ui, 20f * ui), txt, Amber, 1f, TextAnchor.UpperCenter);
+        }
+        else
+        {
+            Vector2 ctr = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            Vector2 dir = g - ctr;
+            if (dir.sqrMagnitude < 1e-4f) dir = new Vector2(0f, -1f);
+            dir.Normalize();
+            float m = 64f * ui;
+            Vector2 edge = ClampToRect(ctr, dir, new Rect(m, m, Screen.width - 2f * m, Screen.height - 2f * m));
+            float ang = Mathf.Atan2(dir.x, -dir.y) * Mathf.Rad2Deg;   // triangolo: apice in su → ruota verso dir
+            DrawTex(triTex, edge, 24f * ui, 24f * ui, ang, Amber);
+            Shadowed(new Rect(edge.x - 90f * ui, edge.y + 16f * ui, 180f * ui, 20f * ui), txt, Amber, 1f, TextAnchor.UpperCenter);
         }
     }
 

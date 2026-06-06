@@ -18,8 +18,10 @@ public class ProbeController : MonoBehaviour
     Camera playerCam; Transform camT; PlanetWalker walker; SolarSystem solar; RenderScaler playerScaler;
     Probe probe; bool viewing; float camYaw, camPitch;
     string lastPhoto; float photoFlash;
-    GUIStyle style, center;
-    Texture2D dot, edge;
+    GUIStyle center;
+    Texture2D dot;
+
+    public Probe Probe => probe;   // il tracker HUD (RouteIndicator) la segue
 
     public void Init(Camera cam, Transform camTransform, PlanetWalker w, SolarSystem s)
     {
@@ -102,73 +104,30 @@ public class ProbeController : MonoBehaviour
     {
         lastPhoto = $"{Application.persistentDataPath}/sonda_{Time.frameCount}.png";
         ScreenCapture.CaptureScreenshot(lastPhoto);
+        Debug.Log($"[sonda] foto salvata: {lastPhoto}");   // così la trovi al volo (cartella persistentDataPath, nascosta)
         photoFlash = 0.8f;
     }
 
-    void EnsureTextures()
-    {
-        if (dot != null) return;
-        dot = new Texture2D(1, 1); dot.SetPixel(0, 0, Color.white); dot.Apply();
-        edge = dot;
-    }
-
+    // La VISTA dalla sonda (flash foto + suggerimenti). Il TRACKER HUD della sonda lo disegna RouteIndicator (triangolo
+    // ambra), riusando la stessa logica robusta del reticolo del corpo selezionato.
     void OnGUI()
     {
-        if (Event.current.type != EventType.Repaint || probe == null) return;
+        if (Event.current.type != EventType.Repaint || !viewing) return;
         float ui = Mathf.Max(1f, Screen.height / 1080f);
-        if (style == null) style = new GUIStyle(GUI.skin.label) { normal = { textColor = Color.white } };
         if (center == null) center = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
-        style.fontSize = Mathf.RoundToInt(14f * ui);
         center.fontSize = Mathf.RoundToInt(22f * ui);
-        EnsureTextures();
+        if (dot == null) { dot = new Texture2D(1, 1); dot.SetPixel(0, 0, Color.white); dot.Apply(); }
 
-        if (viewing)
+        // FLASH bianco + conferma foto AL CENTRO (non si sovrappone all'HUD in alto a sinistra)
+        if (photoFlash > 0f)
         {
-            // FLASH bianco + conferma foto AL CENTRO (non si sovrappone all'HUD in alto a sinistra)
-            if (photoFlash > 0f)
-            {
-                GUI.color = new Color(1f, 1f, 1f, Mathf.Clamp01(photoFlash) * 0.6f);
-                GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), dot);
-                GUI.color = Color.white;
-                GUI.Label(new Rect(0, Screen.height * 0.5f - 20f * ui, Screen.width, 40f * ui), "📸 FOTO SALVATA", center);
-            }
-            // suggerimenti in BASSO al centro (lontano dall'HUD)
-            GUI.Label(new Rect(0, Screen.height - 40f * ui, Screen.width, 24f * ui),
-                "VISTA SONDA   ·   mouse = guarda   ·   G = foto   ·   V = esci   ·   K = richiama", center);
-            return;
-        }
-
-        // TRACKER HUD della sonda (quando vola e NON la stai guardando): marker + distanza, freccia ai bordi se fuori vista.
-        if (probe.gameObject.activeSelf && playerCam != null && camT != null)
-        {
-            Vector3 wp = probe.transform.position;
-            Vector3 sp = playerCam.WorldToScreenPoint(wp);
-            float dist = Vector3.Distance(camT.position, wp);
-            string label = probe.Landed ? $"SONDA · posata · {dist:F0} m" : $"SONDA · {dist:F0} m";
-            var col = probe.Landed ? new Color(0.6f, 1f, 0.7f) : new Color(0.6f, 0.9f, 1f);
-            GUI.color = col;
-            if (sp.z > 0f && sp.x >= 0f && sp.x <= Screen.width && sp.y >= 0f && sp.y <= Screen.height)
-            {
-                float y = Screen.height - sp.y;
-                GUI.DrawTexture(new Rect(sp.x - 5f * ui, y - 5f * ui, 10f * ui, 10f * ui), dot);   // marker
-                style.normal.textColor = col;
-                GUI.Label(new Rect(sp.x + 10f * ui, y - 10f * ui, 260f * ui, 20f * ui), label, style);
-            }
-            else
-            {
-                // fuori vista (o dietro): freccia clampata al bordo verso la sonda
-                Vector3 dir = sp.z > 0f ? sp : new Vector3(Screen.width - sp.x, Screen.height - sp.y, 1f);
-                Vector2 c = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
-                Vector2 d2 = new Vector2(dir.x, dir.y) - c;
-                if (d2.sqrMagnitude < 1f) d2 = Vector2.up;
-                d2.Normalize();
-                Vector2 e = c + d2 * (Mathf.Min(Screen.width, Screen.height) * 0.42f);
-                GUI.DrawTexture(new Rect(e.x - 7f * ui, (Screen.height - e.y) - 7f * ui, 14f * ui, 14f * ui), dot);
-                style.normal.textColor = col;
-                GUI.Label(new Rect(e.x - 130f * ui, (Screen.height - e.y) + 8f * ui, 260f * ui, 20f * ui), label, style);
-            }
+            GUI.color = new Color(1f, 1f, 1f, Mathf.Clamp01(photoFlash) * 0.6f);
+            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), dot);
             GUI.color = Color.white;
-            style.normal.textColor = Color.white;
+            GUI.Label(new Rect(0, Screen.height * 0.5f - 20f * ui, Screen.width, 40f * ui), "📸 FOTO SALVATA", center);
         }
+        // suggerimenti in BASSO al centro (lontano dall'HUD)
+        GUI.Label(new Rect(0, Screen.height - 40f * ui, Screen.width, 24f * ui),
+            "VISTA SONDA   ·   mouse = guarda   ·   G = foto   ·   V = esci   ·   K = richiama", center);
     }
 }

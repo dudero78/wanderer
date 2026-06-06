@@ -21,6 +21,8 @@ public class Probe : MonoBehaviour
     Renderer bodyRenderer;
     bool landed;
     CelestialBody landedOn;
+    Vector3 landedLocal;   // posizione di posa in coordinate LOCALI del corpo → resta incollata alla superficie anche
+                           // mentre il corpo orbita / la floating origin ri-centra (era la causa del lento sprofondamento)
 
     public Camera Cam => cam;
     public bool Landed => landed;
@@ -79,6 +81,7 @@ public class Probe : MonoBehaviour
     public void Launch(Vector3 pos, Vector3 vel, Vector3 lookDir)
     {
         gameObject.SetActive(true);
+        rb.isKinematic = false;   // torna dinamica per il volo (a terra diventa kinematica e si incolla al corpo)
         transform.position = pos;
         if (lookDir.sqrMagnitude > 1e-6f) transform.rotation = Quaternion.LookRotation(lookDir.normalized, Vector3.up);
         rb.position = pos;
@@ -108,7 +111,19 @@ public class Probe : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (landed || rb == null) return;
+        if (rb == null) return;
+        // POSATA: incollata al corpo. Ri-derivo la posizione dal transform del pianeta OGNI tick (in coord locali del
+        // corpo) → segue la superficie mentre il corpo orbita e mentre la floating origin ri-centra la scena. Senza
+        // questo la sonda restava ferma in scena e il pianeta le scorreva sopra → sprofondava lentamente sottoterra.
+        if (landed)
+        {
+            if (landedOn != null)
+            {
+                Vector3 p = landedOn.transform.TransformPoint(landedLocal);
+                rb.position = p; transform.position = p;
+            }
+            return;
+        }
 
         // corpo più vicino (riferimento di gravità/collisione): argmin sulla distanza, niente baricentri.
         CelestialBody planet = Nearest(out Vector3 toCenter, out float r);
@@ -156,6 +171,8 @@ public class Probe : MonoBehaviour
                 if (flat.sqrMagnitude > 1e-6f) transform.rotation = Quaternion.LookRotation(flat.normalized, up);
             }
             landed = true; landedOn = planet;
+            landedLocal = planet.transform.InverseTransformPoint(rest);   // memorizza la posa NEL frame del corpo (vi resta incollata)
+            rb.isKinematic = true;   // niente più simulazione fisica: la posizione la guida l'aggancio al corpo
         }
     }
 

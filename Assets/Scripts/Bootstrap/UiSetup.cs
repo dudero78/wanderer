@@ -34,5 +34,6 @@ public static class UiSetup
         // gravità sommata + collisione analitica, registrato in Loose + ExtraViewpoints (il renderer le dà dettaglio).
         var probe = host.AddComponent<ProbeController>();
         probe.Init(rig.Cam, rig.CamTransform, rig.Walker, solar);
+        route.ProbeTarget = probe.Probe;   // il reticolo segue la sonda con un triangolo ambra (tracker HUD)
     }
 }
