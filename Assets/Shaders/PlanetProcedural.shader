@@ -62,6 +62,7 @@ Shader "Wanderer/PlanetProcedural"
             #pragma fragment frag
             #pragma target 4.5          // StructuredBuffer nel vertex shader (Metal lo regge)
             #include "UnityCG.cginc"
+            #define WANDERER_HAS_SEA    // anteprima editor: il mare è SEMPRE disponibile (non c'è streaming di corpi)
             #include "PlanetProceduralShade.cginc"   // colore procedurale CONDIVISO con la resa in gioco
 
             StructuredBuffer<float> _VPos;   // 3 float per vertice (x,y,z), buffer piatto
@@ -99,7 +100,7 @@ Shader "Wanderer/PlanetProcedural"
             // sia al vettore vista del glint). Il colore è nell'include condiviso PlanetShade.
             fixed4 frag(v2f IN) : SV_Target
             {
-                return fixed4(PlanetShade(IN.lp, IN.lp, IN.nrm, IN.bnrm, IN.depth, 0.0, IN.seaSurf), 1);   // editor: _PerVertexFields=0 → baseN per-pixel, lo 0.0 è ignorato
+                return fixed4(PlanetShade(IN.lp, IN.lp, IN.nrm, IN.bnrm, IN.depth, 0.0, IN.seaSurf, float3(0,0,0)), 1);   // editor: _PerVertexFields/_PerVertexColor=0 → fbm per-pixel, gli 0 sono ignorati
             }
             ENDCG
         }

@@ -77,6 +77,9 @@ public class PlanetLodTree
     float lodThetaHorizon;
     float lodPeakAngle;       // height-aware: angolo con cui i PICCHI del terreno spuntano oltre l'orizzonte geometrico
     bool lodHorizonValid;     // false se la camera è troppo bassa (sotto il raggio) → niente culling all'orizzonte
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    static bool sStarvationLogged;   // R5: la starvation del pool si segnala una volta sola (no spam)
+#endif
 
     public PlanetLodTree(PlanetTerrain terrain, float radius, int maxSlabs, SlabPool pool, ISlabFiller filler,
                          float lodFactor, float mergeHysteresis, int maxDepth, int splitBudget, float lookaheadTime)
@@ -165,6 +168,11 @@ public class PlanetLodTree
         long key = Key(nd);
         if (pool.TryTakeCached(key, out int s)) { nd.slab = s; return; }
         nd.slab = pool.Alloc();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        // R5: starvation del pool condiviso → foglia senza geometria (rara a 1024 slot). La segnalo una volta sola
+        // per non spammare: se càpita spesso, il pool è sotto-dimensionato per i corpi vicini (alza maxSlabs).
+        if (nd.slab < 0 && !sStarvationLogged) { sStarvationLogged = true; Debug.LogWarning("PlanetLodTree: pool esaurito (Alloc=-1) → una foglia resta senza geometria. Considera maxSlabs più alto."); }
+#endif
         filler.FillSlab(nd);
     }
 

@@ -25,10 +25,20 @@ float _TorchRange, _TorchCosInner, _TorchCosOuter;
 // 1 = baseN arriva GIÀ PRONTO per-vertice (gioco: il fragment non rifà il rumore gradiente per ogni pixel).
 // 0 = calcolalo qui per-pixel (editor: massima qualità, non è perf-critico). Default 0 se non impostato.
 float _PerVertexFields;
+// 1 = i 3 fbm value-noise di colore (macro/minerali/maria) arrivano GIÀ PRONTI per-vertice (gioco, GPU-1): 6 vnoise
+// per-pixel in meno, prerequisito del PBR. 0 = calcolati qui per-pixel (editor). Default 0 se non impostato.
+float _PerVertexColor;
 
 // ECLISSI (ombra analitica di un altro corpo): le imposta EclipseDriver per frame sul materiale del renderer GPU
 // (come già su PlanetBaked). Raggio 0 (default, mai impostato) = nessuna eclissi → costo/effetto nullo.
 float4 _EclipseOccluderPos; float _EclipseOccluderRadius; float3 _EclipseSunDir; float _EclipseSunAngular;
+
+// PBR / MATERIALI PER PENDENZA (GPU-4, look SC/ED): roccia esposta sui versanti ripidi (bordi/pareti dei crateri,
+// scarpate), sedimento/suolo nel piano → e un GGX leggero per il "luccichio" minerale radente. Gated da keyword
+// _PBR_TERRAIN (→ WANDERER_PBR): default OFF nelle Properties, acceso dal C# in gioco; A/B da GameBootstrap.
+// Sfrutta che obj→mondo è pura TRASLAZIONE (i corpi non ruotano) → la normale di mondo e la radiale d'oggetto sdir
+// sono confrontabili direttamente per la PENDENZA, senza conoscere il centro nel fragment.
+float4 _RockColor; float _RockSlopeStart, _RockSlopeEnd, _RockStr, _SpecStr, _Gloss;
 
 // INCRESPATURA dell'acqua: perturba la normale del pelo con due ottave di rumore SCORREVOLE (gradiente
 // ANALITICO da noised → niente differenze finite). È ciò che dà identità di SUPERFICIE all'acqua: spezza il
@@ -55,7 +65,9 @@ float3 WaterRippleNormal(float3 objP, float3 Nw, float strength)
 // depth  = profondità dell'acqua al vertice (pelo − fondo), interpolata; 0 dove asciutto.
 // baseNField = ondulazione di base [0,1] PRE-CALCOLATA per-vertice (usata solo se _PerVertexFields>0.5).
 // seaSurfField = QUOTA del pelo del mare attivo, PRE-CALCOLATA per-vertice dal compute (= SeaSurface esatta).
-float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float depth, float baseNField, float seaSurfField)
+// colorFields = i 3 fbm value-noise di colore (x=macro, y=minerali, z=maria) PRE-CALCOLATI per-vertice (GPU-1),
+//   usati solo se _PerVertexColor>0.5 (gioco); nell'editor sono ignorati e i fbm si fanno per-pixel.
+float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float depth, float baseNField, float seaSurfField, float3 colorFields)
 {
     float3 P = Pobj;
     float h = max(length(P), 1e-4);
@@ -76,12 +88,13 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     // pelo (terra/montagne emerse) → asciutto. La banda 0.15..0.75 m resta solo per la riva (l'acqua non si arrampica).
     float seaMask = (_SeaOn > 0.5) ? (1.0 - smoothstep(0.15, 0.75, h - seaSurf)) : 0.0;
 
-    // suolo: colore base × variazione MACRO a bassa frequenza (campo dunale) — procedurale, niente texture
-    float macroV = fbm(sdir * _MacroScale);
+    // suolo: colore base × variazione MACRO a bassa frequenza (campo dunale) — procedurale, niente texture.
+    // GPU-1: in gioco macroV/zz/region arrivano per-vertice (interpolati) → niente 6 vnoise/pixel; nell'editor per-pixel.
+    float macroV = (_PerVertexColor > 0.5) ? colorFields.x : fbm(sdir * _MacroScale);
     float3 alb = _SoilMean.rgb * lerp(1.0, 0.78 + macroV * 0.44, _MacroVar) * _SoilTint.rgb;
 
     // regioni minerali: velatura di TINTA larga (calda/fredda), bassa frequenza
-    float zz = fbm(sdir * _MineralScale);
+    float zz = (_PerVertexColor > 0.5) ? colorFields.y : fbm(sdir * _MineralScale);
     float3 mineral = float3(1.0, 1.0, 1.0);
     mineral = lerp(mineral, _MineralB.rgb, smoothstep(0.45, 0.28, zz));
     mineral = lerp(mineral, _MineralA.rgb, smoothstep(0.55, 0.72, zz));
@@ -99,18 +112,33 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
 
     // bacini scuri (dove è basso) in ALCUNE regioni → il colore segue il rilievo
     float low = 1.0 - smoothstep(0.16, 0.46, t);
-    float region = smoothstep(0.42, 0.64, fbm(sdir * _MariaScale));
+    float region = smoothstep(0.42, 0.64, (_PerVertexColor > 0.5) ? colorFields.z : fbm(sdir * _MariaScale));
     alb = lerp(alb, alb * _MariaColor.rgb, low * region * _MariaStr);
+
+    // PBR — ROCCIA PER PENDENZA: i versanti ripidi (bordi/pareti dei crateri, scarpate) espongono roccia nuda; il
+    // piano resta suolo/sedimento. La pendenza = quanto la normale devia dalla radiale (sdir), valida senza il
+    // centro perché obj→mondo non ruota. Tinta di base × _RockColor (modula, non sostituisce → conserva l'identità).
+#if defined(WANDERER_PBR)
+    {
+        float slope = 1.0 - saturate(dot(normalize(nrmW), sdir));
+        float rockM = smoothstep(_RockSlopeStart, _RockSlopeEnd, slope) * _RockStr;
+        alb = lerp(alb, alb * _RockColor.rgb, rockM);
+    }
+#endif
 
     // MARE SOLIDO OPACO (né liquido né trasparente): è SUOLO di colore diverso — antiche colate laviche (maria)…
     // → tinta piatta del _SeaColor nell'albedo, niente trattamento d'acqua. (Liquido O trasparente = superficie a
     // sé, sotto la luce: vedi il blocco ACQUA.) Così un mare di maria resta roccia colorata, non acquamarina.
+    // _HAS_SEA (GPU-2): tutto il trattamento del mare è STRIPPATO sui corpi asciutti (la keyword definisce
+    // WANDERER_HAS_SEA solo dove la ricetta ha un mare) → fragment più snello su Cetra/Luna6. Nell'editor è sempre on.
+#if defined(WANDERER_HAS_SEA)
     if (_SeaOn > 0.5 && _SeaLiquid < 0.5 && _SeaClear < 0.5)
     {
         float seaLuma = dot(_SeaColor.rgb, float3(0.2126, 0.7152, 0.0722));
         float3 seaCol = lerp(float3(seaLuma, seaLuma, seaLuma), _SeaColor.rgb, _SeaSat);
         alb = lerp(alb, seaCol, seaMask);
     }
+#endif
 
     // saturazione finale del SUOLO (l'acqua liquida ha la sua, sotto)
     float luma = dot(alb, float3(0.2126, 0.7152, 0.0722));
@@ -130,12 +158,24 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     float ndlT = saturate(dot(nrm, L));
     col += alb * (_TorchColor * (ndlT * att * cone));
 
+    // PBR — SPECULARE GGX LEGGERO sul suolo (riflesso minerale radente, look SC/ED): broad lobe, basso peso → non
+    // "plasticoso". Solo sul lato illuminato (×ndlLand). L'acqua, sotto, sovrascrive col dove allagato (suo speculare).
+#if defined(WANDERER_PBR)
+    {
+        float3 Vp = normalize(_WorldSpaceCameraPos - worldP);
+        float3 Hp = normalize(_SunDir + Vp);
+        float specL = pow(saturate(dot(nrm, Hp)), max(_Gloss, 1.0)) * _SpecStr * ndlLand;
+        col += _SunColor * specL;
+    }
+#endif
+
     // ===== ACQUA (superficie): mare LIQUIDO e/o TRASPARENTE =====
     // Il COLORE viene tutto dagli slider R/G/B (_SeaColor): bassofondo CHIARO → profondo SCURO, sempre nella tinta
     // scelta → puoi fare acqua, acido, qualunque colore; più scuro = meno si vede il fondo. TRASPARENTE (_SeaClear,
     // indipendente da liquido → vale anche per ghiaccio) lascia vedere il fondo, TINTO dal colore (scuro/saturo =
     // fondo più nascosto). LIQUIDO (_SeaLiquid) aggiunge increspatura animata + glint + Fresnel + battigia; senza
     // liquido (es. ghiaccio) la superficie è liscia. Almeno uno dei due acceso → questo blocco; nessuno → mare opaco.
+#if defined(WANDERER_HAS_SEA)
     if (seaMask > 0.0 && (_SeaLiquid > 0.5 || _SeaClear > 0.5))
     {
         float seaLuma = dot(_SeaColor.rgb, float3(0.2126, 0.7152, 0.0722));
@@ -201,6 +241,7 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
 
         col = lerp(col, wcol, seaMask);
     }
+#endif // WANDERER_HAS_SEA
 
     // ===== ECLISSI: ombra analitica di un altro corpo (stesso calcolo di PlanetBaked) =====
     // Copertura del disco solare vista da P in coordinate ANGOLARI: vicino all'occlusore umbra piena, allontanandosi

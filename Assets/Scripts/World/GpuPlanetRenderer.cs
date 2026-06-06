@@ -32,6 +32,8 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     // OVERDRAW: un solo draw col _Cull del materiale (deterministico). STATICI (impostati da GameBootstrap).
     public static bool CullSplit = true;
     public static int InteriorCull = 1;   // 1=Front: il verso dell'interno è Front-facing (Cull Back ribaltava tutto). Verificato in gioco
+    // PBR per pendenza + GGX leggero (GPU-4): keyword _PBR_TERRAIN sul materiale. Statico (da GameBootstrap), A/B.
+    public static bool UsePbrTerrain = true;
 
     // DIAGNOSI superficie (statico, pilotabile da GameBootstrap e dal menu in-game à):
     //   0 = off · 1 = posizione radiale (geometria pura) · 2 = normale di mondo (shading) ·
@@ -81,6 +83,9 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     // scomposizione CPU del frame (ms), SOMMATA su tutti i corpi, esposta all'HUD: collo del churn a colpo d'occhio
     public static float Trav, Fill, Send;
     static int sBreakdownFrame = -1;
+    // PERF-2: la strumentazione PER-FILL (2 GetTimestamp per ogni fetta riempita, fino a splitBudget·4 al churn) gira
+    // SOLO con Profile=true. Default false → fuori dal path più caldo in ship; accendila per diagnosticare il churn.
+    public static bool Profile;
 
     // --- BATCH FILL (opt-in): accumula i fill del frame e li manda in UN dispatch invece di uno per nodo (taglia le
     // chiamate API). Si attiva solo se la VERIFICA di parità (batch↔per-nodo, vedi VerifyBatchFill) è verde; altrimenti
@@ -119,6 +124,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         kSlabBatch = cs.FindKernel("CSNodeSlabBatch");
 
         pool = new SlabPool(maxSlabs, vertsPerSlab);   // alloca (o riusa) il pool CONDIVISO + bodyId
+        if (pool.Mismatched) { pool.Release(); pool = null; return; }   // ARCH-1/R8: nodeRes divergente → Ready resta false → SolarSystemSetup ripiega sul quadtree
         jobsBuf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 5 * 16); // NodeJob = 5×float4 (per-corpo, ~82 KB)
         jobScratch = new NodeJob[maxSlabs];
 
@@ -131,6 +137,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
             cs.SetBuffer(k, "_VDepth", pool.Depth);
             cs.SetBuffer(k, "_VField", pool.Field);
             cs.SetBuffer(k, "_VSurf", pool.Surf);
+            cs.SetBuffer(k, "_VColor", pool.Color);   // colore per-vertice (GPU-1)
         }
         cs.SetBuffer(kSlabBatch, "_Jobs", jobsBuf);
         cs.SetBuffer(kSlab, "_SlabRegion", pool.Region);          // marchio di regione: lo scrive il fill dell'interno
@@ -153,6 +160,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         mat.SetBuffer("_VDepth", pool.Depth);
         mat.SetBuffer("_VField", pool.Field);
         mat.SetBuffer("_VSurf", pool.Surf);
+        mat.SetBuffer("_VColor", pool.Color);   // colore per-vertice (GPU-1): 3 fbm value-noise interpolati, niente più 6 vnoise/pixel
         mat.SetBuffer("_SlabOfInstance", slabOfInstance);
         mat.SetBuffer("_SplitDistOfInstance", splitDistOfInstance);
         mat.SetBuffer("_DirOfInstance", dirOfInstance);
@@ -160,12 +168,20 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         mat.SetBuffer("_SlabRegion", pool.Region);
         mat.SetInt("_VertsPerSlab", vertsPerSlab);
         mat.SetFloat("_PerVertexFields", 1f);   // in gioco: usa baseN per-vertice (fragment più economico)
+        mat.SetFloat("_PerVertexColor", 1f);    // in gioco: usa i 3 fbm colore per-vertice (GPU-1) → 6 vnoise/pixel in meno
         mat.SetInt("_NN", n);                                  // geomorph: vertici per lato → (i,j) dal vid + lettura vicini
         mat.SetFloat("_MorphRange", morphRange);
         mat.SetFloat("_UseGeomorph", UseGeomorph ? 1f : 0f);
 
         radius = terrain.Recipe != null ? terrain.Recipe.baseRadius : terrain.BaseRadius;
         cs.SetInt("_HasSea", terrain.Recipe != null && terrain.Recipe.LastSea() != null ? 1 : 0);
+
+        // SCALE dei 3 campi colore per-vertice (GPU-1) sul compute, PRIMA dei fill (tree.Build). Devono combaciare
+        // ESATTAMENTE con quelle del fragment: _MacroScale/_MineralScale sono costanti (default Properties = 5 / 1.8,
+        // anche sul materiale), _MariaScale viene dalla ricetta (= ApplyColor → mat._MariaScale) o dal default 2.2.
+        cs.SetFloat("_MacroScale", 5f);
+        cs.SetFloat("_MineralScale", 1.8f);
+        cs.SetFloat("_MariaScale", terrain.Recipe != null ? terrain.Recipe.mariaScale : 2.2f);
 
         // il quadtree: pilota split/merge e raccoglie le foglie visibili; mi richiama (ISlabFiller) per riempire le fette
         tree = new PlanetLodTree(terrain, radius, maxSlabs, pool, this,
@@ -261,7 +277,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     void FillSlabImmediate(PlanetLodTree.Node nd)
     {
         if (nd.slab < 0) return;
-        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();   // diagnosi: misura il costo CPU delle chiamate del fill
+        long t0 = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;   // diagnosi (PERF-2): solo con Profile
         cs.SetVector(ID_FaceUp, nd.up);
         cs.SetVector(ID_AxisA, nd.axisA);
         cs.SetVector(ID_AxisB, nd.axisB);
@@ -271,9 +287,9 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         cs.SetInt(ID_NSlabOff, nd.slab * vertsPerSlab);
         cs.SetInt("_SlabIndex", nd.slab);             // region-stamp (path per-nodo): il fill marchia questa fetta
         cs.SetInt("_SlabRegionId", unchecked((int)tree.RegionId(nd)));   // id regione UINT (i bit passano via SetInt; il compute lo legge come uint)
-        int g = (n + 7) / 8;
-        cs.Dispatch(kSlab, g, g, 1);
-        fillTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        int g = (n * n + 63) / 64;   // dispatch 1D (occupancy): n·n thread, 64/gruppo
+        cs.Dispatch(kSlab, g, 1, 1);
+        if (Profile) fillTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
     }
 
     /// <summary>Manda in UN dispatch tutti i job-fetta accumulati nel frame. Il nodo è sull'asse z del dispatch →
@@ -281,11 +297,11 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     void FlushFills()
     {
         if (!batchReady || jobCount == 0) return;
-        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        long t0 = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         jobsBuf.SetData(jobScratch, 0, 0, jobCount);
-        int g = (n + 7) / 8;
-        cs.Dispatch(kSlabBatch, g, g, jobCount);
-        fillTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        int g = (n * n + 63) / 64;   // dispatch 1D (occupancy): vertice lineare su x, NODO su y
+        cs.Dispatch(kSlabBatch, g, jobCount, 1);
+        if (Profile) fillTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
         jobCount = 0;
     }
 
@@ -294,12 +310,12 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     /// l'altra volta corruppe la geometria. Costa qualche readback sincrono, ma è UNA volta sola all'avvio.</summary>
     bool VerifyBatchFill()
     {
-        int g = (n + 7) / 8;
+        int g = (n * n + 63) / 64;   // dispatch 1D (occupancy): vertice lineare su x, NODO su y
         // confronta TUTTI i buffer scritti dai fill, non solo le posizioni: un bug nei VALORI di normali/profondità/
         // pelo passerebbe inosservato e si vedrebbe come luce/acqua sbagliata. pos/nrm/bedNrm = 3 float/v, gli altri 1.
-        var bufs = new[] { pool.Pos, pool.Nrm, pool.BedNrm, pool.Depth, pool.Field, pool.Surf };
-        var pers = new[] { 3, 3, 3, 1, 1, 1 };
-        var names = new[] { "pos", "nrm", "bedNrm", "depth", "field", "surf" };
+        var bufs = new[] { pool.Pos, pool.Nrm, pool.BedNrm, pool.Depth, pool.Field, pool.Surf, pool.Color };
+        var pers = new[] { 3, 3, 3, 1, 1, 1, 3 };
+        var names = new[] { "pos", "nrm", "bedNrm", "depth", "field", "surf", "color" };
 
         // A = PER-NODO per ogni root, salvo tutti i buffer (è il noto-corretto)
         var roots2 = new System.Collections.Generic.List<PlanetLodTree.Node>();
@@ -322,7 +338,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         jobCount = 0;
         foreach (var r in roots2) jobScratch[jobCount++] = MakeJob(r);
         jobsBuf.SetData(jobScratch, 0, 0, jobCount);
-        cs.Dispatch(kSlabBatch, g, g, jobCount);
+        cs.Dispatch(kSlabBatch, g, jobCount, 1);
 
         float maxDiff = 0f; long compared = 0; string worst = "";
         for (int ri = 0; ri < roots2.Count; ri++)
@@ -369,15 +385,21 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         // EARLY-OUT sub-pixel: un corpo così lontano da occupare meno di ~1 pixel NON fa nulla (niente refresh uniform,
         // niente traversata, niente draw, niente SetData). Converte il costo per-frame da O(corpi) a O(corpi VICINI).
         Vector3 bodyCenter = m.MultiplyPoint3x4(Vector3.zero);
-        // viewpoint PIÙ VICINO fra il giocatore e gli osservatori extra (sonda): il corpo prende dettaglio per chi lo
-        // guarda da vicino, e si culla solo se NESSUN viewpoint lo vede. Lista vuota → identico a "solo giocatore".
+        // Due distanze: bestSqr = viewpoint PIÙ VICINO in assoluto (giocatore o sonda) → governa SOLO il culling
+        // sub-pixel (un corpo che QUALCUNO vede da vicino non si culla). viewPos = chi guida il LOD/morph, e qui il
+        // GIOCATORE ha la PRIORITÀ: un osservatore extra (sonda) prende il timone SOLO se è MOLTO più vicino (≥2×,
+        // sqr<0.25). Così lanciare la sonda accanto a te NON ruba dettaglio al suolo sotto i piedi (niente
+        // "perde dettaglio e ricarica" a ogni lancio); la sonda guida il LOD solo dei corpi a cui è chiaramente più vicina.
         Vector3 viewPos = cam.position;
-        float bestSqr = (cam.position - bodyCenter).sqrMagnitude;
+        float playerSqr = (cam.position - bodyCenter).sqrMagnitude;
+        float bestSqr = playerSqr;     // più vicino in assoluto (per il culling)
+        float lodSqr = playerSqr;      // viewpoint del LOD (priorità al giocatore)
         for (int i = 0; i < ExtraViewpoints.Count; i++)
         {
             var vp = ExtraViewpoints[i]; if (vp == null) continue;
             float d = (vp.position - bodyCenter).sqrMagnitude;
-            if (d < bestSqr) { bestSqr = d; viewPos = vp.position; }
+            if (d < bestSqr) bestSqr = d;
+            if (d < lodSqr * 0.25f) { lodSqr = d; viewPos = vp.position; }   // l'extra prende il LOD solo se ≥2× più vicino
         }
         if (radius < Mathf.Sqrt(bestSqr) * 0.0006f) return;
 
@@ -416,6 +438,8 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
             argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
             argsData[0].instanceCount = (uint)tree.VisibleCount;
             argsData[0].startIndex = 0;
+            argsData[0].baseVertexIndex = 0;   // GPU-6: espliciti (default 0) per blindare il draw indirect su DX12/Vulkan
+            argsData[0].startInstance = 0;     // (su Metal sono già 0; i validation layer di DX12/Vulkan li vogliono espliciti)
             argsBuf.SetData(argsData);
             uploadedOnce = true;
         }
@@ -467,6 +491,12 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         mat.SetFloat("_Lacunarity", rec != null ? rec.lacunarity : terrain.Lacunarity);
         mat.SetFloat("_Gain", rec != null ? rec.gain : terrain.Gain);
         mat.SetInt("_Seed", rec != null ? rec.seed : terrain.Seed);
+        // _HAS_SEA (GPU-2): accendi la variante col mare SOLO se la ricetta ha davvero un mare → i corpi asciutti
+        // (Cetra/Luna6) compilano il fragment SENZA il blocco acqua. La keyword vale per-materiale (questo corpo).
+        bool hasSea = rec != null && rec.LastSea() != null;
+        if (hasSea) mat.EnableKeyword("_HAS_SEA"); else mat.DisableKeyword("_HAS_SEA");
+        // PBR per pendenza + GGX (GPU-4): keyword sul materiale (A/B da GameBootstrap).
+        if (UsePbrTerrain) mat.EnableKeyword("_PBR_TERRAIN"); else mat.DisableKeyword("_PBR_TERRAIN");
         if (rec != null)
         {
             // COLORE/MARE dalla ricetta (fonte unica: PlanetRecipeUniforms). Resa GPU in gioco = liquido + trasparenza.

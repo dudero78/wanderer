@@ -22,8 +22,8 @@ public class SlabPool
     // ---- POOL CONDIVISO (statico, refcountato): i 6 buffer geometria + free-list + cache, UNO per tutti i corpi.
     // Risparmio: 1×~843 MB invece di 6× ≈ 5 GB allocati alla costruzione scena (#2 sez. A, NOTES_pool_vram.md).
     // Tutti i corpi devono avere lo STESSO vertsPerSlab (= stesso nodeRes), o le fette non sarebbero allineate.
-    static GraphicsBuffer sPos, sNrm, sBedNrm, sDepth, sField, sSurf;
-    static GraphicsBuffer sSlabRegion;   // marchio di regione CONDIVISO (parallelo al pool): un float per fetta fisica
+    static GraphicsBuffer sPos, sNrm, sBedNrm, sDepth, sField, sSurf, sColor;
+    static GraphicsBuffer sSlabRegion;   // marchio di regione CONDIVISO (parallelo al pool): un uint per fetta fisica
     static readonly Stack<int> sFreeSlabs = new Stack<int>();
     static readonly Dictionary<long, int> sCacheSlab = new Dictionary<long, int>();
     static readonly LinkedList<long> sLru = new LinkedList<long>();
@@ -44,6 +44,7 @@ public class SlabPool
     public GraphicsBuffer Depth { get; private set; }
     public GraphicsBuffer Field { get; private set; }
     public GraphicsBuffer Surf { get; private set; }
+    public GraphicsBuffer Color { get; private set; }    // 3 float/v: campi colore per-vertice (macro/minerali/maria), GPU-1
     public GraphicsBuffer Region { get; private set; }   // alias del marchio di regione CONDIVISO (un marchio per fetta fisica)
     public int BodyId { get; private set; }              // identità del corpo nel pool condiviso: entra nella chiave di cache
 
@@ -65,6 +66,10 @@ public class SlabPool
     public int FreeCount => freeSlabs.Count;
     public int CacheCount => cacheSlab.Count;
     public int VertsPerSlab => vertsPerSlab;
+    // ARCH-1/R8: il pool è CONDIVISO → tutti i corpi devono avere lo stesso vertsPerSlab (= nodeRes), o le fette non
+    // sarebbero allineate. Se diverge, questo handle è INUSABILE: il renderer NON deve procedere (Ready=false → quadtree),
+    // invece di disegnare con fette disallineate. Era un LogError che proseguiva (degrado silenzioso).
+    public bool Mismatched { get; private set; }
 
     /// <summary>Alloca il pool CONDIVISO la prima volta (refcount), o lo riusa, e ne fa alias i campi per-corpo
     /// (Pos…Surf, freeSlabs/cacheSlab/lru). Assegna un BodyId univoco per la chiave di cache.</summary>
@@ -74,7 +79,10 @@ public class SlabPool
         this.vertsPerSlab = vertsPerSlab;
 
         if (sRefCount > 0 && vertsPerSlab != sPoolVerts)
-            Debug.LogError($"SlabPool: pool condiviso con vertsPerSlab diverso ({vertsPerSlab} vs {sPoolVerts}) — tutti i corpi devono avere lo stesso nodeRes, le fette non sarebbero allineate.");
+        {
+            Mismatched = true;   // ARCH-1/R8: fallback ESPLICITO — il renderer controlla questo e ripiega sul quadtree
+            Debug.LogError($"SlabPool: pool condiviso con vertsPerSlab diverso ({vertsPerSlab} vs {sPoolVerts}) — tutti i corpi devono avere lo stesso nodeRes. Questo corpo ripiega sul quadtree (niente fette disallineate).");
+        }
         if (sRefCount == 0)
         {
             int totalVerts = maxSlabs * vertsPerSlab;
@@ -84,16 +92,17 @@ public class SlabPool
             sDepth = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
             sField = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
             sSurf = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts, 4);
+            sColor = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalVerts * 3, 4);   // 3 float/v: campi colore per-vertice (GPU-1)
             sSlabRegion = new GraphicsBuffer(GraphicsBuffer.Target.Structured, maxSlabs, 4);   // marchio di regione per fetta (UINT, 4 byte)
             sFreeSlabs.Clear();
             for (int i = maxSlabs - 1; i >= 0; i--) sFreeSlabs.Push(i);
             sCacheSlab.Clear(); sLru.Clear(); sLruNode.Clear();
             sPoolVerts = vertsPerSlab; sPoolSlabs = maxSlabs;
-            long poolBytes = (long)maxSlabs * vertsPerSlab * 48L;   // pos+nrm+bedNrm (3 float) + depth+field+surf (1) = 48 byte/vertice
+            long poolBytes = (long)maxSlabs * vertsPerSlab * 60L;   // pos+nrm+bedNrm+color (3 float) + depth+field+surf (1) = 60 byte/vertice
             Debug.Log($"[GpuPlanet] pool VRAM CONDIVISO ~{poolBytes / (1024 * 1024)} MB (maxSlabs={maxSlabs}, vertsPerSlab={vertsPerSlab}) — UNO per tutti i corpi");
         }
         sRefCount++;
-        Pos = sPos; Nrm = sNrm; BedNrm = sBedNrm; Depth = sDepth; Field = sField; Surf = sSurf;
+        Pos = sPos; Nrm = sNrm; BedNrm = sBedNrm; Depth = sDepth; Field = sField; Surf = sSurf; Color = sColor;
         Region = sSlabRegion;
         freeSlabs = sFreeSlabs; cacheSlab = sCacheSlab; lru = sLru; lruNode = sLruNode;
         // BodyId RICICLATO: uno slot riusabile, non un contatore monotono. Così l'occupazione è "corpi VIVI
@@ -159,12 +168,12 @@ public class SlabPool
         if (sRefCount == 0) return;
         sRefCount--;
         sFreeBodyIds.Push(BodyId);   // l'id torna disponibile per un corpo che entra in streaming
-        Pos = Nrm = BedNrm = Depth = Field = Surf = Region = null;
+        Pos = Nrm = BedNrm = Depth = Field = Surf = Color = Region = null;
         freeSlabs = null; cacheSlab = null; lru = null; lruNode = null;
         if (sRefCount == 0)
         {
-            sPos?.Release(); sNrm?.Release(); sBedNrm?.Release(); sDepth?.Release(); sField?.Release(); sSurf?.Release(); sSlabRegion?.Release();
-            sPos = sNrm = sBedNrm = sDepth = sField = sSurf = sSlabRegion = null;
+            sPos?.Release(); sNrm?.Release(); sBedNrm?.Release(); sDepth?.Release(); sField?.Release(); sSurf?.Release(); sColor?.Release(); sSlabRegion?.Release();
+            sPos = sNrm = sBedNrm = sDepth = sField = sSurf = sColor = sSlabRegion = null;
             sFreeSlabs.Clear(); sCacheSlab.Clear(); sLru.Clear(); sLruNode.Clear(); sNextBodyId = 0; sFreeBodyIds.Clear();
         }
     }

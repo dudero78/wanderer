@@ -51,6 +51,14 @@ Shader "Wanderer/PlanetSurfaceGPU"
 
         _Saturation ("Saturazione", Range(0,2)) = 1
         _Cull ("Cull mode (0=Off 1=Front 2=Back)", Float) = 0   // guidato dal MATERIALE: scartare le retro-facce dimezza l'overdraw
+
+        // PBR / materiali per pendenza (GPU-4): roccia sui versanti ripidi + speculare GGX leggero. Default tenui.
+        _RockColor ("PBR: tinta roccia (versanti)", Color) = (0.62, 0.58, 0.54, 1)
+        _RockSlopeStart ("PBR: pendenza inizio roccia", Range(0,1)) = 0.30
+        _RockSlopeEnd ("PBR: pendenza roccia piena", Range(0,1)) = 0.72
+        _RockStr ("PBR: forza roccia", Range(0,1)) = 0.55
+        _SpecStr ("PBR: forza speculare suolo", Range(0,1)) = 0.10
+        _Gloss ("PBR: lucentezza (esponente)", Float) = 22
     }
     SubShader
     {
@@ -68,7 +76,18 @@ Shader "Wanderer/PlanetSurfaceGPU"
             // VISTE DEBUG isolate: in gioco (keyword OFF) tutto il codice di diagnosi è STRIPPATO dalla variante →
             // costo ZERO. La C# accende PLANET_DEBUG_VIEW solo quando DebugView>0 (cambia la variante on-demand).
             #pragma multi_compile _ PLANET_DEBUG_VIEW
+            // _HAS_SEA (GPU-2): variante col mare SOLO sui corpi che hanno acqua (C# accende la keyword se la ricetta
+            // ha un mare). Sui corpi asciutti (Cetra/Luna6) tutto il blocco acqua del fragment è STRIPPATO (più snello).
+            #pragma shader_feature_local _HAS_SEA
+            // _PBR_TERRAIN (GPU-4): roccia per pendenza + GGX. Variante separata → costo zero quando spento (A/B da C#).
+            #pragma shader_feature_local _PBR_TERRAIN
             #include "UnityCG.cginc"
+            #ifdef _HAS_SEA
+            #define WANDERER_HAS_SEA
+            #endif
+            #ifdef _PBR_TERRAIN
+            #define WANDERER_PBR
+            #endif
             #include "PlanetProceduralShade.cginc"
 
             StructuredBuffer<float> _VPos;       // pool: 3 float per vertice (x,y,z), spazio OGGETTO (pianeta centrato)
@@ -77,6 +96,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
             StructuredBuffer<float> _VDepth;     // pool: profondità acqua (1 float/v)
             StructuredBuffer<float> _VField;     // pool: baseN per-vertice (ondulazione di base, per le maschere colore)
             StructuredBuffer<float> _VSurf;      // pool: quota del pelo del mare (1 float/v) → maschera del mare esatta, niente ricostruzione
+            StructuredBuffer<float> _VColor;     // pool: 3 fbm value-noise di colore per-vertice (macro/minerali/maria) → GPU-1
             StructuredBuffer<uint>  _SlabOfInstance;   // istanza → indice di fetta nel pool
             uint _VertsPerSlab;                  // vertici per fetta (gp*gp)
             float4x4 _ObjectToWorld;             // pianeta locale → mondo (floating origin: aggiornata ogni frame)
@@ -119,6 +139,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 float3 wp  : TEXCOORD4;   // posizione MONDO (per il vettore vista del glint)
                 float  baseN : TEXCOORD5; // ondulazione di base per-vertice (interpolata → niente rumore per-pixel)
                 float  seaSurf : TEXCOORD6; // quota del pelo del mare per-vertice (maschera esatta)
+                float3 colorF : TEXCOORD8; // campi colore per-vertice (macro/minerali/maria), interpolati → GPU-1
             #ifdef PLANET_DEBUG_VIEW
                 float3 dbg : TEXCOORD7;   // DIAGNOSI (solo variante debug): colore per-istanza (livello/faccia/fetta)
             #endif
@@ -188,6 +209,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 o.depth = _VDepth[g];
                 o.baseN = _VField[g];
                 o.seaSurf = _VSurf[g];
+                o.colorF = float3(_VColor[g * 3], _VColor[g * 3 + 1], _VColor[g * 3 + 2]);   // GPU-1: campi colore per-vertice
             #ifdef PLANET_DEBUG_VIEW
                 // DIAGNOSI per-istanza (mostrata nel frag come colore piatto). Modalità in _DebugView:
                 //   3 = LIVELLO di LOD (da splitDist)  ·  4 = FACCIA del cubo  ·  5 = FETTA (hash dell'indice)
@@ -242,7 +264,7 @@ Shader "Wanderer/PlanetSurfaceGPU"
                 float3 radialW = normalize(IN.wp - center);                  // normale liscia della sfera (mondo)
                 float detail = smoothstep(0.8, 0.12, nv);                    // nv alto → 0 (liscio); nv basso → 1 (pieno)
                 float3 nrmAA = normalize(lerp(radialW, N, detail));
-                return fixed4(PlanetShade(IN.lp, IN.wp, nrmAA, IN.bnrm, IN.depth, IN.baseN, IN.seaSurf), 1);
+                return fixed4(PlanetShade(IN.lp, IN.wp, nrmAA, IN.bnrm, IN.depth, IN.baseN, IN.seaSurf, IN.colorF), 1);
             }
             ENDCG
         }

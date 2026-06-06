@@ -96,6 +96,12 @@ RWStructuredBuffer<float> _VDepth; // profondità dell'acqua per vertice (pelo �
 RWStructuredBuffer<float> _VBedNrm; // normale del FONDO sommerso (terreno senza allagamento): dà il rilievo del fondale visto attraverso l'acqua trasparente
 RWStructuredBuffer<float> _VSurf; // QUOTA del pelo del mare attivo per vertice (m). La maschera del mare nel fragment confronta length(pos) con questo valore ESATTO invece di RICOSTRUIRE il pelo dal rumore: robusto a qualunque rugosità (la ricostruzione 3-vs-4 ottave sbagliava → "dipinto") e un fbm per-pixel in meno sul mare GPU-bound
 RWStructuredBuffer<float> _VField;  // baseN per-vertice (ondulazione di BASE [0,1]): il fragment lo usa per le maschere maria/vette invece di rifare il rumore per-pixel
+// COLORE per-vertice (GPU-1): i 3 fbm value-noise di colore (macro/minerali/maria) erano calcolati PER-PIXEL nel
+// fragment (= 6 vnoise/pixel per maschere a frequenza bassissima — il maggior costo fragment evitabile e prerequisito
+// del PBR). Ora il compute li emette per-vertice qui (3 float/v: x=macro, y=minerali, z=maria) e il fragment li
+// interpola dietro _PerVertexColor. Usano il VALUE-NOISE (c_fbm), catena DIVERSA dal baseN (Perlin) → buffer a parte.
+RWStructuredBuffer<float> _VColor;
+float _MacroScale, _MineralScale, _MariaScale;   // scale dei 3 campi colore (identiche a quelle del fragment → parità)
 
 // ---- LOD in gioco (B1 Tappa 2): una FETTA del pool per NODO del quadtree. Riusa _FaceUp/_AxisA/_AxisB +
 // _U0/_V0/_Step (sotto-regione del nodo) + _HasSea. La fetta = griglia interna (_NN×_NN).
@@ -203,6 +209,33 @@ float Ridged(float3 p, int octaves, float lacunarity, float gain, int seed)
     }
     return sum / norm;
 }
+
+// =================================================================================================
+// VALUE-NOISE per le maschere di COLORE — fedele a PlanetNoise.cginc (pcg3d/vnoise/fbm). Catena DIVERSA dal
+// Perlin di sopra (Fbm): qui serve per emettere per-vertice i 3 campi colore (macro/minerali/maria) IDENTICI a
+// quelli che il fragment calcolava per-pixel. Copia VERBATIM (stesse costanti) → parità col fragment garantita.
+// =================================================================================================
+uint c_pcg3d_(uint3 v)
+{
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+    v ^= v >> 16u;
+    v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+    return v.x;
+}
+float c_vhash(float3 lp) { return float(c_pcg3d_((uint3)((int3)lp + 4194304)) & 0xffffu) / 65535.0; }
+float c_vnoise(float3 x)
+{
+    float3 i = floor(x);
+    float3 f = frac(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return lerp(lerp(lerp(c_vhash(i + float3(0,0,0)), c_vhash(i + float3(1,0,0)), f.x),
+                     lerp(c_vhash(i + float3(0,1,0)), c_vhash(i + float3(1,1,0)), f.x), f.y),
+                lerp(lerp(c_vhash(i + float3(0,0,1)), c_vhash(i + float3(1,0,1)), f.x),
+                     lerp(c_vhash(i + float3(0,1,1)), c_vhash(i + float3(1,1,1)), f.x), f.y), f.z);
+}
+// 2 ottave ~[0,1]: IDENTICA a fbm() di PlanetNoise.cginc (= ciò che il fragment usa per macro/minerali/maria)
+float c_fbm(float3 p) { return 0.6 * c_vnoise(p) + 0.4 * c_vnoise(p * 2.03 + 11.7); }
 
 // =================================================================================================
 // Campo crateri — fedele a CraterTerrainLayer.cs

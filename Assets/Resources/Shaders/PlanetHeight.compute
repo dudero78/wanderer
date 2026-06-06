@@ -2,17 +2,23 @@
 #pragma kernel CSNodeSlabBatch
 #include "PlanetHeightCore.hlsl"
 
-[numthreads(8, 8, 1)]
+// OCCUPANCY (1D): la fetta è una griglia _NN×_NN con _NN dispari (nodeRes pari +1) → un dispatch 8×8 sprecava
+// ~32% di thread sul bordo. Dispatch LINEARE su (_NN·_NN) thread, 64 per gruppo → spreco <6%. L'indice di vertice
+// (ix,iy) si ricava dal thread lineare: STESSO vi = _NSlabOff + ix + iy·_NN, stessa (tx,ty) → geometria IDENTICA.
+[numthreads(64, 1, 1)]
 void CSNodeSlab(uint3 id : SV_DispatchThreadID)
 {
-    if ((int)id.x >= _NN || (int)id.y >= _NN) return;
-    if (id.x == 0 && id.y == 0) _SlabRegion[_SlabIndex] = _SlabRegionId;   // region-stamp: marchia la fetta col fill
-    float tx = _U0 + (int)id.x * _Step;
-    float ty = _V0 + (int)id.y * _Step;
+    uint nn = (uint)_NN;
+    uint lin = id.x;
+    if (lin >= nn * nn) return;
+    uint ix = lin % nn, iy = lin / nn;   // uint: divisione/modulo più veloci su Metal
+    if (ix == 0u && iy == 0u) _SlabRegion[_SlabIndex] = _SlabRegionId;   // region-stamp: marchia la fetta col fill
+    float tx = _U0 + (int)ix * _Step;
+    float ty = _V0 + (int)iy * _Step;
     float3 dir = ParamToDir(tx, ty);
     float depth, surf;
     float3 p = dir * SampleHeightD(dir, depth, surf);
-    int vi = _NSlabOff + (int)id.x + (int)id.y * _NN;
+    int vi = _NSlabOff + (int)ix + (int)iy * _NN;
     int o = vi * 3;
     _VPos[o] = p.x; _VPos[o + 1] = p.y; _VPos[o + 2] = p.z;
     _VDepth[vi] = depth;
@@ -20,6 +26,11 @@ void CSNodeSlab(uint3 id : SV_DispatchThreadID)
     // baseN per-vertice: STESSA formula del fragment (Fbm ≡ n3_fbm, parità verificata) → il fragment non rifà
     // il rumore gradiente per ogni pixel, lo legge interpolato. 2 ottave = solo il trend per le maschere maria/vette.
     _VField[vi] = Fbm(dir * _Frequency, 2, _Lacunarity, _Gain, _Seed);
+    // COLORE per-vertice (GPU-1): i 3 fbm value-noise (macro/minerali/maria) come li calcolava il fragment per-pixel.
+    int co = vi * 3;
+    _VColor[co]     = c_fbm(dir * _MacroScale);
+    _VColor[co + 1] = c_fbm(dir * _MineralScale);
+    _VColor[co + 2] = c_fbm(dir * _MariaScale);
 
     // normale per DIFFERENZA IN AVANTI dai vicini +x,+y (riusa il centro p già calcolato): 2 SampleHeight extra
     // invece di 4. Bias di mezza cella → impercettibile alla risoluzione del nodo, dimezza il costo del fill.
@@ -50,27 +61,36 @@ void CSNodeSlab(uint3 id : SV_DispatchThreadID)
 // (SampleHeightD/BedHeight/Fbm) restano globali (uguali per tutti i nodi del corpo).
 // =================================================================================================
 
-[numthreads(8, 8, 1)]
+// OCCUPANCY (1D): vertice lineare su id.x (64/gruppo), NODO su id.y (un gruppo per nodo) invece del vecchio
+// (8,8) con nodo su z. Stesso vi/(tx,ty) → parità col per-nodo intatta (la verifica VerifyBatchFill resta valida).
+[numthreads(64, 1, 1)]
 void CSNodeSlabBatch(uint3 id : SV_DispatchThreadID)
 {
-    if ((int)id.x >= _NN || (int)id.y >= _NN) return;
-    NodeJobGPU j = _Jobs[id.z];
-    if (id.x == 0 && id.y == 0) _SlabRegion[(int)j.misc.z] = asuint(j.misc.w);   // region-stamp UINT: i bit dell'id stanno in misc.w (asuint li recupera esatti)
+    uint nn = (uint)_NN;
+    uint lin = id.x;
+    if (lin >= nn * nn) return;
+    uint ix = lin % nn, iy = lin / nn;   // uint: divisione/modulo più veloci su Metal
+    NodeJobGPU j = _Jobs[id.y];
+    if (ix == 0u && iy == 0u) _SlabRegion[(int)j.misc.z] = asuint(j.misc.w);   // region-stamp UINT: i bit dell'id stanno in misc.w (asuint li recupera esatti)
     float3 up = j.faceUp.xyz, ax = j.axisA.xyz, bx = j.axisB.xyz;
     float u0 = j.uv.x, v0 = j.uv.y, step = j.uv.z;
     int slabOff = (int)j.uv.w;
 
-    float tx = u0 + (int)id.x * step;
-    float ty = v0 + (int)id.y * step;
+    float tx = u0 + (int)ix * step;
+    float ty = v0 + (int)iy * step;
     float3 dir = ParamToDirA(tx, ty, up, ax, bx);
     float depth, surf;
     float3 p = dir * SampleHeightD(dir, depth, surf);
-    int vi = slabOff + (int)id.x + (int)id.y * _NN;
+    int vi = slabOff + (int)ix + (int)iy * _NN;
     int o = vi * 3;
     _VPos[o] = p.x; _VPos[o + 1] = p.y; _VPos[o + 2] = p.z;
     _VDepth[vi] = depth;
     _VSurf[vi] = surf;
     _VField[vi] = Fbm(dir * _Frequency, 2, _Lacunarity, _Gain, _Seed);
+    int co = vi * 3;
+    _VColor[co]     = c_fbm(dir * _MacroScale);
+    _VColor[co + 1] = c_fbm(dir * _MineralScale);
+    _VColor[co + 2] = c_fbm(dir * _MariaScale);
 
     float3 pXp = ParamToDirA(tx + step, ty, up, ax, bx); pXp *= SampleHeight(pXp);
     float3 pYp = ParamToDirA(tx, ty + step, up, ax, bx); pYp *= SampleHeight(pYp);
