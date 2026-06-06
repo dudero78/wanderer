@@ -82,6 +82,7 @@ public class SolarSystem : MonoBehaviour
     // così i numeri parlano sempre del corpo con cui stai interagendo (sotto i piedi o in viaggio).
     public CelestialBody Reference { get; private set; }
     CelestialBody currentAnchor;
+    StarSystem currentAnchorSys;            // se ancorato al PUNTO di un sistema distante (crociera interstellare) invece che a un corpo
     CelestialBody lastNearest;              // isteresi sul corpo più vicino (vedi NearestBody)
     bool traveling;                         // isteresi zona-locale/viaggio: evita il flip-flop sul bordo
 
@@ -92,6 +93,27 @@ public class SolarSystem : MonoBehaviour
         if (PlayerBody != null) PlayerBody.position += s;
         for (int i = 0; i < Loose.Count; i++)
             if (Loose[i] != null) Loose[i].position += s;
+    }
+
+    /// <summary>Cambio d'ancora (corpo o punto-sistema): trasla giocatore+oggetti per restare nello stesso punto-universo
+    /// (niente salto a schermo) e — se c'era già un'ancora (had) — corregge la velocità della differenza (vecchia−nuova)
+    /// × TimeScale, così la velocità-UNIVERSO si conserva. I Loose DINAMICI (sonda in volo) ricevono la stessa correzione
+    /// (senza, schizzerebbero via); i kinematici (tuta, sonda posata) sono saltati.</summary>
+    void SwitchAnchor(Vector3d newPos, Vector3d oldVel, Vector3d newVel, bool had)
+    {
+        Vector3 shift = (FloatingOrigin.SceneOrigin - newPos).ToVector3();
+        if (had)
+        {
+            Vector3 dvScene = (oldVel - newVel).ToVector3() * (float)TimeScale;
+            if (PlayerBody != null) PlayerBody.linearVelocity += dvScene;
+            for (int li = 0; li < Loose.Count; li++)
+            {
+                if (Loose[li] == null) continue;
+                var lrb = Loose[li].GetComponent<Rigidbody>();
+                if (lrb != null && !lrb.isKinematic) lrb.linearVelocity += dvScene;
+            }
+        }
+        ShiftLoose(shift);
     }
 
     void Awake()
@@ -172,40 +194,42 @@ public class SolarSystem : MonoBehaviour
             else if (traveling && alt < takeoff * 0.6f) traveling = false;
 
             // ANCORAGGIO. In viaggio con una DESTINAZIONE → ancori a lei: è FERMA in scena (non sfugge
-            // mentre orbita) e raggiungibile. Altrimenti (zona locale, o nessuna destinazione) → al più
-            // vicino. Allo SWITCH di corpo (cambio di sistema di riferimento) fai due cose:
-            CelestialBody target = (traveling && Destination != null) ? Destination : nearest;
-            if (target != null)
+            // mentre orbita) e raggiungibile. Altrimenti (zona locale, o nessuna destinazione) → al più vicino.
+            CelestialBody bodyTarget = (traveling && Destination != null) ? Destination : nearest;
+
+            // CROCIERA INTERSTELLARE: verso un SISTEMA distante, in mezzo allo spazio non c'è un corpo vicino a cui
+            // agganciarsi → la pos-scena del giocatore esplode (a milioni di metri il float TREMA). Ancora allora al
+            // PUNTO del sistema-destinazione (fermo nell'universo): la pos-scena resta piccola (precisione) e i numeri
+            // diventano relativi alla DESTINAZIONE. Si passa al punto quando è più vicino del corpo più prossimo.
+            Vector3d playerU = FloatingOrigin.SceneOrigin + new Vector3d(pp);
+            StarSystem sysTarget = null;
+            if (traveling && DestinationSystem != null)
             {
-                if (currentAnchor != target)
-                {
-                    // (1) trasli giocatore+oggetti per restare nello stesso punto-universo → niente
-                    //     salto a schermo. (2) correggi la velocità del giocatore della differenza di
-                    //     velocità tra vecchio e nuovo corpo (× TimeScale: i corpi si muovono in scena
-                    //     a quel ritmo) → la sua velocità-UNIVERSO non cambia. Conseguenza voluta:
-                    //     appena decolli NON ti fermi rispetto alla destinazione, mantieni lo slancio
-                    //     orbitale e lei "scorre"; è il freno X (match velocity) a sincronizzarti e a
-                    //     fermarla. Cambiare ancora non altera mai il tuo moto reale, solo i numeri.
-                    Vector3 shift = (FloatingOrigin.SceneOrigin - target.UniversePosition).ToVector3();
-                    if (currentAnchor != null)
-                    {
-                        Vector3 dvScene = (currentAnchor.UniverseVelocity - target.UniverseVelocity).ToVector3() * (float)TimeScale;
-                        if (PlayerBody != null) PlayerBody.linearVelocity += dvScene;
-                        // Stessa correzione ai LOOSE DINAMICI (es. la SONDA in volo): senza, allo switch d'ancora
-                        // restano con la velocità del VECCHIO frame e "schizzano via" nel nuovo. I kinematici (tuta,
-                        // sonda posata) sono già fermi/incollati → si saltano. Così la velocità-universo si conserva.
-                        for (int li = 0; li < Loose.Count; li++)
-                        {
-                            if (Loose[li] == null) continue;
-                            var lrb = Loose[li].GetComponent<Rigidbody>();
-                            if (lrb != null && !lrb.isKinematic) lrb.linearVelocity += dvScene;
-                        }
-                    }
-                    ShiftLoose(shift);
-                    currentAnchor = target;
-                }
-                FloatingOrigin.SceneOrigin = target.UniversePosition;
-                Reference = target;
+                double dSys = (DestinationSystem.SystemOrigin - playerU).sqrMagnitude;
+                double dBody = bodyTarget != null ? (bodyTarget.UniversePosition - playerU).sqrMagnitude : double.MaxValue;
+                if (dSys < dBody) sysTarget = DestinationSystem;
+            }
+
+            if (sysTarget != null)
+            {
+                if (currentAnchorSys != sysTarget)   // switch a PUNTO (da un corpo o da un altro sistema): vel del punto = 0
+                    SwitchAnchor(sysTarget.SystemOrigin, currentAnchor != null ? currentAnchor.UniverseVelocity : Vector3d.Zero,
+                                 Vector3d.Zero, currentAnchor != null || currentAnchorSys != null);
+                currentAnchor = null; currentAnchorSys = sysTarget;
+                FloatingOrigin.SceneOrigin = sysTarget.SystemOrigin;
+                Reference = null;   // relativo al punto fisso = relativo all'universo (HUD usa GravityBody per l'altitudine)
+            }
+            else if (bodyTarget != null)
+            {
+                // Allo SWITCH di corpo correggi la velocità della differenza tra vecchia e nuova ancora (× TimeScale):
+                // la velocità-UNIVERSO non cambia → cambiare ancora non altera mai il moto reale, solo i numeri. Lo
+                // stesso vale arrivando DA un punto-sistema (vel 0). I Loose dinamici (sonda) ricevono la stessa correzione.
+                if (currentAnchor != bodyTarget)
+                    SwitchAnchor(bodyTarget.UniversePosition, currentAnchor != null ? currentAnchor.UniverseVelocity : Vector3d.Zero,
+                                 bodyTarget.UniverseVelocity, currentAnchor != null || currentAnchorSys != null);
+                currentAnchor = bodyTarget; currentAnchorSys = null;
+                FloatingOrigin.SceneOrigin = bodyTarget.UniversePosition;
+                Reference = bodyTarget;
             }
         }
         else if (Anchor != null) { FloatingOrigin.SceneOrigin = Anchor.UniversePosition; Reference = Anchor; }
