@@ -10,9 +10,9 @@ public class SpeedLines : MonoBehaviour
 {
     public PlanetWalker walker;
     public Camera cam;
-    public float startSpeed = 1500f;     // sotto: niente effetto
-    public float fullSpeed = 16000f;     // sopra: effetto pieno
-    public float thickSpeed = 40000f;    // oltre: raggi più spessi e lunghi (regime "iperveloce")
+    public float startSpeed = 13000f;    // sotto: niente effetto (parte da 13 km/s)
+    public float fullSpeed = 50000f;     // sopra: effetto pieno
+    public float thickSpeed = 100000f;   // oltre: raggi più spessi e lunghi (regime "iperveloce")
 
     const int N = 120;
     const float Rate = 0.85f;            // ritmo COSTANTE verso l'esterno (le righe non invertono mai)
@@ -31,7 +31,8 @@ public class SpeedLines : MonoBehaviour
 
     void OnGUI()
     {
-        if (Event.current.type != EventType.Repaint || walker == null) return;
+        if (Event.current.type != EventType.Repaint || walker == null || cam == null) return;
+        if (!cam.enabled) return;   // SOLO dalla camera del giocatore: guardando attraverso la sonda non si vede
         if (PauseMenu.Showing || SettingsMenu.AnyOpen) return;
         float speed = walker.Speed;   // magnitudo (≥0): rallentando scende, non diventa negativa
         float intensity = Mathf.InverseLerp(startSpeed, fullSpeed, speed);
@@ -42,9 +43,15 @@ public class SpeedLines : MonoBehaviour
         // CENTRO = direzione di MOTO proiettata a schermo (prograde), non il centro-vista.
         Vector2 center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
         Vector3 vel = walker.Velocity;
-        if (cam != null && vel.sqrMagnitude > 1f)
+        if (vel.sqrMagnitude > 1f)
         {
-            Vector3 sp = cam.WorldToScreenPoint(cam.transform.position + vel.normalized * 1000f);
+            Vector3 vd = vel.normalized;
+            // SFUMA guardando ALTROVE: pieno se guardi verso dove vai, laterale se di traverso, SPARISCE se guardi
+            // indietro (prima si "ribaltava" come se corressi all'indietro — ora semplicemente non si vede).
+            float facing = Vector3.Dot(cam.transform.forward, vd);
+            intensity *= Mathf.SmoothStep(-0.15f, 0.55f, facing);
+            if (intensity <= 0.001f) return;
+            Vector3 sp = cam.WorldToScreenPoint(cam.transform.position + vd * 1000f);
             if (sp.z > 0f)
             {
                 float sx = cam.pixelWidth > 0 ? sp.x * Screen.width / cam.pixelWidth : sp.x;
