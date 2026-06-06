@@ -42,6 +42,32 @@ public class KeplerOrbit
         return new Vector3d(x, z, y);
     }
 
+    /// <summary>Velocità relativa al corpo centrale (m per secondo di SimTime), in forma CHIUSA: la derivata
+    /// analitica esatta di <see cref="GetRelativePosition"/>. Sostituisce la differenza finita (dt=0.01) che era
+    /// solo un'approssimazione O(dt²) e costava 2 solve di Kepler. dE/dt = n/(1−e·cosE) da M = E − e·sinE.</summary>
+    public Vector3d GetRelativeVelocity(double time)
+    {
+        double n = 2.0 * PI / Period;
+        double M = MeanAnomalyAtEpoch + n * time;
+        double E = SolveKepler(M, Eccentricity);
+
+        double a = SemiMajorAxis, e = Eccentricity;
+        double Edot = n / (1 - e * Cos(E));           // derivata dell'anomalia eccentrica
+        double dxp = -a * Sin(E) * Edot;              // velocità nel frame perifocale
+        double dyp = a * Sqrt(Max(0.0, 1 - e * e)) * Cos(E) * Edot;
+
+        // stessa rotazione perifocale -> inerziale di GetRelativePosition (lineare → vale anche sulla velocità)
+        double cw = Cos(ArgumentOfPeriapsis), sw = Sin(ArgumentOfPeriapsis);
+        double cO = Cos(LongitudeAscendingNode), sO = Sin(LongitudeAscendingNode);
+        double ci = Cos(Inclination), si = Sin(Inclination);
+
+        double vx = (cO * cw - sO * sw * ci) * dxp + (-cO * sw - sO * cw * ci) * dyp;
+        double vy = (sO * cw + cO * sw * ci) * dxp + (-sO * sw + cO * cw * ci) * dyp;
+        double vz = (sw * si) * dxp + (cw * si) * dyp;
+
+        return new Vector3d(vx, vz, vy);              // stesso rimappaggio assi (x,y)->(x,z) di GetRelativePosition
+    }
+
     /// <summary>Risolve M = E - e·sin(E) con Newton-Raphson. Converge in pochi passi.</summary>
     static double SolveKepler(double M, double e)
     {

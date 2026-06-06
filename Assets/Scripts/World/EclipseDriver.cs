@@ -17,6 +17,11 @@ public class EclipseDriver : MonoBehaviour
     readonly List<Rocky> rocky = new List<Rocky>();
     Transform sun;
     CelestialBody star;
+    SolarSystem solarRef;
+    // CADENZA: l'ombra di eclissi si muove a velocità ORBITALE (lentissima) → aggiornare gli uniform a ~10 Hz invece
+    // di 60 è visivamente identico e taglia ~6× il costo O(n²) di questo LateUpdate. Parte > intervallo → primo frame subito.
+    float eclTimer = 1f;
+    const float EclInterval = 0.1f;
 
     static readonly int OccPos = Shader.PropertyToID("_EclipseOccluderPos");
     static readonly int OccRad = Shader.PropertyToID("_EclipseOccluderRadius");
@@ -26,8 +31,18 @@ public class EclipseDriver : MonoBehaviour
     public void Init(SolarSystem solar, Transform sunLight)
     {
         sun = sunLight;
-        if (solar == null) return;
-        foreach (var b in solar.Bodies)
+        solarRef = solar;
+        Rebuild();
+    }
+
+    /// <summary>Ri-scansiona i corpi rocciosi e la stella (per il futuro cambio di sistema: i corpi attivi cambiano).
+    /// Oggi chiamata una volta dal bootstrap; l'effetto è identico a prima.</summary>
+    public void Rebuild()
+    {
+        rocky.Clear();
+        star = null;
+        if (solarRef == null) return;
+        foreach (var b in solarRef.Bodies)
         {
             if (b == null) continue;
             if (b.Orbit == null) star = b;   // la stella: corpo senza orbita (sorgente di luce)
@@ -40,6 +55,9 @@ public class EclipseDriver : MonoBehaviour
     void LateUpdate()
     {
         if (sun == null) return;
+        eclTimer += Time.deltaTime;
+        if (eclTimer < EclInterval) return;   // ~10 Hz: gli uniform restano sull'ultimo valore fra un update e l'altro
+        eclTimer = 0f;
         Vector3 toSun = -sun.forward;   // verso il sole = stessa direzione della luce direzionale (Unity)
 
         for (int i = 0; i < rocky.Count; i++)

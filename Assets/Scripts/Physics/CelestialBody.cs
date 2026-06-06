@@ -48,9 +48,9 @@ public class CelestialBody : MonoBehaviour
     public Vector3d UniverseVelocityAt(double time)
     {
         if (Orbit == null || Parent == null) return Vector3d.Zero;
-        const double dt = 0.01;
-        Vector3d rel = (Orbit.GetRelativePosition(time + dt) - Orbit.GetRelativePosition(time - dt)) / (2.0 * dt);
-        return Parent.UniverseVelocityAt(time) + rel;
+        // velocità ANALITICA esatta (forma chiusa), non più differenza finita: niente errore O(dt²) e metà dei solve
+        // di Kepler. Una luna somma la velocità del suo pianeta (ricorsione fino alla stella, ferma).
+        return Parent.UniverseVelocityAt(time) + Orbit.GetRelativeVelocity(time);
     }
 
     /// <summary>Proietta la posizione-universo nello spazio di rendering di Unity.</summary>

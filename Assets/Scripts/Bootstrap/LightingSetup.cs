@@ -19,8 +19,7 @@ public static class LightingSetup
         dl.color = new Color(1f, 0.96f, 0.9f);
         dl.shadows = LightShadows.None;   // niente shadow map: acne a luce radente + schiarimento oltre la distanza
         var sun = lightGo.AddComponent<SunLight>();
-        sun.star = star;
-        sun.planet = planet;
+        sun.Retarget(star, planet);
 
         // Ombre di ECLISSI (analitiche, nello shader): un corpo fra il sole e un altro lo oscura. Niente shadow map.
         var eclipse = host.AddComponent<EclipseDriver>();

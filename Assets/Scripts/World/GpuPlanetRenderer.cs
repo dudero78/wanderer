@@ -74,6 +74,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     Transform cam;
     Light sun, torch;
     bool torchSearched;   // FindAnyObjectByType<Flashlight> è caro: cercala UNA volta (lo spawn è sincrono in GameBootstrap.Start, prima del primo Update)
+    bool uploadedOnce;    // i buffer per-istanza si ri-caricano solo quando la selezione cambia (vedi tree.SelectionChanged) → a camera ferma niente SetData
     int fillsThisFrame;   // diagnosi: quante fette riempite (dispatch) in questo frame
     long fillTicks;       // diagnosi: tempo CPU speso nelle chiamate dei fill (SetX+Dispatch), per separarlo dalla traversata
     // scomposizione CPU del frame (ms), SOMMATA su tutti i corpi, esposta all'HUD: collo del churn a colpo d'occhio
@@ -342,6 +343,12 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
     /// sopra/accanto ai proxy a dimensione-costante. In mappa la camera del giocatore è spenta comunque.</summary>
     public static bool SuppressDraw;
 
+    /// <summary>OSSERVATORI EXTRA oltre al giocatore (es. una SONDA lanciata su un altro corpo). Chi possiede un
+    /// punto di vista che deve vedere bene il terreno lontano si registra qui (e si toglie quando sparisce). VUOTA di
+    /// default → comportamento identico (solo la camera del giocatore). Per ogni corpo, il renderer usa il viewpoint
+    /// PIÙ VICINO per il dettaglio LOD e il morph, e NON culla un corpo se QUALCUNO lo vede da vicino.</summary>
+    public static readonly System.Collections.Generic.List<Transform> ExtraViewpoints = new System.Collections.Generic.List<Transform>();
+
     void Update()
     {
         if (!Ready) return;
@@ -357,7 +364,17 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         // EARLY-OUT sub-pixel: un corpo così lontano da occupare meno di ~1 pixel NON fa nulla (niente refresh uniform,
         // niente traversata, niente draw, niente SetData). Converte il costo per-frame da O(corpi) a O(corpi VICINI).
         Vector3 bodyCenter = m.MultiplyPoint3x4(Vector3.zero);
-        if (radius < Vector3.Distance(cam.position, bodyCenter) * 0.0006f) return;
+        // viewpoint PIÙ VICINO fra il giocatore e gli osservatori extra (sonda): il corpo prende dettaglio per chi lo
+        // guarda da vicino, e si culla solo se NESSUN viewpoint lo vede. Lista vuota → identico a "solo giocatore".
+        Vector3 viewPos = cam.position;
+        float bestSqr = (cam.position - bodyCenter).sqrMagnitude;
+        for (int i = 0; i < ExtraViewpoints.Count; i++)
+        {
+            var vp = ExtraViewpoints[i]; if (vp == null) continue;
+            float d = (vp.position - bodyCenter).sqrMagnitude;
+            if (d < bestSqr) { bestSqr = d; viewPos = vp.position; }
+        }
+        if (radius < Mathf.Sqrt(bestSqr) * 0.0006f) return;
 
         // per-frame sul materiale unico: porta il _Cull (Front se cullSplit, altrimenti Off = niente culling).
         // VISTE DEBUG: accendi la variante (keyword) solo al CAMBIO. In gioco (DebugView=0) la keyword è spenta → costo zero.
@@ -368,7 +385,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
             else               mat.DisableKeyword("PLANET_DEBUG_VIEW");
         }
         mat.SetMatrix("_ObjectToWorld", m);
-        mat.SetVector("_CamPosWorld", cam.position);   // geomorph: distanza camera per il fattore di morph
+        mat.SetVector("_CamPosWorld", viewPos);   // geomorph: distanza dal viewpoint attivo (giocatore o sonda più vicina)
         mat.SetFloat("_DebugView", DebugView);
         mat.SetInt("_Cull", CullSplit ? InteriorCull : 0);
         RefreshLighting(mat);
@@ -378,21 +395,27 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         fillsThisFrame = 0;
         fillTicks = 0;
         long swStart = System.Diagnostics.Stopwatch.GetTimestamp();   // diagnosi: costo CPU del mio lavoro per frame (GetTimestamp = niente alloc heap, gira per ogni corpo vicino ogni frame)
-        tree.Update(m, cam.position, Time.deltaTime);
+        tree.Update(m, viewPos, Time.deltaTime);   // LOD guidato dal viewpoint più vicino (la guardia sui salti copre il cambio osservatore)
         FlushFills();   // batch: i fill accumulati nella traversata partono ora, in un solo dispatch (no-op se per-nodo)
         double lodMs = (System.Diagnostics.Stopwatch.GetTimestamp() - swStart) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;   // traversata + dispatch dei fill
         if (tree.VisibleCount == 0) return;
 
-        slabOfInstance.SetData(tree.VisibleSlabs, 0, 0, tree.VisibleCount);
-        splitDistOfInstance.SetData(tree.VisibleSplitDist, 0, 0, tree.VisibleCount);   // geomorph: parallelo a slabOfInstance
-        dirOfInstance.SetData(tree.VisibleDirs, 0, 0, tree.VisibleCount);              // anti-spuntone: parallelo a slabOfInstance
+        // UPLOAD solo quando la selezione cambia (split/merge/orizzonte) o al primo frame: a camera ferma i buffer
+        // tengono già i valori giusti → niente SetData (3 buffer + args) per frame. Il morph è un uniform separato.
+        if (tree.SelectionChanged || !uploadedOnce)
+        {
+            slabOfInstance.SetData(tree.VisibleSlabs, 0, 0, tree.VisibleCount);
+            splitDistOfInstance.SetData(tree.VisibleSplitDist, 0, 0, tree.VisibleCount);   // geomorph: parallelo a slabOfInstance
+            dirOfInstance.SetData(tree.VisibleDirs, 0, 0, tree.VisibleCount);              // anti-spuntone: parallelo a slabOfInstance
+            argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
+            argsData[0].instanceCount = (uint)tree.VisibleCount;
+            argsData[0].startIndex = 0;
+            argsBuf.SetData(argsData);
+            uploadedOnce = true;
+        }
 
         var worldBounds = new Bounds(bodyCenter, Vector3.one * (radius * 5f));
         // UN draw indiretto: la sola griglia interna (niente skirt). Il _Cull del materiale dimezza l'overdraw.
-        argsData[0].indexCountPerInstance = (uint)indexCountPerSlab;
-        argsData[0].instanceCount = (uint)tree.VisibleCount;
-        argsData[0].startIndex = 0;
-        argsBuf.SetData(argsData);
         var rp = new RenderParams(mat) { worldBounds = worldBounds, shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false };
         Graphics.RenderPrimitivesIndexedIndirect(rp, MeshTopology.Triangles, idxBuf, argsBuf, 1);
 

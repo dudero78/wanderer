@@ -41,6 +41,13 @@ guardie C0 nelle pipeline, strumenti di diagnosi, rimozione skirt). Dettaglio te
 ## 🎯 OBIETTIVO: tutte le aree di "Salute per area" (AUDIT3) ad **A**
 
 Voti di partenza (Audit #3): Architettura B+, Rendering B, Fisica B−, Performance A−, Robustezza B, Shader B+, Prodotto C+.
+
+> **STATO dopo sessione 3 (6 giu):** ✅ **Performance → A** (SetData saltati a camera ferma + cadenza eclissi 10Hz +
+> alloc Stopwatch via + strumentazione dev-only). ✅ **Robustezza → A** lato codice (NaN, SuppressDraw, render-target
+> bake). 🔼 **Fisica** verso A (velocità orbitale ora ANALITICA + isteresi walker; resta solo #8). 🔼 **Architettura**
+> verso A (bodyId riciclato; resta uint region-stamp). + multi-viewpoint renderer (infrastruttura) e singleton
+> ri-puntabili (SunLight.Retarget / EclipseDriver.Rebuild). **Mancano per il pieno A:** Rendering/Shader/Prodotto
+> (toccano shader o arte → sessione a gioco aperto) + #8 (Fisica) + uint region-stamp (Architettura).
 Legenda: ✅ fatto · 🟢 sicuro/autonomo (compile-gate) · 🟡 a gioco aperto (shader/feel, non verificabile alla cieca) · 🔵 serve una DECISIONE di Dario.
 
 - **Architettura B+ → A**

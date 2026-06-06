@@ -250,3 +250,18 @@ Sessione di riordino strutturale e robustezza (priorità: resa/qualità/performa
   un controllo di feel/fluidità). Piani dettagliati in `REPORT_NOTTE_6giu.md` / `AUDIT3.md`.
 - **Lasciati pronti ma non applicati** (toccano gli shader, non verificabili offline): keyword `_HAS_SEA`, colore
   per-vertice (prerequisito PBR), eclissi nel renderer autoritativo. Dettagli in `AUDIT3.md`.
+
+### Sessione 3 — verso "tutte le aree ad A" (parte sicura, compile-gated)
+
+- **Performance → A:** i buffer per-istanza si ri-caricano solo quando la selezione LOD cambia (split/merge/orizzonte,
+  `PlanetLodTree.SelectionChanged`) → a camera ferma niente `SetData` per frame; `EclipseDriver` a cadenza ~10 Hz
+  (l'ombra si muove a velocità orbitale) invece di ogni frame, taglia ~6× l'O(n²).
+- **Fisica:** velocità orbitale ora **analitica** in forma chiusa (`KeplerOrbit.GetRelativeVelocity`) invece della
+  differenza finita `dt=0.01` → esatta e metà dei solve di Kepler.
+- **Renderer multi-viewpoint (infrastruttura):** `GpuPlanetRenderer.ExtraViewpoints` (vuota di default → comportamento
+  identico): un corpo prende dettaglio per l'osservatore più vicino (giocatore O sonda) e non viene cullato se qualcuno
+  lo vede. Pronto per la sonda alla Outer Wilds.
+- **Singleton ri-puntabili** (prep transizione fra sistemi): `SunLight.Retarget`, `EclipseDriver.Rebuild`.
+- **Restano per la sessione a gioco aperto** (shader/feel non verificabili offline): Rendering/Shader/Prodotto ad A
+  (colore per-vertice, `_HAS_SEA`, eclissi GPU, PBR, cielo/bloom/atmosfera), #8, uint region-stamp (toglie il limite
+  ~15 corpi), occupancy, e le Tappe 3-5 del multi-sistema. Piani in `AUDIT3.md`, `STARSYSTEM_DESIGN.md`, `TODO.md`.

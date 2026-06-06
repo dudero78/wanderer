@@ -15,6 +15,10 @@ public class SunLight : MonoBehaviour
     public Transform star;
     public Transform planet;
 
+    /// <summary>Ri-punta la direzionale a una NUOVA stella/pianeta (per il futuro cambio di sistema stellare). Oggi
+    /// chiamata una volta sola dal bootstrap; resta singleton perché la stella che ti illumina è sempre UNA.</summary>
+    public void Retarget(Transform newStar, Transform newPlanet) { star = newStar; planet = newPlanet; }
+
     void Awake() { Instance = this; }
     void OnDestroy() { if (Instance == this) Instance = null; }   // dopo un domain reload evita un Instance stale → RefreshLighting cadrebbe su luce di default
 

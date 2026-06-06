@@ -61,6 +61,10 @@ public class PlanetLodTree
     public Vector4[] VisibleDirs { get; private set; }       // anti-spuntone: direzione-centro del nodo (.w = id regione)
     public int VisibleCount { get; private set; }
     public int SplitsThisFrame { get; private set; }
+    // true se la SELEZIONE è cambiata in questo frame (split/merge/flip d'orizzonte): solo allora il set visibile
+    // differisce e va RI-CARICATO sulla GPU. A camera ferma resta false → il renderer salta i SetData (i buffer
+    // tengono già i valori giusti). Il morph NON dipende da questi buffer (è un uniform per-frame nel vertex shader).
+    public bool SelectionChanged { get; private set; }
 
     // predittivo + contesto LOD del frame: settato UNA volta in Update, letto dalla traversata. Così UpdateLod NON si
     // passa più matrice+vettori PER COPIA a ogni nodo (in Mono/editor copiare ~112 byte migliaia di volte = il costo
@@ -246,6 +250,7 @@ public class PlanetLodTree
 
         VisibleCount = 0;
         SplitsThisFrame = 0;
+        SelectionChanged = false;
         for (int f = 0; f < 6; f++) UpdateLod(roots[f]);   // CDLOD: una passata, seleziona+raccoglie (il morph continuo fa il crack-free)
     }
 
@@ -266,12 +271,13 @@ public class PlanetLodTree
 
         if (nd.children != null)
         {
-            if (dist > splitDist * mergeHysteresis) { Merge(nd); AddVisible(nd); }
+            if (dist > splitDist * mergeHysteresis) { Merge(nd); SelectionChanged = true; AddVisible(nd); }
             else for (int i = 0; i < 4; i++) UpdateLod(nd.children[i]);
         }
         else if (nd.depth < maxDepth && dist < splitDist && SplitsThisFrame < splitBudget && Split(nd))
         {
             SplitsThisFrame++;
+            SelectionChanged = true;
             for (int i = 0; i < 4; i++) UpdateLod(nd.children[i]);
         }
         else AddVisible(nd);
@@ -295,14 +301,16 @@ public class PlanetLodTree
     /// che bucano l'orizzonte sono gestite con precisione da **lodPeakAngle** (acos(R/(R+maxH)) sommato alla soglia).</summary>
     bool BeyondHorizon(Node nd, Vector3 nodeWorld)
     {
-        if (!lodHorizonValid) { nd.horizonHidden = false; return false; }   // camera troppo bassa: niente culling
+        if (!lodHorizonValid) { if (nd.horizonHidden) SelectionChanged = true; nd.horizonHidden = false; return false; }   // camera troppo bassa: niente culling
         Vector3 nodeDir = (nodeWorld - lodCenter).normalized;
         float thetaNode = Mathf.Acos(Mathf.Clamp(Vector3.Dot(lodCamDir, nodeDir), -1f, 1f));
         float thetaR = (nd.worldSize * 0.5f) / radius;   // mezza estensione angolare del nodo
         float baseT = lodThetaHorizon + thetaR + lodPeakAngle;   // orizzonte + estensione nodo + spunto dei picchi (height-aware)
         float margin = nd.horizonHidden ? 0.02f : 0.05f;
-        nd.horizonHidden = thetaNode > baseT + margin;
-        return nd.horizonHidden;
+        bool hidden = thetaNode > baseT + margin;
+        if (hidden != nd.horizonHidden) SelectionChanged = true;   // un nodo entra/esce dall'orizzonte → il set visibile cambia → ri-carica
+        nd.horizonHidden = hidden;
+        return hidden;
     }
 
     /// <summary>STREAMING-SAFE: rende le fette di QUESTO corpo (vive nell'albero + in cache) alla free-list condivisa,
