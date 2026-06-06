@@ -103,31 +103,19 @@ public class ProbeController : MonoBehaviour
         if (probe != null) probe.Recall();
     }
 
-    static bool sMigrated;
-
-    /// <summary>Cartella delle foto in DOCUMENTI (cross-platform: MyDocuments → ~/Documents su Mac/Windows,
-    /// $HOME/Documents su Linux). Creata SMART alla prima foto (anche i genitori). Alla prima chiamata MIGRA le foto
-    /// già scattate dalla vecchia cartella (persistentDataPath, nascosta) → Documenti.</summary>
+    /// <summary>Cartella delle foto = Documenti dell'utente / Wanderer / Foto, CROSS-PLATFORM. NB: su Mac/Linux
+    /// `SpecialFolder.MyDocuments` ritorna la HOME (mappa su $HOME), non ~/Documents → su quelle piattaforme compongo
+    /// `$HOME/Documents` a mano; su Windows uso MyDocuments (gestisce anche i Documenti rilocati). Creata SMART alla
+    /// prima foto (anche i genitori).</summary>
     static string PhotoDir()
     {
-        string dir = System.IO.Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), "Wanderer", "Foto");
+        string docs;
+        if (Application.platform == RuntimePlatform.WindowsPlayer || Application.platform == RuntimePlatform.WindowsEditor)
+            docs = System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments);
+        else
+            docs = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), "Documents");
+        string dir = System.IO.Path.Combine(docs, "Wanderer", "Foto");
         System.IO.Directory.CreateDirectory(dir);   // la crea se non esiste (no-op se c'è)
-        if (!sMigrated)
-        {
-            sMigrated = true;
-            try
-            {
-                string old = Application.persistentDataPath;
-                if (System.IO.Directory.Exists(old))
-                    foreach (var f in System.IO.Directory.GetFiles(old, "sonda_*.png"))
-                    {
-                        string dest = System.IO.Path.Combine(dir, System.IO.Path.GetFileName(f));
-                        if (!System.IO.File.Exists(dest)) System.IO.File.Move(f, dest);
-                    }
-            }
-            catch (System.Exception e) { Debug.LogWarning($"[sonda] migrazione foto saltata: {e.Message}"); }
-        }
         return dir;
     }
 
