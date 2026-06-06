@@ -326,8 +326,9 @@ public class RouteIndicator : MonoBehaviour
         if (onScreen)
         {
             // marker SOPRA la sonda (non sovrapposto): triangolo apice in GIÙ che la indica, etichetta SOPRA con un
-            // buon distacco. Rect LARGO (360) così la distanza (es. "SONDA · posata · 2.7 km") non si tronca mai.
-            Vector2 mk = new Vector2(g.x, g.y - 44f * ui);
+            // buon distacco. Scostamento ampio così, da MOLTO lontano (sonda ≈ sole di quel sistema sullo schermo),
+            // resta APPENA SOPRA e non copre la stella. Rect LARGO (360) → la distanza non si tronca mai.
+            Vector2 mk = new Vector2(g.x, g.y - 62f * ui);
             DrawTex(triTex, mk, 20f * ui, 20f * ui, 180f, pcol);   // 180° → apice verso il basso, punta la sonda
             Shadowed(new Rect(mk.x - 180f * ui, mk.y - 34f * ui, 360f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.LowerCenter);
         }
