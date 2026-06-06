@@ -18,7 +18,7 @@ public class Probe : MonoBehaviour
     Rigidbody rb;
     SolarSystem solar;
     Camera cam;
-    Renderer bodyRenderer;
+    GameObject visual;   // corpo metallico + scanalatura luminosa + luce: spento mentre guardi in prima persona
     bool landed;
     CelestialBody landedOn;
     Vector3 landedLocal;   // posizione di posa in coordinate LOCALI del corpo → resta incollata alla superficie anche
@@ -27,7 +27,7 @@ public class Probe : MonoBehaviour
     public Camera Cam => cam;
     public bool Landed => landed;
     public CelestialBody LandedOn => landedOn;
-    public Renderer BodyRenderer => bodyRenderer;
+    public GameObject Visual => visual;
     // FreezeOrient: mentre guardi ATTRAVERSO la sonda, NON la riorientare lungo la velocità → il frame resta fermo e
     // il free-look del mouse (che ruota la camera-figlia) non "combatte" con la rotazione della sonda.
     public bool FreezeOrient;
@@ -46,14 +46,47 @@ public class Probe : MonoBehaviour
         p.rb.interpolation = RigidbodyInterpolation.Interpolate;
         p.rb.collisionDetectionMode = CollisionDetectionMode.Discrete;
 
-        // mesh visiva: piccola sfera emissiva (Unlit/Color → niente variante strippata in build)
-        var mesh = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        var col = mesh.GetComponent<Collider>(); if (col != null) Destroy(col);   // niente collisione fisica: è analitica
-        mesh.transform.SetParent(go.transform, false);
-        mesh.transform.localScale = Vector3.one * (ProbeRadius * 2f);
-        p.bodyRenderer = mesh.GetComponent<Renderer>();
+        // VISUALE (look hi-tech / "sfera dei Pokémon"): corpo metallico opaco + scanalatura equatoriale LUMINOSA +
+        // luce emessa. Sotto un nodo "Visual" che si spegne mentre guardi in prima persona (non vedi la tua sonda).
+        var vis = new GameObject("Visual");
+        vis.transform.SetParent(go.transform, false);
+
+        // CORPO: sfera Standard METALLICA opaca (grigio acciaio), illuminata dal sole direzionale di Unity → riflessi
+        // metallici veri. (Il terreno GPU ignora le luci Unity, ma una mesh Standard no: il sole la illumina.)
+        var body = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        var bcol = body.GetComponent<Collider>(); if (bcol != null) Destroy(bcol);   // collisione analitica, niente collider
+        body.transform.SetParent(vis.transform, false);
+        body.transform.localScale = Vector3.one * (ProbeRadius * 2f);
+        var std = Shader.Find("Standard");
+        if (std != null)
+        {
+            var bm = new Material(std);
+            bm.color = new Color(0.22f, 0.24f, 0.27f);   // acciaio scuro
+            bm.SetFloat("_Metallic", 0.9f);
+            bm.SetFloat("_Glossiness", 0.62f);
+            body.GetComponent<Renderer>().material = bm;
+        }
+
+        // SCANALATURA: disco sottile equatoriale (sfera schiacciata sull'asse Y), Unlit CIANO brillante → linea che
+        // GLOWa attorno al centro (look pokeball/hi-tech). Unlit/Color = niente variante _EMISSION strippata in build.
+        var groove = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        var gcol = groove.GetComponent<Collider>(); if (gcol != null) Destroy(gcol);
+        groove.transform.SetParent(vis.transform, false);
+        groove.transform.localScale = new Vector3(ProbeRadius * 2.08f, ProbeRadius * 0.18f, ProbeRadius * 2.08f);
         var unlit = Shader.Find("Unlit/Color");
-        if (unlit != null) p.bodyRenderer.material = new Material(unlit) { color = new Color(0.6f, 0.9f, 1f) };
+        if (unlit != null) groove.GetComponent<Renderer>().material = new Material(unlit) { color = new Color(0.55f, 0.95f, 1f) };
+
+        // LUCE EMESSA: point light ciano → la sonda è una piccola lampada (illumina oggetti Standard vicini e si
+        // legge come sorgente luminosa). NB: il terreno GPU usa luce MANUALE (sole+torcia) e non la cattura ancora.
+        var lampGo = new GameObject("SondaLuce");
+        lampGo.transform.SetParent(vis.transform, false);
+        var lamp = lampGo.AddComponent<Light>();
+        lamp.type = LightType.Point;
+        lamp.color = new Color(0.6f, 0.95f, 1f);
+        lamp.intensity = 2.5f;
+        lamp.range = 14f;
+
+        p.visual = vis;
 
         // camera della sonda (per la foto): spenta finché non guardi attraverso di lei. NON taggata MainCamera, così
         // Camera.main e il LOD del renderer continuano a usare la camera del giocatore (la sonda dà dettaglio via

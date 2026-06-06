@@ -17,7 +17,8 @@ public static class EnsureIncludedShaders
         "Wanderer/PlanetBaked",        // quadtree (fallback) + proxy dei corpi nella mappa
         "Wanderer/Planet",             // fallback mesh uniforme
         "Wanderer/OrbitLine",          // orbite a schermo (O)
-        "Unlit/Color",                 // disco della stella
+        "Unlit/Color",                 // disco della stella + scanalatura luminosa della sonda
+        "Standard",                    // corpo METALLICO della sonda (creato a runtime via Shader.Find)
     };
 
     static EnsureIncludedShaders()

@@ -63,8 +63,8 @@ public class ProbeController : MonoBehaviour
             if (playerScaler != null) playerScaler.enabled = false;   // il presentatore della RT coprirebbe la camera-sonda
             if (playerCam != null) playerCam.enabled = false;
             if (probe.Cam != null) probe.Cam.enabled = true;
-            if (probe.BodyRenderer != null) probe.BodyRenderer.enabled = false;   // prima persona: non vedi la tua stessa sonda
-            probe.FreezeOrient = true;                                            // frame fermo → il free-look non combatte
+            if (probe.Visual != null) probe.Visual.SetActive(false);   // prima persona: non vedi la tua stessa sonda
+            probe.FreezeOrient = true;                                  // frame fermo → il free-look non combatte
             camYaw = 0f; camPitch = 0f;
             if (walker != null) walker.ControlsActive = false;                    // congela il giocatore (l'input va alla sonda)
             Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;
@@ -78,7 +78,7 @@ public class ProbeController : MonoBehaviour
         if (probe != null)
         {
             if (probe.Cam != null) probe.Cam.enabled = false;
-            if (probe.BodyRenderer != null) probe.BodyRenderer.enabled = true;
+            if (probe.Visual != null) probe.Visual.SetActive(true);
             probe.FreezeOrient = false;
         }
         if (playerCam != null) playerCam.enabled = true;

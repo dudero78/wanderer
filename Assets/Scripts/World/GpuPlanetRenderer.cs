@@ -385,21 +385,19 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         // EARLY-OUT sub-pixel: un corpo così lontano da occupare meno di ~1 pixel NON fa nulla (niente refresh uniform,
         // niente traversata, niente draw, niente SetData). Converte il costo per-frame da O(corpi) a O(corpi VICINI).
         Vector3 bodyCenter = m.MultiplyPoint3x4(Vector3.zero);
-        // Due distanze: bestSqr = viewpoint PIÙ VICINO in assoluto (giocatore o sonda) → governa SOLO il culling
-        // sub-pixel (un corpo che QUALCUNO vede da vicino non si culla). viewPos = chi guida il LOD/morph, e qui il
-        // GIOCATORE ha la PRIORITÀ: un osservatore extra (sonda) prende il timone SOLO se è MOLTO più vicino (≥2×,
-        // sqr<0.25). Così lanciare la sonda accanto a te NON ruba dettaglio al suolo sotto i piedi (niente
-        // "perde dettaglio e ricarica" a ogni lancio); la sonda guida il LOD solo dei corpi a cui è chiaramente più vicina.
+        // Il GIOCATORE guida SEMPRE il LOD/morph: la sua vista del corpo è quindi sempre COMPLETA e corretta a
+        // qualunque distanza (un solo quadtree per corpo serve UN viewpoint; far guidare la sonda — che sta SUL corpo,
+        // quindi vicinissima — concentrava il dettaglio attorno a lei e lasciava SCOPERTO il lato che guardi tu da
+        // lontano → buchi/fan bianchi finché lo streaming recuperava). Gli osservatori extra (sonda) servono SOLO a
+        // non CULLARE un corpo che loro vedono da vicino (bestSqr = il più vicino in assoluto) → il corpo resta
+        // disegnato anche se tu sei lontano, ma il suo dettaglio segue la TUA vista.
         Vector3 viewPos = cam.position;
-        float playerSqr = (cam.position - bodyCenter).sqrMagnitude;
-        float bestSqr = playerSqr;     // più vicino in assoluto (per il culling)
-        float lodSqr = playerSqr;      // viewpoint del LOD (priorità al giocatore)
+        float bestSqr = (cam.position - bodyCenter).sqrMagnitude;
         for (int i = 0; i < ExtraViewpoints.Count; i++)
         {
             var vp = ExtraViewpoints[i]; if (vp == null) continue;
             float d = (vp.position - bodyCenter).sqrMagnitude;
-            if (d < bestSqr) bestSqr = d;
-            if (d < lodSqr * 0.25f) { lodSqr = d; viewPos = vp.position; }   // l'extra prende il LOD solo se ≥2× più vicino
+            if (d < bestSqr) bestSqr = d;   // solo per il culling sub-pixel (non per il dettaglio)
         }
         if (radius < Mathf.Sqrt(bestSqr) * 0.0006f) return;
 
@@ -412,7 +410,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
             else               mat.DisableKeyword("PLANET_DEBUG_VIEW");
         }
         mat.SetMatrix("_ObjectToWorld", m);
-        mat.SetVector("_CamPosWorld", viewPos);   // geomorph: distanza dal viewpoint attivo (giocatore o sonda più vicina)
+        mat.SetVector("_CamPosWorld", viewPos);   // geomorph: distanza dal GIOCATORE (la sua vista guida sempre il LOD)
         mat.SetFloat("_DebugView", DebugView);
         mat.SetInt("_Cull", CullSplit ? InteriorCull : 0);
         RefreshLighting(mat);
@@ -422,7 +420,7 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         fillsThisFrame = 0;
         fillTicks = 0;
         long swStart = System.Diagnostics.Stopwatch.GetTimestamp();   // diagnosi: costo CPU del mio lavoro per frame (GetTimestamp = niente alloc heap, gira per ogni corpo vicino ogni frame)
-        tree.Update(m, viewPos, Time.deltaTime);   // LOD guidato dal viewpoint più vicino (la guardia sui salti copre il cambio osservatore)
+        tree.Update(m, viewPos, Time.deltaTime);   // LOD guidato dalla vista del GIOCATORE (sempre completa)
         FlushFills();   // batch: i fill accumulati nella traversata partono ora, in un solo dispatch (no-op se per-nodo)
         double lodMs = (System.Diagnostics.Stopwatch.GetTimestamp() - swStart) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;   // traversata + dispatch dei fill
         if (tree.VisibleCount == 0) return;
