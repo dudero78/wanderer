@@ -11,8 +11,8 @@ public class SpeedLines : MonoBehaviour
     public PlanetWalker walker;
     public Camera cam;
     public float startSpeed = 13000f;    // sotto: niente effetto (parte da 13 km/s)
-    public float fullSpeed = 50000f;     // sopra: effetto pieno
-    public float thickSpeed = 100000f;   // oltre: raggi più spessi e lunghi (regime "iperveloce")
+    public float fullSpeed = 30000f;     // pieno già a 30 km/s → ben visibile da subito sopra i 13 km/s
+    public float thickSpeed = 80000f;    // oltre: raggi più spessi e lunghi (regime "iperveloce")
 
     const int N = 120;
     const float Rate = 0.85f;            // ritmo COSTANTE verso l'esterno (le righe non invertono mai)
@@ -40,18 +40,19 @@ public class SpeedLines : MonoBehaviour
         float hot = Mathf.InverseLerp(fullSpeed, thickSpeed, speed);   // regime iperveloce (0..1)
 
         float ui = Mathf.Max(1f, Screen.height / 1080f);
-        // CENTRO = direzione di MOTO proiettata a schermo (prograde), non il centro-vista.
+        // PUNTO DI FUGA = direzione di MOTO proiettata a schermo. Guardando AVANTI le righe EMANANO da lì verso fuori;
+        // guardando INDIETRO il prograde è dietro → uso il retrograde (davanti) e le righe CONVERGONO verso di esso
+        // (come guardare dal lunotto: i raggi rincorrono il punto che lasci). Niente sparizione, direzione corretta.
         Vector2 center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+        bool inward = false;
         Vector3 vel = walker.Velocity;
         if (vel.sqrMagnitude > 1f)
         {
             Vector3 vd = vel.normalized;
-            // SFUMA guardando ALTROVE: pieno se guardi verso dove vai, laterale se di traverso, SPARISCE se guardi
-            // indietro (prima si "ribaltava" come se corressi all'indietro — ora semplicemente non si vede).
             float facing = Vector3.Dot(cam.transform.forward, vd);
-            intensity *= Mathf.SmoothStep(-0.15f, 0.55f, facing);
-            if (intensity <= 0.001f) return;
-            Vector3 sp = cam.WorldToScreenPoint(cam.transform.position + vd * 1000f);
+            Vector3 anchorDir = facing >= 0f ? vd : -vd;   // il punto di fuga DAVANTI alla camera
+            inward = facing < 0f;
+            Vector3 sp = cam.WorldToScreenPoint(cam.transform.position + anchorDir * 1000f);
             if (sp.z > 0f)
             {
                 float sx = cam.pixelWidth > 0 ? sp.x * Screen.width / cam.pixelWidth : sp.x;
@@ -61,8 +62,8 @@ public class SpeedLines : MonoBehaviour
         }
 
         float maxR = Mathf.Sqrt((float)Screen.width * Screen.width + (float)Screen.height * Screen.height);
-        float innerFrac = Mathf.Lerp(0.55f, 0.04f, intensity);   // lento: parte PERIFERICO; veloce: parte dal CENTRO
-        float baseLen = Mathf.Lerp(24f, 190f, intensity) + 120f * hot;
+        float innerFrac = Mathf.Lerp(0.5f, 0.04f, intensity);   // lento: parte PERIFERICO; veloce: parte dal CENTRO
+        float baseLen = Mathf.Lerp(40f, 190f, intensity) + 120f * hot;
         float thick = (2.4f + 3.2f * hot) * ui;
         float t = Time.unscaledTime;
         Matrix4x4 m0 = GUI.matrix;
@@ -70,8 +71,10 @@ public class SpeedLines : MonoBehaviour
 
         for (int i = 0; i < N; i++)
         {
-            float phase = Mathf.Repeat(t * Rate + off[i], 1f);     // 0→1 = dal centro verso l'esterno, SEMPRE in avanti
-            float r = Mathf.Lerp(maxR * innerFrac, maxR * 1.05f, phase);
+            float phase = Mathf.Repeat(t * Rate + off[i], 1f);
+            // AVANTI: dal centro verso l'esterno; INDIETRO: dall'esterno verso il centro (convergono) → direzione corretta.
+            float r = inward ? Mathf.Lerp(maxR * 1.05f, maxR * innerFrac, phase)
+                             : Mathf.Lerp(maxR * innerFrac, maxR * 1.05f, phase);
             float len = baseLen * (0.35f + phase) * ui;
             float a = intensity * Mathf.Sin(phase * Mathf.PI) * 0.9f;   // appare e svanisce ai capi
             if (a <= 0.004f) continue;
