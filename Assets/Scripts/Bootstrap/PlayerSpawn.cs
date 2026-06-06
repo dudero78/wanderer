@@ -58,38 +58,39 @@ public static class PlayerSpawn
         // sfera che brilla. Parent vuoto (SuitPickup lo fa ondeggiare e lo gira verso il giocatore). +Y in alto, +Z
         // davanti (verso di te); le bombole stanno dietro (-Z). Capsule → niente spigoli vivi alle estremità.
         var suitGo = new GameObject("Tuta");
-        // TORSO a profilo (lathe): fondo ARROTONDATO, sale ALLARGANDOSI (spalle ~0.46 a y≈1.0) e finisce TRONCATO in
-        // alto ma con BORDI ARROTONDATI (il profilo rientra dolcemente da 0.45 a 0). Niente più pillola.
+        // TORSO a profilo (lathe): più MAGRO, più BASSO e più piccolo. Fondo arrotondato → si allarga alle SPALLE
+        // (~0.36 a y≈0.82) → top TRONCATO con bordi ARROTONDATI (rientra dolce a 0). Niente pillola.
         Vector2[] torso = {
-            new Vector2(0.00f, -0.12f), new Vector2(0.20f, -0.05f), new Vector2(0.30f, 0.10f),
-            new Vector2(0.33f, 0.45f), new Vector2(0.36f, 0.72f), new Vector2(0.41f, 0.90f),
-            new Vector2(0.46f, 1.00f), new Vector2(0.45f, 1.08f), new Vector2(0.38f, 1.13f),
-            new Vector2(0.22f, 1.17f), new Vector2(0.08f, 1.19f), new Vector2(0.00f, 1.20f),
+            new Vector2(0.00f, -0.10f), new Vector2(0.16f, -0.04f), new Vector2(0.23f, 0.08f),
+            new Vector2(0.25f, 0.35f), new Vector2(0.28f, 0.58f), new Vector2(0.33f, 0.74f),
+            new Vector2(0.36f, 0.82f), new Vector2(0.35f, 0.88f), new Vector2(0.29f, 0.93f),
+            new Vector2(0.17f, 0.96f), new Vector2(0.06f, 0.98f), new Vector2(0.00f, 0.99f),
         };
         MetalLathe(suitGo.transform, "Torso", torso);
-        MetalPart(suitGo.transform, PrimitiveType.Capsule, "GambaSx", new Vector3(-0.17f, -0.42f, 0.02f), new Vector3(0.16f, 0.42f, 0.16f));
-        MetalPart(suitGo.transform, PrimitiveType.Capsule, "GambaDx", new Vector3(0.17f, -0.42f, 0.02f), new Vector3(0.16f, 0.42f, 0.16f));
-        // BRACCIA agganciate alle SPALLE: il TOP del braccio arriva alla spalla (y≈1.0, x≈0.45) → sembrano attaccate.
-        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BraccioSx", new Vector3(-0.43f, 0.62f, 0.02f), new Vector3(0.12f, 0.42f, 0.12f), new Vector3(0f, 0f, 10f));
-        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BraccioDx", new Vector3(0.43f, 0.62f, 0.02f), new Vector3(0.12f, 0.42f, 0.12f), new Vector3(0f, 0f, -10f));
-        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BombolaSx", new Vector3(-0.2f, 0.62f, -0.34f), new Vector3(0.16f, 0.5f, 0.16f));
-        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BombolaDx", new Vector3(0.2f, 0.62f, -0.34f), new Vector3(0.16f, 0.5f, 0.16f));
+        // GAMBE/BRACCIA cicciotte (pillola spessa). BOMBOLE decisamente cicciotte.
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "GambaSx", new Vector3(-0.16f, -0.40f, 0.02f), new Vector3(0.20f, 0.40f, 0.20f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "GambaDx", new Vector3(0.16f, -0.40f, 0.02f), new Vector3(0.20f, 0.40f, 0.20f));
+        // BRACCIA attaccate alle SPALLE che si ALLARGANO a V (~20° per lato → ~40° fra loro), cicciotte.
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BraccioSx", new Vector3(-0.40f, 0.50f, 0.02f), new Vector3(0.16f, 0.36f, 0.16f), new Vector3(0f, 0f, -20f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BraccioDx", new Vector3(0.40f, 0.50f, 0.02f), new Vector3(0.16f, 0.36f, 0.16f), new Vector3(0f, 0f, 20f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BombolaSx", new Vector3(-0.22f, 0.55f, -0.30f), new Vector3(0.24f, 0.40f, 0.24f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BombolaDx", new Vector3(0.22f, 0.55f, -0.30f), new Vector3(0.24f, 0.40f, 0.24f));
 
         var head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         head.name = "Testa";
         var headCol = head.GetComponent<Collider>(); if (headCol) Object.Destroy(headCol);
         head.transform.SetParent(suitGo.transform, false);
-        head.transform.localPosition = new Vector3(0f, 1.32f, 0f);
+        head.transform.localPosition = new Vector3(0f, 1.30f, 0f);   // leggermente STACCATA dal corpo (torso top ≈ 0.99)
         head.transform.localScale = Vector3.one * 0.5f;
         SetColor(head, new Color(0.4f, 0.95f, 1f), emissive: true);   // testa che BRILLA (Unlit, sopravvive al build)
 
         // UGELLI dei MOTORI: piccole sfere LUMINOSE in fondo alle bombole (l'"accensione" dei motori).
-        GlowBall(suitGo.transform, "UgelloSx", new Vector3(-0.2f, 0.30f, -0.34f), 0.17f, new Color(0.4f, 0.9f, 1f));
-        GlowBall(suitGo.transform, "UgelloDx", new Vector3(0.2f, 0.30f, -0.34f), 0.17f, new Color(0.4f, 0.9f, 1f));
+        GlowBall(suitGo.transform, "UgelloSx", new Vector3(-0.22f, 0.14f, -0.30f), 0.20f, new Color(0.4f, 0.9f, 1f));
+        GlowBall(suitGo.transform, "UgelloDx", new Vector3(0.22f, 0.14f, -0.30f), 0.20f, new Color(0.4f, 0.9f, 1f));
 
         var glowGo = new GameObject("Glow");
         glowGo.transform.SetParent(suitGo.transform, false);
-        glowGo.transform.localPosition = new Vector3(0f, 1.0f, 0f);
+        glowGo.transform.localPosition = new Vector3(0f, 0.6f, 0f);
         var glow = glowGo.AddComponent<Light>();
         glow.type = LightType.Point;
         glow.color = new Color(0.3f, 0.95f, 1f);
@@ -97,7 +98,7 @@ public static class PlayerSpawn
         glow.intensity = 1.4f;
 
         var pickup = suitGo.AddComponent<SuitPickup>();
-        pickup.surfaceClearance = 0.9f;    // i piedi (gambe a y≈−0.85) sfiorano il suolo
+        pickup.surfaceClearance = 0.78f;   // i piedi (gambe a y≈−0.80) sfiorano il suolo
         pickup.pickupRadius = 3.5f;
         pickup.Init(playerGo.transform, walker, suitGround, suitDir);
         solar.Loose.Add(suitGo.transform);   // oggetto sciolto: va traslato allo switch di corpo
