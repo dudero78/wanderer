@@ -363,10 +363,21 @@ public class RouteIndicator : MonoBehaviour
         string txt = "★ " + sys.Name + " · " + FmtDist(dist);
         Color sc = Color.Lerp(sys.StarColor, Color.white, 0.35f);
 
+        // VELOCITÀ DI AVVICINAMENTO (come per i corpi): col segno (+ ti avvicini, − ti allontani). Usa il bersaglio
+        // unificato (TargetInfo.sceneVelocity) → ereditata "gratis" dal sistema di targeting.
+        string vtxt = null;
+        if (walker != null && walker.HasJetpack && solar.TryGetTarget(out var ti))
+        {
+            Vector3 toT = (wp - cam.transform.position).normalized;
+            float closing = Vector3.Dot(walker.Velocity - ti.sceneVelocity, toT);
+            vtxt = closing.ToString("+0;-0;0") + " m/s";
+        }
+
         if (onScreen)
         {
             DrawTex(discTex, g, 13f * ui, 13f * ui, 0f, sc);
             Shadowed(new Rect(g.x - 180f * ui, g.y + 12f * ui, 360f * ui, 20f * ui), txt, sc, 1f, TextAnchor.UpperCenter);
+            if (vtxt != null) Shadowed(new Rect(g.x - 180f * ui, g.y + 32f * ui, 360f * ui, 20f * ui), vtxt, sc, 1f, TextAnchor.UpperCenter);
         }
         else
         {
@@ -377,6 +388,7 @@ public class RouteIndicator : MonoBehaviour
             float ang = Mathf.Atan2(dir.x, -dir.y) * Mathf.Rad2Deg;
             DrawTex(chevronTex, edge, 26f * ui, 26f * ui, ang, sc);
             Shadowed(new Rect(edge.x - 180f * ui, edge.y + 20f * ui, 360f * ui, 20f * ui), txt, sc, 1f, TextAnchor.UpperCenter);
+            if (vtxt != null) Shadowed(new Rect(edge.x - 180f * ui, edge.y + 40f * ui, 360f * ui, 20f * ui), vtxt, sc, 1f, TextAnchor.UpperCenter);
         }
     }
 

@@ -113,6 +113,7 @@ public class PlanetWalker : MonoBehaviour
         // rete di sicurezza: limita l'impulso di espulsione da una penetrazione,
         // così un contatto profondo non catapulta mai il giocatore nello spazio.
         rb.maxDepenetrationVelocity = 10f;
+        rb.maxLinearVelocity = Mathf.Infinity;   // niente tetto di Unity: in volo libero newtoniano la velocità non si limita da sola
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
@@ -126,19 +127,20 @@ public class PlanetWalker : MonoBehaviour
         // inserisce passa a Newtoniano, così alla disinserzione resti in volo libero (no scatto di assetto).
         if (HasJetpack && Input.GetKeyDown(autopilotKey))
         {
-            var t = ResolveAutoTarget();   // corpo selezionato O sistema distante (waypoint galattico)
+            SolarSystem.TargetInfo t = default;
+            bool hasT = SolarSystem.Instance != null && SolarSystem.Instance.TryGetTarget(out t);   // corpo O sistema distante
             bool wasAuto = Autopilot;
-            Autopilot = !Autopilot && t.valid && Altitude > 3f;
+            Autopilot = !Autopilot && hasT && Altitude > 3f;
             AutoHolding = false;
             if (Autopilot) { Model = FlightModel.Newtonian; autoTransitTime = 0f; autoLastTarget = null; autoAligned = false; SoftStopping = false; }
             else if (wasAuto) SoftStopping = GameSettings.AutopilotSoftStop;   // interrotto a mano → frena fino a v≈0 (se l'opzione è ON)
             // DIAGNOSI + hint a schermo: perché T non aggancia? Requisiti: destinazione selezionata (M) + essere IN VOLO.
             if (!Autopilot && !wasAuto)
             {
-                ActionHint = !t.valid ? "Autopilota: seleziona una destinazione sulla mappa (M)"
-                                      : (Altitude <= 3f ? "Autopilota: decolla prima (tieni Space)" : "Autopilota non disponibile ora");
+                ActionHint = !hasT ? "Autopilota: seleziona una destinazione sulla mappa (M)"
+                                   : (Altitude <= 3f ? "Autopilota: decolla prima (tieni Space)" : "Autopilota non disponibile ora");
                 ActionHintUntil = Time.unscaledTime + 3f;
-                Debug.Log($"[autopilota] T: HasJetpack={HasJetpack} target={(t.valid ? t.id : "null")} altitudine={Altitude:F1} modello={Model} → non agganciato");
+                Debug.Log($"[autopilota] T: HasJetpack={HasJetpack} target={(hasT ? t.name : "null")} altitudine={Altitude:F1} modello={Model} → non agganciato");
             }
         }
 
@@ -254,9 +256,10 @@ public class PlanetWalker : MonoBehaviour
 
         // AUTOPILOTA attivo solo in volo e con una destinazione selezionata. A terra non c'è nulla da agganciare:
         // se atterri (o perdi la destinazione) si disinserisce da solo.
-        var at = ResolveAutoTarget();   // corpo O sistema distante
-        if (Autopilot && (!airborne || !at.valid)) { Autopilot = false; AutoHolding = false; }
-        bool autoActive = Autopilot && HasJetpack && airborne && at.valid;
+        SolarSystem.TargetInfo at = default;
+        bool hasAt = SolarSystem.Instance != null && SolarSystem.Instance.TryGetTarget(out at);   // corpo O sistema distante
+        if (Autopilot && (!airborne || !hasAt)) { Autopilot = false; AutoHolding = false; }
+        bool autoActive = Autopilot && HasJetpack && airborne && hasAt;
 
         Quaternion look;
         if (autoActive && !autoAligned)
@@ -268,7 +271,7 @@ public class PlanetWalker : MonoBehaviour
             // guidato. La ROTTA dell'autopilota non dipende dalla camera (spinge lungo la direzione-mondo verso il
             // target), quindi guardarti intorno non la cambia. Spegni/riaccendi o cambi meta → si ri-allinea.
             float kTurn = 1f - Mathf.Exp(-Time.fixedDeltaTime / Mathf.Max(autoTurnTau, 0.01f));
-            Vector3 toDest = at.pos - rb.position;
+            Vector3 toDest = at.scenePos - rb.position;
             if (toDest.sqrMagnitude > 1e-4f)
             {
                 Quaternion want = Quaternion.LookRotation(toDest.normalized, up);
@@ -499,43 +502,11 @@ public class PlanetWalker : MonoBehaviour
     // un cambio di velocità è identico in qualunque riferimento inerziale, quindi non importa a chi è ancorata
     // l'origine. La gravità (AddForce sopra) tira ogni frame; l'autopilota la ricorregge al frame dopo (residuo
     // = g·dt, trascurabile) → tiene il sorvolo stabile anche contro la stella (cap accel ≥ 1.6·g).
-    // Bersaglio dell'autopilota astratto: un CORPO selezionato O un SISTEMA distante (waypoint galattico). Così
-    // l'autopilota vola sia verso un pianeta sia verso una stella lontana (arrivando, il sistema si sveglia).
-    struct AutoTarget
+    // Il bersaglio dell'autopilota è il TargetInfo UNIFICATO di SolarSystem (corpo o sistema distante): un'unica fonte
+    // condivisa con HUD e reticolo → la stella selezionata eredita tutto (rotta, distanza, velocità, autopilota).
+    void AutopilotControl(SolarSystem.TargetInfo target, float g)
     {
-        public bool valid;
-        public Vector3 pos;       // posizione in scena
-        public float radius;      // raggio del bersaglio (per il punto di sorvolo)
-        public float mu, surfaceG;// parametri gravitazionali (0 per un punto vuoto = sistema)
-        public Vector3 sceneVel;  // velocità del bersaglio in scena (per la velocità relativa)
-        public object id;         // identità (corpo o sistema): se cambia, azzera la rampa
-    }
-
-    AutoTarget ResolveAutoTarget()
-    {
-        var s = SolarSystem.Instance;
-        if (s == null) return default;
-        float ts = (float)s.TimeScale;
-        if (s.Destination != null)
-        {
-            var b = s.Destination;
-            Vector3 sv = s.Reference != null ? (b.UniverseVelocity - s.Reference.UniverseVelocity).ToVector3() * ts : Vector3.zero;
-            return new AutoTarget { valid = true, pos = b.transform.position, radius = (float)b.Radius, mu = (float)b.Mu, surfaceG = (float)b.SurfaceGravity, sceneVel = sv, id = b };
-        }
-        if (s.DestinationSystem != null)
-        {
-            var sys = s.DestinationSystem;
-            Vector3 pos = (sys.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
-            // punto FISSO nell'universo (UniverseVelocity=0) → in scena si muove come −(velocità del riferimento)·TimeScale
-            Vector3 sv = s.Reference != null ? (Vector3d.Zero - s.Reference.UniverseVelocity).ToVector3() * ts : Vector3.zero;
-            return new AutoTarget { valid = true, pos = pos, radius = sys.StarRadius > 0f ? sys.StarRadius : 2000f, mu = 0f, surfaceG = 0f, sceneVel = sv, id = sys };
-        }
-        return default;
-    }
-
-    void AutopilotControl(AutoTarget target, float g)
-    {
-        Vector3 toDest = target.pos - rb.position;
+        Vector3 toDest = target.scenePos - rb.position;
         float dist = toDest.magnitude;
         if (dist < 0.001f) { Autopilot = false; AutoHolding = false; return; }
         Vector3 toT = toDest / dist;
@@ -544,7 +515,7 @@ public class PlanetWalker : MonoBehaviour
         // vicino un corpo interessante), poi sale da autoAccel a autoAccelMax in autoAccelRampTime → finché
         // resti sullo STESSO bersaglio l'autopilota "capisce" che è un viaggio lungo e spinge sempre più forte.
         // Cambiare destinazione (o disinserire) azzera la rampa: la prossima tratta riparte di nuovo gentile.
-        if (target.id != autoLastTarget) { autoTransitTime = 0f; autoLastTarget = target.id; autoAligned = false; }
+        if (target.Id != autoLastTarget) { autoTransitTime = 0f; autoLastTarget = target.Id; autoAligned = false; }
         autoTransitTime += Time.fixedDeltaTime;
         float accelRamp = Mathf.Clamp01((autoTransitTime - autoAccelGentle) / Mathf.Max(autoAccelRampTime, 0.01f));
         float effAccel = Mathf.Lerp(autoAccel, autoAccelMax, accelRamp);
@@ -558,7 +529,7 @@ public class PlanetWalker : MonoBehaviour
         float standoff = Mathf.Max(standoffByRadius, standoffByGravity);
         float dtg = dist - standoff;   // distanza dal punto di sorvolo: >0 fuori (avvicìnati), <0 dentro (allontànati)
 
-        Vector3 relVel = rb.linearVelocity - target.sceneVel;   // velocità relativa al bersaglio (corpo o punto-sistema)
+        Vector3 relVel = rb.linearVelocity - target.sceneVelocity;   // velocità relativa al bersaglio (corpo o punto-sistema)
         float closing = Vector3.Dot(relVel, toT);   // + = ti avvicini
 
         // Velocità RADIALE desiderata BIDIREZIONALE: profilo "frena in tempo" √(2·a·|dtg|), col SEGNO di dtg.
@@ -570,17 +541,21 @@ public class PlanetWalker : MonoBehaviour
         // discesa). Tuffandoti verso un corpo pesante la gravità erode la frenata reale (decel netta = freno − g):
         // se il profilo usasse il freno pieno freneresti troppo tardi e SFONDERESTI sulla superficie (era il bug
         // sul sole). Con aProfile = freno − g_superficie la frenata è sempre realizzabile (la decel reale ≥ aProfile).
-        float gSurf = target.surfaceG;
+        float gSurf = target.surfaceGravity;
         float aProfile = Mathf.Max(autoBrakeAccel - gSurf, autoBrakeAccel * 0.3f);
-        float mag = Mathf.Min(autoMaxSpeed, Mathf.Sqrt(2f * aProfile * Mathf.Abs(dtg)));
+        // INTERSTELLARE: spazio vuoto, nessuna superficie su cui schiantarsi → frena fortissimo e alza il tetto, così
+        // i ~6 Mm fino a un altro sistema si coprono in fretta (senza, il profilo "frena in tempo" cappa a ~50 km/s).
+        float cap = autoMaxSpeed;
+        if (target.interstellar) { aProfile *= 5f; cap = 600000f; }
+        float mag = Mathf.Min(cap, Mathf.Sqrt(2f * aProfile * Mathf.Abs(dtg)));
         float vWant = (dtg >= 0f ? 1f : -1f) * mag;
         Vector3 desiredRel = toT * vWant;   // SOLO radiale verso/dal bersaglio; componente laterale desiderata = 0
 
         // quanto possiamo cambiare la velocità in questo frame: morbido per PRENDERE velocità, forte per
         // FRENARE/raddrizzare. Autorità ≥ 1.6·g in ENTRAMBE le fasi → al netto della gravità resta ≥ aProfile,
         // quindi l'autopilota può davvero seguire il profilo e risalire/tenere il sorvolo anche vicino alla stella.
-        float aAuthority = Mathf.Max(autoBrakeAccel, g * 1.6f);
-        float accelCap = (closing < vWant ? Mathf.Max(effAccel, g * 1.6f) : aAuthority);
+        float aAuthority = target.interstellar ? aProfile : Mathf.Max(autoBrakeAccel, g * 1.6f);   // interstellare: autorità = frenata alta del profilo
+        float accelCap = (closing < vWant ? Mathf.Max(effAccel, target.interstellar ? aProfile * 0.5f : g * 1.6f) : aAuthority);
         Vector3 newRel = Vector3.MoveTowards(relVel, desiredRel, accelCap * Time.fixedDeltaTime);
         rb.linearVelocity += newRel - relVel;   // Δv: identico in ogni riferimento inerziale
 

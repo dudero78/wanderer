@@ -34,6 +34,9 @@ public static class UiSetup
         var pause = host.AddComponent<PauseMenu>();
         pause.Init(rig.Walker, settings, map);
 
+        // Effetto "velocità della luce": righe radiali quando vai fortissimo (overlay, zero impatto fisica).
+        host.AddComponent<SpeedLines>().walker = rig.Walker;
+
         // Sonda alla Outer Wilds (P lancia · V guarda attraverso · K richiama · G foto): oggetto fisico veloce con
         // gravità sommata + collisione analitica, registrato in Loose + ExtraViewpoints (il renderer le dà dettaglio).
         var probe = host.AddComponent<ProbeController>();

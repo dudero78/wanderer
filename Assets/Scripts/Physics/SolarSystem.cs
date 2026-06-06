@@ -20,6 +20,47 @@ public class SolarSystem : MonoBehaviour
 
     public CelestialBody Destination;       // corpo selezionato sulla mappa: in volo l'origine ancora a lui
     public StarSystem DestinationSystem;    // SISTEMA stellare distante selezionato in mappa (waypoint galattico): ci voli verso, arrivando si sveglia (Tappa 4). Mutuamente esclusivo con Destination
+
+    /// <summary>BERSAGLIO unificato del targeting: un CORPO o un SISTEMA distante, con TUTTO ciò che serve a chi lo usa
+    /// (autopilota, reticolo di rotta, HUD). Fonte UNICA → qualunque cosa selezionabile eredita automaticamente ogni
+    /// funzione di targeting (rotta, distanza, velocità di avvicinamento, autopilota), senza ricablare i consumatori.</summary>
+    public struct TargetInfo
+    {
+        public string name;
+        public Vector3 scenePos;       // posizione in scena
+        public float radius;
+        public float mu, surfaceGravity;
+        public Vector3 sceneVelocity;  // velocità del bersaglio nel frame di scena (per la velocità relativa)
+        public bool interstellar;      // sistema distante (spazio vuoto)
+        public CelestialBody body;     // null se sistema
+        public StarSystem system;      // null se corpo
+        public object Id => (object)body ?? system;   // identità per resettare la rampa dell'autopilota al cambio
+    }
+
+    /// <summary>Il bersaglio corrente (corpo selezionato, o sistema distante). false se non c'è nulla selezionato.</summary>
+    public bool TryGetTarget(out TargetInfo t)
+    {
+        t = default;
+        float ts = (float)TimeScale;
+        if (Destination != null)
+        {
+            var b = Destination;
+            Vector3 sv = Reference != null ? (b.UniverseVelocity - Reference.UniverseVelocity).ToVector3() * ts : Vector3.zero;
+            t = new TargetInfo { name = b.gameObject.name, scenePos = b.transform.position, radius = (float)b.Radius, mu = (float)b.Mu, surfaceGravity = (float)b.SurfaceGravity, sceneVelocity = sv, body = b };
+            return true;
+        }
+        if (DestinationSystem != null)
+        {
+            var sys = DestinationSystem;
+            Vector3 pos = (sys.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
+            // punto FISSO nell'universo (UniverseVelocity=0): in scena si muove come −(velocità del riferimento)·TimeScale
+            Vector3 sv = Reference != null ? (Vector3d.Zero - Reference.UniverseVelocity).ToVector3() * ts : Vector3.zero;
+            t = new TargetInfo { name = "★ " + sys.Name, scenePos = pos, radius = sys.StarRadius > 0f ? sys.StarRadius : 2000f, sceneVelocity = sv, interstellar = true, system = sys };
+            return true;
+        }
+        return false;
+    }
+
     public List<CelestialBody> Bodies = new List<CelestialBody>();
 
     // Tappa 1 multi-sistema (#16, vedi STARSYSTEM_DESIGN.md): i sistemi stellari + quello ATTIVO. A N=1
