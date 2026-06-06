@@ -196,6 +196,7 @@ public static class SolarSystemSetup
         // _EMISSION strippata in build).
         var unlit = Shader.Find("Unlit/Color");
         if (unlit != null) starGo.GetComponent<Renderer>().material = new Material(unlit) { color = new Color(1f, 0.88f, 0.55f) };
+        starGo.AddComponent<StarRenderClamp>().body = star;   // sempre visibile oltre il far-clip (prima spariva ~oltre 150 km)
         solar.Register(star);
 
         // SISTEMA stellare (Tappa 1 multi-sistema): contenitore della stella + i suoi corpi. A N=1 SystemOrigin=Zero
@@ -347,6 +348,7 @@ public static class SolarSystemSetup
         starGo.transform.localScale = Vector3.one * (float)(star.Radius * 2);
         var unlit = Shader.Find("Unlit/Color");
         if (unlit != null) starGo.GetComponent<Renderer>().material = new Material(unlit) { color = rec.StarColor };
+        starGo.AddComponent<StarRenderClamp>().body = star;   // sempre visibile oltre il far-clip
         star.System = sys;
         solar.Register(star);
 
