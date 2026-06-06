@@ -17,7 +17,7 @@ public class ProbeController : MonoBehaviour
 
     Camera playerCam; Transform camT; PlanetWalker walker; SolarSystem solar; RenderScaler playerScaler;
     Probe probe; bool viewing; float camYaw, camPitch;
-    string lastPhoto; float photoFlash;
+    string lastPhoto; float photoFlash; bool flashQueued;
     GUIStyle center;
     Texture2D dot;
 
@@ -33,6 +33,9 @@ public class ProbeController : MonoBehaviour
     void Update()
     {
         if (probe == null) return;
+        // il FLASH parte il frame DOPO lo scatto: ScreenCapture cattura a FINE frame, quindi se accendessi il flash
+        // nello stesso frame finirebbe NELLA foto. Così la foto è pulita (scattata "appena prima" del flash).
+        if (flashQueued) { flashQueued = false; photoFlash = 0.8f; }
         bool flying = probe.gameObject.activeSelf;
         bool freeToAct = walker == null || walker.ControlsActive;   // non in mappa/menu
 
@@ -124,7 +127,7 @@ public class ProbeController : MonoBehaviour
         lastPhoto = System.IO.Path.Combine(PhotoDir(), $"sonda_{Time.frameCount}.png");
         ScreenCapture.CaptureScreenshot(lastPhoto);
         Debug.Log($"[sonda] foto salvata: {lastPhoto}");   // path completo in console
-        photoFlash = 0.8f;
+        flashQueued = true;   // il flash parte il frame DOPO → non finisce nella foto
     }
 
     // La VISTA dalla sonda (flash foto + suggerimenti). Il TRACKER HUD della sonda lo disegna RouteIndicator (triangolo
