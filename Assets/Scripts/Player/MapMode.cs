@@ -313,25 +313,9 @@ public class MapMode : MonoBehaviour
 
         // ROTAZIONE col tasto DESTRO trascinato. Asse verticale INVERTITO (trascini su → guardi più di lato).
         // All'inizio del trascinamento il PIVOT diventa il punto sotto il cursore → ruoti attorno a dove clicchi.
-        if (Input.GetMouseButtonDown(1))
-        {
-            lastMousePx = Input.mousePosition;
-            var rray = mapCam.ScreenPointToRay(Input.mousePosition);
-            var rplane = new Plane(-mapCam.transform.forward, focusPos);
-            if (rplane.Raycast(rray, out float rent))
-            {
-                // PIVOT = punto cliccato, MA senza far saltare la camera: ricalcola distanza/angoli dal nuovo pivot
-                // tenendo ferma la posizione della camera → poi il trascinamento ruota attorno a dove hai cliccato.
-                Vector3 camP = mapCam.transform.position;
-                focusPos = rray.GetPoint(rent);
-                focusFollows = false; ClampFocus();
-                Vector3 d = camP - focusPos;
-                mapDist = Mathf.Max(d.magnitude, 1f);
-                Vector3 dn = d / mapDist;
-                mapPitch = Mathf.Clamp(Mathf.Asin(Mathf.Clamp(dn.y, -1f, 1f)) * Mathf.Rad2Deg, 8f, 88f);
-                mapYaw = Mathf.Atan2(-dn.x, -dn.z) * Mathf.Rad2Deg;
-            }
-        }
+        // Ruota attorno al CENTRO della vista (il focus): nessuno snap. NB: con una camera che punta sempre il focus,
+        // spostare il pivot sul punto cliccato la farebbe RI-MIRARE = salto → si tiene il centro vista come pivot.
+        if (Input.GetMouseButtonDown(1)) lastMousePx = Input.mousePosition;
         if (Input.GetMouseButton(1))
         {
             Vector2 d = (Vector2)Input.mousePosition - (Vector2)lastMousePx; lastMousePx = Input.mousePosition;
