@@ -192,11 +192,19 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         // resto sul per-nodo (sicuro). Vedi R1: il batch corruppe la geometria una volta → niente fede cieca.
         if (UseBatchFill)
         {
+#if UNITY_EDITOR
+            // In EDITOR la verifica gira (gate di sviluppo). Fa un readback GPU SINCRONO (stallo) → la teniamo fuori
+            // dalla BUILD: lì il batch è già verificato in editor + da PlanetParityGate a ogni ricompila → ci fidiamo.
             batchReady = VerifyBatchFill();
             if (!batchReady) Debug.LogWarning($"{terrain.name}: batch fill NON attivato (parità fallita) → resto sul per-nodo.");
+#else
+            batchReady = true;
+#endif
         }
 
-        VerifyParityRuntime();   // #9: gate non bloccante CPU↔GPU (un readback dei root, una volta sola)
+#if UNITY_EDITOR
+        VerifyParityRuntime();   // #9: gate CPU↔GPU (un readback dei root). Readback SINCRONO → solo in editor, non in build
+#endif
         ApplyColor();
 
         Ready = true;

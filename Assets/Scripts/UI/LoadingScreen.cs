@@ -61,12 +61,21 @@ public class LoadingScreen : MonoBehaviour
         GUI.DrawTexture(new Rect(cx - r, cy - r, r * 2f, r * 2f), spinnerTex);
         GUI.matrix = m;
 
-        // messaggio buffo + TITOLO (grande, bold, appena trasparente)
+        // messaggio buffo + TITOLO (grande, FAUX-BOLD spinto + spaziatura, appena trasparente)
         GUI.color = new Color(1f, 1f, 1f, alpha);
         GUI.Label(new Rect(0, cy + r + 22f * ui, Screen.width, 30f * ui), Messages[msgIdx], msgStyle);
-        GUI.color = new Color(0.7f, 0.85f, 1f, alpha * 0.8f);
-        GUI.Label(new Rect(0, cy - r - 96f * ui, Screen.width, 70f * ui), "WANDERER", tipStyle);
+        Rect tr = new Rect(0, cy - r - 104f * ui, Screen.width, 80f * ui);
+        DrawFauxBold(tr, "W A N D E R E R", tipStyle, new Color(0.72f, 0.86f, 1f, alpha * 0.82f), 1.6f * ui);
         GUI.color = prev;
+    }
+
+    // "grassetto finto": disegna il testo più volte a piccoli scostamenti → glifi più spessi di Arial Bold (≈ Arial Black).
+    static void DrawFauxBold(Rect r, string text, GUIStyle style, Color col, float o)
+    {
+        GUI.color = col;
+        for (int dx = -1; dx <= 1; dx++)
+            for (int dy = -1; dy <= 1; dy++)
+                GUI.Label(new Rect(r.x + dx * o, r.y + dy * o, r.width, r.height), text, style);
     }
 
     void EnsureAssets(float ui)
