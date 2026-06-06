@@ -67,14 +67,40 @@ public class Probe : MonoBehaviour
             body.GetComponent<Renderer>().material = bm;
         }
 
-        // SCANALATURE LUMINOSE che "bucano" il metallo: l'EQUATORE (banda larga) + i due TROPICI (±23.4°, righe più
-        // sottili). Ogni solco è un disco sottile (sfera schiacciata sull'asse Y) Unlit CIANO brillante → glow, look
-        // pokeball/hi-tech. Unlit/Color = niente variante _EMISSION strippata in build.
+        // SOLCHI SCAVATI (non sporgenti): INCIDO la mesh del corpo verso l'INTERNO a 3 latitudini — equatore + i due
+        // tropici (±23.4°). I vertici nella banda di latitudine vengono spinti verso il centro → canali reali, le cui
+        // pareti metalliche catturano la luce ("scavato"). Copio la mesh del primitive (non modifico quella condivisa).
+        var bmf = body.GetComponent<MeshFilter>();
+        if (bmf != null && bmf.sharedMesh != null)
+        {
+            var carved = Instantiate(bmf.sharedMesh);
+            var verts = carved.vertices;
+            float[] gLat = { 0f, 23.4f * Mathf.Deg2Rad, -23.4f * Mathf.Deg2Rad };
+            float halfW = 8f * Mathf.Deg2Rad, depth = 0.16f;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Vector3 q = verts[i]; float len = q.magnitude; if (len < 1e-5f) continue;
+                float lat = Mathf.Asin(Mathf.Clamp(q.y / len, -1f, 1f));
+                float prof = 0f;
+                for (int k = 0; k < gLat.Length; k++)
+                {
+                    float t = (lat - gLat[k]) / halfW;
+                    if (Mathf.Abs(t) < 1f) prof = Mathf.Max(prof, Mathf.Cos(t * Mathf.PI * 0.5f));   // notch liscio
+                }
+                if (prof > 0f) verts[i] = q * (1f - depth * prof);
+            }
+            carved.vertices = verts;
+            carved.RecalculateNormals();
+            bmf.mesh = carved;
+        }
+
+        // Linea LUMINOSA RECESSA nel fondo di ogni solco (Unlit ciano → glow; widthFactor<1 = sta DENTRO il canale,
+        // non sporge). Unlit/Color = niente variante _EMISSION strippata in build.
         var unlit = Shader.Find("Unlit/Color");
         Color glow = new Color(0.55f, 0.95f, 1f);
-        MakeGroove(vis.transform, unlit, ProbeRadius, 0f, 1.04f, 0.18f, glow);      // equatore (largo)
-        MakeGroove(vis.transform, unlit, ProbeRadius, 23.4f, 1.06f, 0.11f, glow);   // tropico nord
-        MakeGroove(vis.transform, unlit, ProbeRadius, -23.4f, 1.06f, 0.11f, glow);  // tropico sud
+        MakeGroove(vis.transform, unlit, ProbeRadius, 0f, 0.90f, 0.05f, glow);      // equatore
+        MakeGroove(vis.transform, unlit, ProbeRadius, 23.4f, 0.90f, 0.05f, glow);   // tropico nord
+        MakeGroove(vis.transform, unlit, ProbeRadius, -23.4f, 0.90f, 0.05f, glow);  // tropico sud
 
         // LUCE EMESSA: point light ciano → la sonda è una piccola lampada (illumina oggetti Standard vicini e si
         // legge come sorgente luminosa). NB: il terreno GPU usa luce MANUALE (sole+torcia) e non la cattura ancora.

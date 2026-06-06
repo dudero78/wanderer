@@ -22,6 +22,7 @@ public class RouteIndicator : MonoBehaviour
 
     Texture2D ringTex, chevronTex, discTex, progradeTex, retroTex, barTex, crossTex, triTex;
     GUIStyle label;
+    Material invertMat;   // mirino a INVERSIONE del colore di sfondo (sempre visibile su chiaro e scuro)
 
     // SONDA: il tracker della sonda riusa la stessa logica robusta del reticolo (proiezione/edge/distanza), ma con
     // forma e colore DIVERSI per distinguerla a colpo d'occhio → triangolo AMBRA (il corpo selezionato è anello blu/verde).
@@ -46,6 +47,9 @@ public class RouteIndicator : MonoBehaviour
         walker = w;
         solar = s;
         map = m;
+
+        var invSh = Shader.Find("Wanderer/InvertGUI");   // materiale per il mirino a inversione del colore di sfondo
+        if (invSh != null) invertMat = new Material(invSh);
 
         // Anello a PARENTESI stile Outer Wilds: due archi sottili a SINISTRA e DESTRA, con ampi varchi sopra
         // e sotto. Banda con smoothstep a mano + alone tenue; le estremità degli archi sfumano nel varco.
@@ -134,7 +138,11 @@ public class RouteIndicator : MonoBehaviour
         if (cam.enabled && !(map != null && map.Active))
         {
             float uic = Mathf.Max(1f, Screen.height / 1080f);
-            DrawTex(crossTex, new Vector2(Screen.width * 0.5f, Screen.height * 0.5f), 26f * uic, 26f * uic, 0f, A(White, 0.5f));
+            float cs = 26f * uic;
+            var cr = new Rect(Screen.width * 0.5f - cs * 0.5f, Screen.height * 0.5f - cs * 0.5f, cs, cs);
+            // INVERSIONE del colore di sfondo → mirino sempre visibile (chiaro e scuro). Fallback: bianco semitrasparente.
+            if (invertMat != null) Graphics.DrawTexture(cr, crossTex, invertMat);
+            else DrawTex(crossTex, new Vector2(Screen.width * 0.5f, Screen.height * 0.5f), cs, cs, 0f, A(White, 0.5f));
         }
 
         // TRACKER della SONDA (triangolo ambra): indipendente dal corpo selezionato → prima del return su Destination nullo.

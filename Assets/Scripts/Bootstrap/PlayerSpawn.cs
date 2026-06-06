@@ -53,23 +53,32 @@ public static class PlayerSpawn
         Vector3 suitDir = (playerSpawnPos + sunDir * 8f - bodyGo.transform.position).normalized;
         Vector3 suitGround = bodyGo.transform.position + suitDir * terrain.SampleHeight(suitDir);
 
-        var suitGo = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-        suitGo.name = "Tuta";
-        suitGo.transform.localScale = new Vector3(0.8f, 1.1f, 0.8f);
-        var suitCol = suitGo.GetComponent<Collider>();
-        if (suitCol) Object.Destroy(suitCol);
-        SetColor(suitGo, new Color(0.2f, 0.9f, 1f), emissive: true);
+        // TUTA = OMINO stilizzato METALLICO LUMINOSO: TORSO + 2 GAMBE (3 cilindri acciaio) + TESTA (sfera che brilla).
+        // Parent vuoto (lo SuitPickup lo fa ondeggiare/ruotare); i pezzi sono figli, costruiti col +Y in alto → stanno
+        // dritti lungo axisUp (radiale). La testa glow + la luce point danno il "luminoso".
+        var suitGo = new GameObject("Tuta");
+        MetalPart(suitGo.transform, PrimitiveType.Cylinder, "Torso", new Vector3(0f, 0.5f, 0f), new Vector3(0.5f, 0.5f, 0.5f));
+        MetalPart(suitGo.transform, PrimitiveType.Cylinder, "GambaSx", new Vector3(-0.17f, -0.45f, 0f), new Vector3(0.17f, 0.45f, 0.17f));
+        MetalPart(suitGo.transform, PrimitiveType.Cylinder, "GambaDx", new Vector3(0.17f, -0.45f, 0f), new Vector3(0.17f, 0.45f, 0.17f));
+        var head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        head.name = "Testa";
+        var headCol = head.GetComponent<Collider>(); if (headCol) Object.Destroy(headCol);
+        head.transform.SetParent(suitGo.transform, false);
+        head.transform.localPosition = new Vector3(0f, 1.28f, 0f);
+        head.transform.localScale = Vector3.one * 0.55f;
+        SetColor(head, new Color(0.4f, 0.95f, 1f), emissive: true);   // testa che BRILLA (Unlit, sopravvive al build)
 
         var glowGo = new GameObject("Glow");
         glowGo.transform.SetParent(suitGo.transform, false);
+        glowGo.transform.localPosition = new Vector3(0f, 1.28f, 0f);   // alla testa
         var glow = glowGo.AddComponent<Light>();
         glow.type = LightType.Point;
         glow.color = new Color(0.3f, 0.95f, 1f);
-        glow.range = 5f;
-        glow.intensity = 1.2f;
+        glow.range = 6f;
+        glow.intensity = 1.4f;
 
         var pickup = suitGo.AddComponent<SuitPickup>();
-        pickup.surfaceClearance = 1.2f;
+        pickup.surfaceClearance = 0.95f;   // i piedi (gambe a y≈−0.9) sfiorano il suolo
         pickup.pickupRadius = 3.5f;
         pickup.Init(playerGo.transform, walker, suitGround, suitDir);
         solar.Loose.Add(suitGo.transform);   // oggetto sciolto: va traslato allo switch di corpo
@@ -111,6 +120,27 @@ public static class PlayerSpawn
             PlayerGo = playerGo, Walker = walker, Rb = prb,
             Cam = cam, CamTransform = camGo.transform, Flashlight = flashlight, SuitTransform = suitGo.transform,
         };
+    }
+
+    /// <summary>Un pezzo METALLICO dell'omino-tuta: primitivo (cilindro/sfera) acciaio scuro lucido (Standard,
+    /// illuminato dal sole), senza collider, figlio del parent dato. (Niente keyword: metallic/smoothness sono
+    /// float dello Standard, sopravvivono al build.)</summary>
+    static void MetalPart(Transform parent, PrimitiveType type, string name, Vector3 localPos, Vector3 localScale)
+    {
+        var go = GameObject.CreatePrimitive(type);
+        go.name = name;
+        var col = go.GetComponent<Collider>(); if (col) Object.Destroy(col);
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = localPos;
+        go.transform.localScale = localScale;
+        var sh = Shader.Find("Standard");
+        if (sh != null)
+        {
+            var m = new Material(sh) { color = new Color(0.24f, 0.26f, 0.30f) };
+            m.SetFloat("_Metallic", 0.9f);
+            m.SetFloat("_Glossiness", 0.6f);
+            go.GetComponent<Renderer>().material = m;
+        }
     }
 
     static void SetColor(GameObject go, Color c, bool emissive = false)
