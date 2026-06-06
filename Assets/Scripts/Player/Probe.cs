@@ -87,8 +87,8 @@ public class Probe : MonoBehaviour
         p.lamp = lampGo.AddComponent<Light>();
         p.lamp.type = LightType.Point;
         p.lamp.color = new Color(0.6f, 0.95f, 1f);
-        p.lamp.intensity = 3.0f;
-        p.lamp.range = 22f;
+        p.lamp.intensity = 3.2f;
+        p.lamp.range = 110f;   // ILLUMINA LONTANO: una sonda lanciata in una stanza la illumina tutta (utile per orientarsi al buio)
 
         p.visual = vis;
 

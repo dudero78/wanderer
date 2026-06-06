@@ -19,6 +19,7 @@ public class SolarSystem : MonoBehaviour
     public List<Transform> Loose = new List<Transform>();   // oggetti sciolti da traslare allo switch di corpo
 
     public CelestialBody Destination;       // corpo selezionato sulla mappa: in volo l'origine ancora a lui
+    public StarSystem DestinationSystem;    // SISTEMA stellare distante selezionato in mappa (waypoint galattico): ci voli verso, arrivando si sveglia (Tappa 4). Mutuamente esclusivo con Destination
     public List<CelestialBody> Bodies = new List<CelestialBody>();
 
     // Tappa 1 multi-sistema (#16, vedi STARSYSTEM_DESIGN.md): i sistemi stellari + quello ATTIVO. A N=1

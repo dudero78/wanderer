@@ -160,11 +160,12 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     float ndlT = saturate(dot(nrm, L));
     col += alb * (_TorchColor * (ndlT * att * cone));
 
-    // LUCE AUSILIARIA (point): es. la sonda. Diffusa, attenuata con la distanza, niente cono. _AuxLightColor=0 → nullo.
+    // LUCE AUSILIARIA (point): es. la sonda. Diffusa, niente cono. Attenuazione LINEARE (non quadratica come la
+    // torcia) → arriva PIÙ LONTANO a parità di range, così la sonda illumina un'intera stanza/zona buia. _AuxLightColor=0 → nullo.
     float3 toA = _AuxLightPos - worldP;
     float dA = length(toA);
     float3 LA = toA / max(dA, 1e-4);
-    float attA = saturate(1.0 - dA / max(_AuxLightRange, 1.0)); attA *= attA;
+    float attA = saturate(1.0 - dA / max(_AuxLightRange, 1.0));
     col += alb * (_AuxLightColor * (saturate(dot(nrm, LA)) * attA));
 
     // PBR — SPECULARE GGX LEGGERO sul suolo (riflesso minerale radente, look SC/ED): broad lobe, basso peso → non

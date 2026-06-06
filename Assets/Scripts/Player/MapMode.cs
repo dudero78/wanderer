@@ -59,12 +59,15 @@ public class MapMode : MonoBehaviour
     // quando zoomi oltre il sistema-casa; danno la "galassia da navigare". Niente corpi/fette: solo un disco unlit.
     readonly List<GameObject> systemMarkers = new List<GameObject>();
     readonly List<StarSystem> systemMarkerSys = new List<StarSystem>();
+    readonly Dictionary<GameObject, StarSystem> systemOf = new Dictionary<GameObject, StarSystem>();
 
     // Camera ORBITALE della mappa: yaw/pitch (trascina col DESTRO), distanza (rotella), attorno a un FOCUS.
     // Il focus insegue il corpo SELEZIONATO (focusFollows, con smoothing) finché non PANni con WASD → si sgancia
     // e roami libero; la selezione successiva lo ri-aggancia. Click sinistro = seleziona.
     float mapYaw, mapPitch, mapDist;
     Vector3 focusPos, lastMousePx;
+    Vector2 leftDownPx, lastLeftPx;   // pan col TRASCINAMENTO SINISTRO (distingue click=selezione da drag=pan)
+    bool leftDragged;
     bool focusFollows;
     const float MapPitchDefault = 33.5f, MapRotSpeed = 0.25f, MapPanRate = 0.7f;
 
@@ -161,14 +164,14 @@ public class MapMode : MonoBehaviour
         }
 
         // TAPPA 5 — billboard delle stelle dei sistemi DISTANTI (SystemOrigin != Zero): disco unlit del colore della
-        // stella. Niente collider (non sono bersagli di volo per ora): solo presentazione del livello galattico.
+        // stella. CLICCABILI (collider) → selezionano il sistema come WAYPOINT galattico.
         if (solar.Systems != null)
             foreach (var s in solar.Systems)
             {
                 if (s == null || s.SystemOrigin.sqrMagnitude < 1.0) continue;   // salta il sistema-casa (origine Zero)
                 var smk = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 smk.name = "System_" + s.Name;
-                var sc2 = smk.GetComponent<Collider>(); if (sc2 != null) Destroy(sc2);
+                systemOf[smk] = s;   // bersaglio di click → seleziona il sistema
                 if (markerShader != null)
                 {
                     var m = new Material(markerShader); m.SetColor("_Color", s.StarColor);
@@ -251,6 +254,15 @@ public class MapMode : MonoBehaviour
     /// centro del sistema se niente è selezionato.</summary>
     Vector3 FocusTarget() => selected != null ? selected.transform.position : SystemCenter();
 
+    /// <summary>Tiene il focus entro un limite (raggio del sistema, o GALATTICO se ci sono sistemi distanti) → non ci
+    /// si perde nel vuoto, ma si può arrivare fino alle stelle lontane.</summary>
+    void ClampFocus()
+    {
+        Vector3 c = SystemCenter();
+        float lim = Mathf.Max(SystemRadius() * 1.5f, GalaxyRadius() * 1.3f);
+        focusPos = c + Vector3.ClampMagnitude(focusPos - c, lim);
+    }
+
     /// <summary>Vista della camera dai parametri orbitali (yaw/pitch/distanza attorno a focusPos). Default
     /// (yaw 0, pitch 33.5°) = lo stesso angolo dall'alto/dietro del vecchio overview → l'entrata resta fluida.</summary>
     void ComputeOverview(out Vector3 pos, out Quaternion rot)
@@ -274,9 +286,7 @@ public class MapMode : MonoBehaviour
             focusFollows = false;
             Vector3 move = mapCam.transform.right * px + mapCam.transform.up * py;
             focusPos += move * (mapDist * MapPanRate * Time.deltaTime);
-            // tieni il focus DENTRO il sistema → non ci si perde nel vuoto (da cui sembrava "bloccato")
-            Vector3 c = SystemCenter();
-            focusPos = c + Vector3.ClampMagnitude(focusPos - c, SystemRadius() * 1.5f);
+            ClampFocus();
         }
         else if (focusFollows)
             focusPos = Vector3.Lerp(focusPos, FocusTarget(), 1f - Mathf.Exp(-Time.deltaTime * 6f));
@@ -290,8 +300,24 @@ public class MapMode : MonoBehaviour
             mapPitch = Mathf.Clamp(mapPitch - d.y * MapRotSpeed, 8f, 88f);   // invertito + niente ribaltamenti ai poli
         }
 
-        // SELEZIONE col tasto SINISTRO (la rotazione è sul destro → niente ambiguità click/trascinamento)
-        if (Input.GetMouseButtonDown(0)) SelectAtCursor();
+        // TASTO SINISTRO: TRASCINARE = pan della mappa (trascini il contenuto, il focus va all'opposto); un CLICK
+        // senza trascinamento (movimento < 6 px) = SELEZIONE. Così pan e selezione convivono sullo stesso tasto.
+        if (Input.GetMouseButtonDown(0)) { leftDownPx = Input.mousePosition; lastLeftPx = leftDownPx; leftDragged = false; }
+        if (Input.GetMouseButton(0))
+        {
+            Vector2 cur = Input.mousePosition;
+            if ((cur - leftDownPx).sqrMagnitude > 36f) leftDragged = true;
+            if (leftDragged)
+            {
+                focusFollows = false;
+                Vector2 dd = cur - lastLeftPx;
+                float panK = mapDist / Mathf.Max(Screen.height, 1) * 1.5f;
+                focusPos += (-mapCam.transform.right * dd.x - mapCam.transform.up * dd.y) * panK;
+                ClampFocus();
+            }
+            lastLeftPx = cur;
+        }
+        if (Input.GetMouseButtonUp(0) && !leftDragged) SelectAtCursor();
 
         // ZOOM con la rotella, verso/da il focus. Limiti: vicino al raggio del corpo (non ci entri dentro) … molto largo.
         float sc = Mathf.Clamp(Input.mouseScrollDelta.y, -3f, 3f);
@@ -395,11 +421,21 @@ public class MapMode : MonoBehaviour
     void SelectAtCursor()
     {
         var ray = mapCam.ScreenPointToRay(Input.mousePosition);
-        if (Physics.Raycast(ray, out var hit, 1e7f) && markerBody.TryGetValue(hit.collider.gameObject, out var b))
+        if (!Physics.Raycast(ray, out var hit, 1e9f)) return;
+        if (markerBody.TryGetValue(hit.collider.gameObject, out var b))
         {
             selected = b;
-            solar.Destination = b;   // in volo l'origine si ancora a lei → ferma e centrata, il freno X la sincronizza
-            focusFollows = true;     // ri-aggancia la camera al corpo scelto (dopo un eventuale pan libero)
+            solar.Destination = b;          // in volo l'origine si ancora a lei → ferma e centrata, il freno X la sincronizza
+            solar.DestinationSystem = null; // un corpo e un sistema distante sono mutuamente esclusivi
+            focusFollows = true;            // ri-aggancia la camera al corpo scelto (dopo un eventuale pan libero)
+        }
+        else if (systemOf.TryGetValue(hit.collider.gameObject, out var sys))
+        {
+            // WAYPOINT GALATTICO: selezioni un sistema distante → ci voli verso (il reticolo di rotta lo indica);
+            // arrivando, si sveglia (Tappa 4) e puoi selezionarne i corpi.
+            solar.DestinationSystem = sys;
+            solar.Destination = null;
+            selected = null;
         }
     }
 
@@ -479,6 +515,7 @@ public class MapMode : MonoBehaviour
             Vector3 sp = (s.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
             smk.transform.position = sp;
             float sz = Mathf.Max(Vector3.Distance(camPos, sp) * markerScreenSize * 1.6f, s.StarRadius);
+            if (s == solar.DestinationSystem) sz *= 1.6f;   // evidenzia il sistema selezionato
             smk.transform.localScale = Vector3.one * sz;
             smk.SetActive(galacticZoom);
         }

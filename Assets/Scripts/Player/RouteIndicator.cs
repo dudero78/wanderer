@@ -147,6 +147,8 @@ public class RouteIndicator : MonoBehaviour
 
         // TRACKER della SONDA (triangolo ambra): indipendente dal corpo selezionato → prima del return su Destination nullo.
         DrawProbeTracker(Mathf.Max(1f, Screen.height / 1080f));
+        // WAYPOINT del SISTEMA distante selezionato (stella ★): anch'esso indipendente dal corpo.
+        DrawSystemDestination(Mathf.Max(1f, Screen.height / 1080f));
 
         var target = solar.Destination;
         if (target == null) return;
@@ -340,6 +342,40 @@ public class RouteIndicator : MonoBehaviour
             float ang = Mathf.Atan2(dir.x, -dir.y) * Mathf.Rad2Deg;   // triangolo: apice in su → ruota verso dir
             DrawTex(triTex, edge, 24f * ui, 24f * ui, ang, pcol);
             Shadowed(new Rect(edge.x - 180f * ui, edge.y + 20f * ui, 360f * ui, 20f * ui), txt, pcol, 1f, TextAnchor.UpperCenter);
+        }
+    }
+
+    // Reticolo verso il SISTEMA distante selezionato (waypoint galattico): stella + nome + distanza, freccia al bordo
+    // se fuori vista. Punta la SystemOrigin in scena → ci voli verso (arrivando, il sistema si sveglia, Tappa 4).
+    void DrawSystemDestination(float ui)
+    {
+        var sys = solar.DestinationSystem;
+        if (sys == null || (map != null && map.Active)) return;
+        if (cam == null || !cam.enabled) return;
+        view = cam;
+        if (label == null) label = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
+        label.fontSize = Mathf.RoundToInt(14f * ui);
+
+        Vector3 wp = (sys.SystemOrigin - FloatingOrigin.SceneOrigin).ToVector3();
+        Vector2 g = ToGui(wp, out _, out bool onScreen);
+        float dist = Vector3.Distance(cam.transform.position, wp);
+        string txt = "★ " + sys.Name + " · " + FmtDist(dist);
+        Color sc = Color.Lerp(sys.StarColor, Color.white, 0.35f);
+
+        if (onScreen)
+        {
+            DrawTex(discTex, g, 13f * ui, 13f * ui, 0f, sc);
+            Shadowed(new Rect(g.x - 180f * ui, g.y + 12f * ui, 360f * ui, 20f * ui), txt, sc, 1f, TextAnchor.UpperCenter);
+        }
+        else
+        {
+            Vector2 ctr = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            Vector2 dir = g - ctr; if (dir.sqrMagnitude < 1e-4f) dir = new Vector2(0f, -1f); dir.Normalize();
+            float m = 64f * ui;
+            Vector2 edge = ClampToRect(ctr, dir, new Rect(m, m, Screen.width - 2f * m, Screen.height - 2f * m));
+            float ang = Mathf.Atan2(dir.x, -dir.y) * Mathf.Rad2Deg;
+            DrawTex(chevronTex, edge, 26f * ui, 26f * ui, ang, sc);
+            Shadowed(new Rect(edge.x - 180f * ui, edge.y + 20f * ui, 360f * ui, 20f * ui), txt, sc, 1f, TextAnchor.UpperCenter);
         }
     }
 
