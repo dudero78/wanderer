@@ -28,16 +28,16 @@ public class SuitPickup : MonoBehaviour
         this.axisUp = axisUp.normalized;
         basePos = groundPoint + this.axisUp * surfaceClearance;
         transform.position = basePos;
-        transform.up = this.axisUp;
+        // RIVOLTO AL GIOCATORE SOLO ALLO SPAWN: il "davanti" (+Z) punta verso di te, proiettato sul piano tangente
+        // (resta in piedi). Poi NON si ri-orienta più → ci puoi girare intorno liberamente.
+        Vector3 fwd = player != null ? Vector3.ProjectOnPlane(player.position - basePos, this.axisUp) : Vector3.zero;
+        if (fwd.sqrMagnitude > 1e-4f) transform.rotation = Quaternion.LookRotation(fwd.normalized, this.axisUp);
+        else transform.up = this.axisUp;
     }
 
     void Update()
     {
-        // L'omino GUARDA il giocatore: il suo "davanti" (+Z) punta verso di te, proiettato sul piano tangente
-        // (perpendicolare ad axisUp) così resta in piedi. Niente più rotazione a trottola (era un faro; ora è un omino).
-        Vector3 fwd = player != null ? Vector3.ProjectOnPlane(player.position - transform.position, axisUp) : Vector3.zero;
-        if (fwd.sqrMagnitude > 1e-4f) transform.rotation = Quaternion.LookRotation(fwd.normalized, axisUp);
-        else transform.up = axisUp;
+        // solo ONDEGGIO (l'orientamento è fissato allo spawn in Init → ci puoi girare intorno).
         transform.position = basePos + axisUp * (Mathf.Sin(Time.time * bobSpeed) * bobAmplitude);
 
         if (player == null || walker == null) return;

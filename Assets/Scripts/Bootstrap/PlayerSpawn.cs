@@ -58,11 +58,20 @@ public static class PlayerSpawn
         // sfera che brilla. Parent vuoto (SuitPickup lo fa ondeggiare e lo gira verso il giocatore). +Y in alto, +Z
         // davanti (verso di te); le bombole stanno dietro (-Z). Capsule → niente spigoli vivi alle estremità.
         var suitGo = new GameObject("Tuta");
-        MetalPart(suitGo.transform, PrimitiveType.Capsule, "Torso", new Vector3(0f, 0.5f, 0f), new Vector3(0.44f, 0.5f, 0.34f));
+        // TORSO a profilo (lathe): fondo ARROTONDATO, sale ALLARGANDOSI (spalle ~0.46 a y≈1.0) e finisce TRONCATO in
+        // alto ma con BORDI ARROTONDATI (il profilo rientra dolcemente da 0.45 a 0). Niente più pillola.
+        Vector2[] torso = {
+            new Vector2(0.00f, -0.12f), new Vector2(0.20f, -0.05f), new Vector2(0.30f, 0.10f),
+            new Vector2(0.33f, 0.45f), new Vector2(0.36f, 0.72f), new Vector2(0.41f, 0.90f),
+            new Vector2(0.46f, 1.00f), new Vector2(0.45f, 1.08f), new Vector2(0.38f, 1.13f),
+            new Vector2(0.22f, 1.17f), new Vector2(0.08f, 1.19f), new Vector2(0.00f, 1.20f),
+        };
+        MetalLathe(suitGo.transform, "Torso", torso);
         MetalPart(suitGo.transform, PrimitiveType.Capsule, "GambaSx", new Vector3(-0.17f, -0.42f, 0.02f), new Vector3(0.16f, 0.42f, 0.16f));
         MetalPart(suitGo.transform, PrimitiveType.Capsule, "GambaDx", new Vector3(0.17f, -0.42f, 0.02f), new Vector3(0.16f, 0.42f, 0.16f));
-        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BraccioSx", new Vector3(-0.42f, 0.58f, 0.02f), new Vector3(0.13f, 0.4f, 0.13f), new Vector3(0f, 0f, 13f));
-        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BraccioDx", new Vector3(0.42f, 0.58f, 0.02f), new Vector3(0.13f, 0.4f, 0.13f), new Vector3(0f, 0f, -13f));
+        // BRACCIA agganciate alle SPALLE: il TOP del braccio arriva alla spalla (y≈1.0, x≈0.45) → sembrano attaccate.
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BraccioSx", new Vector3(-0.43f, 0.62f, 0.02f), new Vector3(0.12f, 0.42f, 0.12f), new Vector3(0f, 0f, 10f));
+        MetalPart(suitGo.transform, PrimitiveType.Capsule, "BraccioDx", new Vector3(0.43f, 0.62f, 0.02f), new Vector3(0.12f, 0.42f, 0.12f), new Vector3(0f, 0f, -10f));
         MetalPart(suitGo.transform, PrimitiveType.Capsule, "BombolaSx", new Vector3(-0.2f, 0.62f, -0.34f), new Vector3(0.16f, 0.5f, 0.16f));
         MetalPart(suitGo.transform, PrimitiveType.Capsule, "BombolaDx", new Vector3(0.2f, 0.62f, -0.34f), new Vector3(0.16f, 0.5f, 0.16f));
 
@@ -70,8 +79,8 @@ public static class PlayerSpawn
         head.name = "Testa";
         var headCol = head.GetComponent<Collider>(); if (headCol) Object.Destroy(headCol);
         head.transform.SetParent(suitGo.transform, false);
-        head.transform.localPosition = new Vector3(0f, 1.28f, 0f);
-        head.transform.localScale = Vector3.one * 0.55f;
+        head.transform.localPosition = new Vector3(0f, 1.32f, 0f);
+        head.transform.localScale = Vector3.one * 0.5f;
         SetColor(head, new Color(0.4f, 0.95f, 1f), emissive: true);   // testa che BRILLA (Unlit, sopravvive al build)
 
         // UGELLI dei MOTORI: piccole sfere LUMINOSE in fondo alle bombole (l'"accensione" dei motori).
@@ -154,6 +163,23 @@ public static class PlayerSpawn
             m.SetFloat("_Metallic", 0.9f);
             m.SetFloat("_Glossiness", 0.6f);
             go.GetComponent<Renderer>().material = m;
+        }
+    }
+
+    /// <summary>Un pezzo METALLICO a forma libera (mesh a rivoluzione da un profilo): per il TORSO con le spalle.</summary>
+    static void MetalLathe(Transform parent, string name, Vector2[] profile)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        go.AddComponent<MeshFilter>().sharedMesh = ProcMesh.RevolveY(profile, 48, name);
+        var mr = go.AddComponent<MeshRenderer>();
+        var sh = Shader.Find("Standard");
+        if (sh != null)
+        {
+            var m = new Material(sh) { color = new Color(0.24f, 0.26f, 0.30f) };
+            m.SetFloat("_Metallic", 0.9f);
+            m.SetFloat("_Glossiness", 0.6f);
+            mr.material = m;
         }
     }
 
