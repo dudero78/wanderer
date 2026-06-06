@@ -26,6 +26,10 @@ float _TorchRange, _TorchCosInner, _TorchCosOuter;
 // 0 = calcolalo qui per-pixel (editor: massima qualità, non è perf-critico). Default 0 se non impostato.
 float _PerVertexFields;
 
+// ECLISSI (ombra analitica di un altro corpo): le imposta EclipseDriver per frame sul materiale del renderer GPU
+// (come già su PlanetBaked). Raggio 0 (default, mai impostato) = nessuna eclissi → costo/effetto nullo.
+float4 _EclipseOccluderPos; float _EclipseOccluderRadius; float3 _EclipseSunDir; float _EclipseSunAngular;
+
 // INCRESPATURA dell'acqua: perturba la normale del pelo con due ottave di rumore SCORREVOLE (gradiente
 // ANALITICO da noised → niente differenze finite). È ciò che dà identità di SUPERFICIE all'acqua: spezza il
 // glint del sole in scintille e toglie il look "dipinto" (un pelo perfettamente liscio riflette il sole come
@@ -196,6 +200,27 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
         }
 
         col = lerp(col, wcol, seaMask);
+    }
+
+    // ===== ECLISSI: ombra analitica di un altro corpo (stesso calcolo di PlanetBaked) =====
+    // Copertura del disco solare vista da P in coordinate ANGOLARI: vicino all'occlusore umbra piena, allontanandosi
+    // l'occlusore rimpicciolisce → umbra corta, poi solo penombra. Attenua il termine SOLE (l'eclissi blocca il sole,
+    // non la torcia/l'ambiente). Niente shadow map → zero acne. Raggio 0 → ecl=1 (nessun effetto).
+    if (_EclipseOccluderRadius > 0.0)
+    {
+        float3 Lsun = _EclipseSunDir;
+        float3 mo = _EclipseOccluderPos.xyz - P;
+        float tca = dot(mo, Lsun);                          // l'occlusore è verso il sole?
+        if (tca > 1e-3)
+        {
+            float dperp = sqrt(max(dot(mo, mo) - tca * tca, 0.0));
+            float rhoOcc = _EclipseOccluderRadius / tca;    // raggio angolare dell'occlusore
+            float rhoSun = max(_EclipseSunAngular, 1e-4);   // raggio angolare del sole
+            float sigma  = dperp / tca;                     // separazione angolare sole↔occlusore
+            float fcov = 1.0 - smoothstep(abs(rhoSun - rhoOcc), rhoSun + rhoOcc, sigma);
+            float peak = saturate((rhoOcc * rhoOcc) / (rhoSun * rhoSun));   // <1 se anulare (occlusore più piccolo del sole)
+            col *= 1.0 - fcov * peak * 0.92;
+        }
     }
     return col;
 }

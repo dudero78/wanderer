@@ -496,6 +496,18 @@ public class GpuPlanetRenderer : MonoBehaviour, ISlabFiller
         m.SetFloat("_TorchCosInner", Mathf.Cos(half * 0.85f));
     }
 
+    /// <summary>Imposta gli uniform di ECLISSI sul materiale GPU (li calcola EclipseDriver per frame, come per i
+    /// materiali bakeati). Raggio 0 = nessuna eclissi. Così l'ombra di eclissi appare anche sul renderer autoritativo,
+    /// non solo sul fallback PlanetBaked.</summary>
+    public void SetEclipse(Vector3 occPos, float occRad, Vector3 sunDir, float sunAng)
+    {
+        if (mat == null) return;
+        mat.SetVector("_EclipseOccluderPos", occPos);
+        mat.SetFloat("_EclipseOccluderRadius", occRad);
+        mat.SetVector("_EclipseSunDir", sunDir);
+        mat.SetFloat("_EclipseSunAngular", sunAng);
+    }
+
     void OnDestroy()
     {
         tree?.ReturnSlabs();   // streaming-safe: rendi le fette di questo corpo PRIMA di mollare il riferimento al pool

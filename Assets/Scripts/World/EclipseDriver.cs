@@ -13,7 +13,7 @@ using UnityEngine;
 /// </summary>
 public class EclipseDriver : MonoBehaviour
 {
-    struct Rocky { public CelestialBody body; public PlanetTerrain terrain; }
+    struct Rocky { public CelestialBody body; public PlanetTerrain terrain; public GpuPlanetRenderer gpu; }
     readonly List<Rocky> rocky = new List<Rocky>();
     Transform sun;
     CelestialBody star;
@@ -48,7 +48,7 @@ public class EclipseDriver : MonoBehaviour
             if (b.Orbit == null) star = b;   // la stella: corpo senza orbita (sorgente di luce)
             var t = b.GetComponent<PlanetTerrain>();
             if (t != null && t.Recipe != null && t.FaceMaterials != null)
-                rocky.Add(new Rocky { body = b, terrain = t });
+                rocky.Add(new Rocky { body = b, terrain = t, gpu = b.GetComponent<GpuPlanetRenderer>() });
         }
     }
 
@@ -106,6 +106,8 @@ public class EclipseDriver : MonoBehaviour
                 m.SetVector(SunDir, sunObj);
                 m.SetFloat(SunAng, sunAng);
             }
+            // stesso set sul renderer GPU autoritativo (non solo i materiali bakeati del fallback/proxy)
+            if (B.gpu != null) B.gpu.SetEclipse(occObj, radius, sunObj, sunAng);
         }
     }
 }
