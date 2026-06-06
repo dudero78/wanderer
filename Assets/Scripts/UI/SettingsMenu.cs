@@ -115,16 +115,17 @@ public class SettingsMenu : MonoBehaviour
 
     public static bool AnyOpen;   // true mentre le impostazioni sono aperte → l'HUD si nasconde (no reticoli sopra il menu)
     public bool IsOpen => open;
-    public void Open() { SetOpen(true); }
+    public bool OpenedFromPause;  // true se aperte dal menu ESC → con ESC si TORNA al menu; false se da "à" → ESC chiude
+    public void Open(bool fromPause = false) { OpenedFromPause = fromPause; SetOpen(true); }
     public void Close() { SetOpen(false); }
 
     void Update()
     {
-        // toggle con à (inputString cattura il carattere a prescindere dal layout fisico). Esc chiude SE il menu di
-        // pausa è SPENTO (altrimenti l'ESC lo gestisce il PauseMenu, che chiude le impostazioni → niente doppio handling).
+        // toggle con à (inputString cattura il carattere a prescindere dal layout fisico). Aperte da à → NON dal menu.
         bool toggleKey = Input.inputString.Contains("à") || Input.inputString.Contains("À");
-        if (toggleKey || (!PauseMenu.Enabled && open && Input.GetKeyDown(KeyCode.Escape)))
-            SetOpen(!open);
+        if (toggleKey) { if (open) Close(); else Open(false); }
+        // Esc chiude SE il menu di pausa è SPENTO (altrimenti l'ESC lo gestisce il PauseMenu → niente doppio handling).
+        else if (!PauseMenu.Enabled && open && Input.GetKeyDown(KeyCode.Escape)) Close();
     }
 
     void SetOpen(bool v)
@@ -148,7 +149,7 @@ public class SettingsMenu : MonoBehaviour
         GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
         GUI.color = prev;
 
-        float w = 720f * ui, h = 560f * ui;
+        float w = 880f * ui, h = 560f * ui;   // più largo: i numeri a destra non si tagliano più
         Rect panel = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
         GUI.Box(panel, GUIContent.none);
 
@@ -175,7 +176,7 @@ public class SettingsMenu : MonoBehaviour
     void DrawKnob(Knob k, float ui)
     {
         GUILayout.BeginHorizontal(GUILayout.Height(40f * ui));
-        GUILayout.Label(k.label, head, GUILayout.Width(330f * ui));
+        GUILayout.Label(k.label, head, GUILayout.Width(300f * ui));
 
         if (k.isToggle)
         {
@@ -192,9 +193,9 @@ public class SettingsMenu : MonoBehaviour
             float v = k.get();
             // slider con MANIGLIA e TRACCIA grandi (stili dedicati) → visibile e afferrabile.
             float nv = GUILayout.HorizontalSlider(v, k.min, k.max, sliderStyle, thumbStyle,
-                                                  GUILayout.Width(260f * ui), GUILayout.Height(28f * ui));
-            GUILayout.Space(12f * ui);
-            GUILayout.Label(Fmt(nv), val, GUILayout.Width(80f * ui));
+                                                  GUILayout.Width(300f * ui), GUILayout.Height(28f * ui));
+            GUILayout.Space(16f * ui);
+            GUILayout.Label(Fmt(nv), val, GUILayout.Width(90f * ui));
             if (!Mathf.Approximately(nv, v))
             {
                 k.set(nv);
@@ -232,6 +233,11 @@ public class SettingsMenu : MonoBehaviour
             toggleBtn = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
             sliderStyle = new GUIStyle(GUI.skin.horizontalSlider);
             thumbStyle = new GUIStyle(GUI.skin.horizontalSliderThumb);
+            // TRACCIA VISIBILE: una barretta grigia (lo slot di default è quasi invisibile su sfondo nero).
+            var track = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            track.SetPixel(0, 0, new Color(0.5f, 0.55f, 0.62f, 1f)); track.Apply();
+            sliderStyle.normal.background = track;
+            sliderStyle.border = new RectOffset(0, 0, 0, 0);   // 1x1 → stiramento pulito, niente slicing
         }
         title.fontSize = Mathf.RoundToInt(22f * ui);
         head.fontSize = Mathf.RoundToInt(16f * ui);

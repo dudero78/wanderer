@@ -29,7 +29,14 @@ public class PauseMenu : MonoBehaviour
         if (!Enabled) { if (Showing) { Showing = false; Freeze(false); } return; }   // disattivato a runtime: chiudi se aperto
         if (!Input.GetKeyDown(KeyCode.Escape)) return;
         if (map != null && map.Active) return;            // in mappa ESC esce dalla mappa (la gestisce MapMode)
-        if (settings != null && settings.IsOpen) { settings.Close(); return; }   // ESC chiude le impostazioni
+        if (settings != null && settings.IsOpen)
+        {
+            // ESC nelle impostazioni: se ci sei arrivato DAL menu pausa, TORNI al menu; se da "à", chiudi e basta.
+            bool back = settings.OpenedFromPause;
+            settings.Close();
+            if (back) Open();
+            return;
+        }
         if (page == Page.None) { Open(); return; }
         // DENTRO il menu, ESC torna INDIETRO di un livello (non esce subito).
         if (confirmQuit) { confirmQuit = false; return; }
@@ -68,7 +75,7 @@ public class PauseMenu : MonoBehaviour
         bool dlg = confirmQuit;   // col dialogo di conferma aperto, i pulsanti sotto sono disabilitati
         GUI.enabled = !dlg;
         if (GUI.Button(new Rect(x, y, w, bh), "Riprendi", btn)) Close(); y += bh + gap;
-        if (GUI.Button(new Rect(x, y, w, bh), "Opzioni", btn)) { Close(); settings?.Open(); } y += bh + gap;
+        if (GUI.Button(new Rect(x, y, w, bh), "Opzioni", btn)) { Close(); settings?.Open(true); } y += bh + gap;
         if (GUI.Button(new Rect(x, y, w, bh), "Comandi", btn)) page = Page.Commands; y += bh + gap;
         GUI.Button(new Rect(x, y, w, bh), "Torna al menu principale", btnOff); y += bh + gap;   // disattivato (niente menu principale ancora)
         if (GUI.Button(new Rect(x, y, w, bh), "Esci", btn)) confirmQuit = true;
