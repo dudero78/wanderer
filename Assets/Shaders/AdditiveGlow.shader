@@ -19,8 +19,10 @@ Shader "Wanderer/AdditiveGlow"
             v2f vert(appdata_base v) { v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = v.texcoord; return o; }
             fixed4 frag(v2f i) : SV_Target
             {
-                float r = saturate(1.0 - length(i.uv - 0.5) * 2.0);   // 1 al centro, 0 al bordo
-                float a = r * r * r;                                  // alone morbido (coda dolce)
+                float d = length(i.uv - 0.5) * 2.0;          // 0 al centro, 1 al bordo
+                float core = saturate(1.0 - d * 1.7);        // disco PIENO centrale (la "sfera")
+                float halo = saturate(1.0 - d); halo *= halo; // ALONE largo che sfuma ai bordi
+                float a = core * 1.3 + halo * 0.55;          // additivo: il core satura verso il bianco, l'alone resta tinto
                 return _Color * a;
             }
             ENDCG

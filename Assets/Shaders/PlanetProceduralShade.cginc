@@ -166,8 +166,9 @@ float3 PlanetShade(float3 Pobj, float3 worldP, float3 nrmW, float3 bnrmW, float 
     float dA = length(toA);
     float3 LA = toA / max(dA, 1e-4);
     float nA = dA / max(_AuxLightRange, 1.0);
-    float attA = saturate(1.0 - nA * nA);   // falloff PIATTO vicino-medio (più luce a breve-media), spegne al range
-    col += alb * (_AuxLightColor * (saturate(dot(nrm, LA)) * attA));
+    float attA = 1.0 - smoothstep(0.30, 1.0, nA);          // PLATEAU fino a ~0.3·range (fade lento), poi crollo dolce
+    float lambA = 0.30 + 0.70 * saturate(dot(nrm, LA));    // morbido: i versanti radenti non restano neri (niente anello scuro)
+    col += alb * (_AuxLightColor * (lambA * attA));
 
     // PBR — SPECULARE GGX LEGGERO sul suolo (riflesso minerale radente, look SC/ED): broad lobe, basso peso → non
     // "plasticoso". Solo sul lato illuminato (×ndlLand). L'acqua, sotto, sovrascrive col dove allagato (suo speculare).

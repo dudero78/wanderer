@@ -8,7 +8,7 @@ public class Flashlight : MonoBehaviour
 {
     public PlanetWalker walker;
     public Light lamp;
-    public float onIntensity = 2.2f;
+    public float onIntensity = 1.7f;   // leggermente più bassa: vicino non sparava troppo
     public float baseRange = 110f;
     public KeyCode toggleKey = KeyCode.F;
 
