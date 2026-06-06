@@ -178,8 +178,9 @@ public static class SolarSystemSetup
     }
 
     /// <summary>Costruisce stella + pianeta-casa + corpi in orbita, registra tutto nel SolarSystem, ancora
-    /// l'origine alla casa e posiziona i corpi al tempo 0. Ritorna i riferimenti chiave.</summary>
-    public static Built Build(SolarSystem solar, bool useQuadtree, int singleMeshRes, bool useGpuSurface = false, int gpuSurfaceRes = 256, string spawnOnBody = "")
+    /// l'origine alla casa e posiziona i corpi al tempo 0. COROUTINE: cede (yield) tra un corpo e l'altro così la
+    /// schermata di caricamento continua ad animarsi invece di bloccarsi. Il risultato torna in result[0].</summary>
+    public static System.Collections.IEnumerator BuildAsync(SolarSystem solar, bool useQuadtree, int singleMeshRes, bool useGpuSurface, int gpuSurfaceRes, string spawnOnBody, Built[] result)
     {
         // --- Stella (corpo centrale, fisso all'origine dell'universo) ---
         var starGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -245,6 +246,7 @@ public static class SolarSystemSetup
             Debug.Log("Pianeta: bake non riuscito, mesh uniforme procedurale (fallback).");
         }
         solar.Register(planet);
+        yield return null;   // cede dopo il pianeta-casa → la schermata di caricamento gira
 
         // --- Corpi in orbita (data-driven). Genitore risolto per nome (lune di lune): ParentName dev'essere costruito
         //     PRIMA nell'array. Senza ParentName → stella o pianeta-casa. Cattura il corpo su cui nascere (test). ---
@@ -273,6 +275,7 @@ public static class SolarSystemSetup
             {
                 spawnBody = b; spawnGo = b.gameObject; spawnTerrain = b.GetComponent<PlanetTerrain>();
             }
+            yield return null;   // cede dopo OGNI corpo in orbita → spinner e messaggi continuano a girare
         }
 
         // origine ancorata al corpo di SPAWN (la casa, o quello scelto per il test): resta a ~(0,0,0). Posiziona i
@@ -295,7 +298,7 @@ public static class SolarSystemSetup
         spawnBody.UpdatePosition(0);
         solar.Step();
 
-        return new Built {
+        result[0] = new Built {
             Star = star, StarTransform = starGo.transform,
             HomePlanet = spawnBody, HomePlanetGo = spawnGo, HomeTerrain = spawnTerrain,
         };

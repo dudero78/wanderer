@@ -101,7 +101,10 @@ public class GameBootstrap : MonoBehaviour
         GpuPlanetRenderer.SuppressDraw = false;           // la mappa lo mette true: con domain-reload OFF sopravvivrebbe fra le sessioni Play → pianeta GPU muto. Azzera all'avvio scena
         PlanetRecipe.DebugDisableTypes = debugDisablePipelines;   // diagnosi: salta tipi di pipeline (build-time, GPU+CPU)
         PauseMenu.Enabled = enablePauseMenu;                      // menu ESC (debug: off = ESC come prima)
-        var sys = SolarSystemSetup.Build(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody);
+        // BUILD a tappe (coroutine): cede tra i corpi → la schermata di caricamento continua ad animarsi.
+        var holder = new SolarSystemSetup.Built[1];
+        yield return SolarSystemSetup.BuildAsync(solar, useQuadtree, singleMeshRes, useGpuSurface, gpuSurfaceRes, spawnOnBody, holder);
+        var sys = holder[0];
         yield return null;
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);
         var eclipse = LightingSetup.Setup(gameObject, solar, sys.StarTransform, sys.HomePlanetGo.transform);

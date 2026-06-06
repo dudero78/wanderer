@@ -61,11 +61,11 @@ public class LoadingScreen : MonoBehaviour
         GUI.DrawTexture(new Rect(cx - r, cy - r, r * 2f, r * 2f), spinnerTex);
         GUI.matrix = m;
 
-        // messaggio buffo + titolo
+        // messaggio buffo + TITOLO (grande, bold, appena trasparente)
         GUI.color = new Color(1f, 1f, 1f, alpha);
-        GUI.Label(new Rect(0, cy + r + 18f * ui, Screen.width, 30f * ui), Messages[msgIdx], msgStyle);
-        GUI.color = new Color(0.65f, 0.72f, 0.82f, alpha);
-        GUI.Label(new Rect(0, cy - r - 44f * ui, Screen.width, 30f * ui), "WANDERER", tipStyle);
+        GUI.Label(new Rect(0, cy + r + 22f * ui, Screen.width, 30f * ui), Messages[msgIdx], msgStyle);
+        GUI.color = new Color(0.7f, 0.85f, 1f, alpha * 0.8f);
+        GUI.Label(new Rect(0, cy - r - 96f * ui, Screen.width, 70f * ui), "WANDERER", tipStyle);
         GUI.color = prev;
     }
 
@@ -94,7 +94,8 @@ public class LoadingScreen : MonoBehaviour
             msgStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, normal = { textColor = Color.white } };
             tipStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.55f, 0.85f, 1f) } };
         }
-        msgStyle.fontSize = Mathf.RoundToInt(18f * ui);
-        tipStyle.fontSize = Mathf.RoundToInt(30f * ui);
+        msgStyle.fontSize = Mathf.RoundToInt(19f * ui);
+        tipStyle.fontSize = Mathf.RoundToInt(60f * ui);   // titolo grande
+        tipStyle.fontStyle = FontStyle.Bold;
     }
 }
