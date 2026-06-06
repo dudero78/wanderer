@@ -132,6 +132,7 @@ public class RouteIndicator : MonoBehaviour
     {
         if (Event.current.type != EventType.Repaint) return;
         if (cam == null || solar == null) return;
+        if (PauseMenu.Showing || SettingsMenu.AnyOpen) return;   // niente HUD/reticoli sopra un menu a schermo intero
 
         // MIRINO centrale: sempre durante il gioco (tranne in mappa, dove il cursore è libero). Indipendente dal
         // target → disegnato PRIMA del return su Destination nullo.

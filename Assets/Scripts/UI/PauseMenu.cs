@@ -9,13 +9,15 @@ using UnityEngine;
 /// </summary>
 public class PauseMenu : MonoBehaviour
 {
-    public static bool Enabled = true;   // flag di debug (GameBootstrap): off → ESC non apre il menu (comportamento di prima)
+    public static bool Enabled = true;   // flag di debug (GameBootstrap / Diagnosi): off → ESC non apre il menu
+    public static bool Showing;          // true mentre il menu è aperto → l'HUD (reticoli) si nasconde per non sovrapporsi
 
     PlanetWalker walker;
     SettingsMenu settings;
     MapMode map;
     enum Page { None, Main, Commands }
     Page page = Page.None;
+    bool confirmQuit;
     GUIStyle title, btn, btnOff, item, hint, secStyle, keyStyle;
 
     public bool IsOpen => page != Page.None;
@@ -24,15 +26,19 @@ public class PauseMenu : MonoBehaviour
 
     void Update()
     {
-        if (!Enabled) return;
+        if (!Enabled) { if (Showing) { Showing = false; Freeze(false); } return; }   // disattivato a runtime: chiudi se aperto
         if (!Input.GetKeyDown(KeyCode.Escape)) return;
         if (map != null && map.Active) return;            // in mappa ESC esce dalla mappa (la gestisce MapMode)
         if (settings != null && settings.IsOpen) { settings.Close(); return; }   // ESC chiude le impostazioni
-        if (page == Page.None) Open(); else Close();
+        if (page == Page.None) { Open(); return; }
+        // DENTRO il menu, ESC torna INDIETRO di un livello (non esce subito).
+        if (confirmQuit) { confirmQuit = false; return; }
+        if (page == Page.Commands) { page = Page.Main; return; }
+        Close();   // dalla schermata principale, ESC chiude il menu
     }
 
-    void Open() { page = Page.Main; Freeze(true); }
-    public void Close() { page = Page.None; Freeze(false); }
+    void Open() { page = Page.Main; confirmQuit = false; Showing = true; Freeze(true); }
+    public void Close() { page = Page.None; confirmQuit = false; Showing = false; Freeze(false); }
 
     void Freeze(bool f)
     {
@@ -59,11 +65,31 @@ public class PauseMenu : MonoBehaviour
         float x = (Screen.width - w) * 0.5f, y = (Screen.height - h) * 0.5f;
         GUI.Label(new Rect(x, y, w, 40f * ui), "PAUSA", title);
         y += 56f * ui;
+        bool dlg = confirmQuit;   // col dialogo di conferma aperto, i pulsanti sotto sono disabilitati
+        GUI.enabled = !dlg;
         if (GUI.Button(new Rect(x, y, w, bh), "Riprendi", btn)) Close(); y += bh + gap;
         if (GUI.Button(new Rect(x, y, w, bh), "Opzioni", btn)) { Close(); settings?.Open(); } y += bh + gap;
         if (GUI.Button(new Rect(x, y, w, bh), "Comandi", btn)) page = Page.Commands; y += bh + gap;
         GUI.Button(new Rect(x, y, w, bh), "Torna al menu principale", btnOff); y += bh + gap;   // disattivato (niente menu principale ancora)
-        if (GUI.Button(new Rect(x, y, w, bh), "Esci", btn)) Quit();
+        if (GUI.Button(new Rect(x, y, w, bh), "Esci", btn)) confirmQuit = true;
+        GUI.enabled = true;
+
+        if (confirmQuit) DrawConfirmQuit(ui);
+    }
+
+    void DrawConfirmQuit(float ui)
+    {
+        float w = 420f * ui, h = 180f * ui;
+        float x = (Screen.width - w) * 0.5f, y = (Screen.height - h) * 0.5f;
+        Color prev = GUI.color; GUI.color = new Color(0f, 0f, 0f, 0.85f);
+        GUI.DrawTexture(new Rect(x - 12f * ui, y - 12f * ui, w + 24f * ui, h + 24f * ui), Texture2D.whiteTexture);
+        GUI.color = prev;
+        GUI.Box(new Rect(x, y, w, h), GUIContent.none);
+        GUI.Label(new Rect(x, y + 26f * ui, w, 34f * ui), "Uscire dal gioco?", title);
+        float bw = 160f * ui, bh = 44f * ui, gap = 20f * ui;
+        float bx = x + (w - 2f * bw - gap) * 0.5f, by = y + h - bh - 24f * ui;
+        if (GUI.Button(new Rect(bx, by, bw, bh), "Esci", btn)) Quit();
+        if (GUI.Button(new Rect(bx + bw + gap, by, bw, bh), "Annulla", btn)) confirmQuit = false;
     }
 
     struct Cmd { public string keys, desc; public Cmd(string k, string d) { keys = k; desc = d; } }

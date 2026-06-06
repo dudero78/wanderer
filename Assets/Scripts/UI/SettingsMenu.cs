@@ -98,6 +98,8 @@ public class SettingsMenu : MonoBehaviour
         // DIAGNOSI: colorazioni di debug del terreno, live. Slider 0-5 (snappa a interi). key=null → non persiste
         // tra le sessioni (è uno strumento, non una taratura): al riavvio riparte da 0 (off).
         var dg = new Tab { name = "Diagnosi" };
+        dg.knobs.Add(B("Menu ESC (pausa) attivo", true,
+            () => PauseMenu.Enabled, v => PauseMenu.Enabled = v));   // off → ESC libera solo il cursore (per screenshot senza menu)
         dg.knobs.Add(new Knob {
             label = "Vista terreno  (0 off · 1 radiale · 2 normale · 3 livello LOD · 4 faccia cubo · 5 fetta)",
             key = null, min = 0f, max = 5f, def = 0f,
@@ -109,6 +111,7 @@ public class SettingsMenu : MonoBehaviour
         for (int i = 0; i < tabs.Count; i++) tabNames[i] = tabs[i].name;
     }
 
+    public static bool AnyOpen;   // true mentre le impostazioni sono aperte → l'HUD si nasconde (no reticoli sopra il menu)
     public bool IsOpen => open;
     public void Open() { SetOpen(true); }
     public void Close() { SetOpen(false); }
@@ -126,6 +129,7 @@ public class SettingsMenu : MonoBehaviour
     {
         if (open == v) return;
         open = v;
+        AnyOpen = open;
         if (walker != null) walker.ControlsActive = !open;   // comandi del walker congelati mentre è aperto
         Cursor.lockState = open ? CursorLockMode.None : CursorLockMode.Locked;
         Cursor.visible = open;
