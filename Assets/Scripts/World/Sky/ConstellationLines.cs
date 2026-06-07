@@ -254,7 +254,7 @@ public class ConstellationLines : MonoBehaviour
     static int ReqMag(float surfBr)
     {
         float ratio = Mathf.Pow(10f, 0.4f * (23f - surfBr));
-        float skyZoom = Mathf.Pow(51f / Mathf.Max(ratio, 1e-4f), 1f / 1.3f);
+        float skyZoom = Mathf.Pow(51f / Mathf.Max(ratio, 1e-4f), 1f / 1.1f);
         return Mathf.Clamp(Mathf.RoundToInt(Mathf.Pow(Mathf.Max(skyZoom, 1f), 1f / 1.3f)), 1, 999);
     }
 

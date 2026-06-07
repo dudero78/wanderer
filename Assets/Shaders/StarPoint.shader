@@ -75,7 +75,10 @@ Shader "Wanderer/StarPoint"
                 float grow = saturate(log2(max(I, 1.0)) * _SizeScale);
                 float pxScale = _SkyPxScale <= 0.0 ? 1.0 : _SkyPxScale;   // compensa la risoluzione dinamica → apparenza costante
                 float zoomGrow = 1.0 + _ZoomGrow * log2(zoom);            // col binocolo/telescopio le stelle "ingrandiscono"
-                float px = lerp(_MinPx, _MaxPx, grow) * keep * pxScale * zoomGrow;
+                // i dischi delle BRILLANTI crescono SOLO ad alto ingrandimento (zoom 100→400 ≈ 40×→100×) → più varietà
+                // di dimensione al telescopio spinto, mentre a occhio nudo/binocolo restano invariati.
+                float effMaxPx = lerp(_MaxPx, _MaxPx * 1.6, saturate((zoom - 100.0) / 300.0));
+                float px = lerp(_MinPx, effMaxPx, grow) * keep * pxScale * zoomGrow;
 
                 // tone-map: deboli nel tratto lineare, brillanti che saturano (fioriscono)
                 float lum = 1.0 - exp(-I * _Gain);
@@ -95,8 +98,10 @@ Shader "Wanderer/StarPoint"
             fixed4 frag(v2f i) : SV_Target
             {
                 float r = length(i.uv);
-                float a = saturate(1.0 - r);
-                a = a * a * a;                 // profilo morbido (nucleo + coda) — NIENTE sharpening con lo zoom (faceva tremolare)
+                // nucleo che si stringe salendo d'ingrandimento (a occhio nudo/binocolo morbido com'è; al telescopio
+                // spinto più nitido/puntiforme). _SkyZoom 50→400 ≈ 20×→100×.
+                float sharp = lerp(3.0, 6.0, saturate((max(_SkyZoom, 1.0) - 50.0) / 350.0));
+                float a = pow(saturate(1.0 - r), sharp);
                 return fixed4(i.col * a, 1.0);
             }
             ENDCG

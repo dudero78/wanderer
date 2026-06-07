@@ -14,7 +14,7 @@ Shader "Wanderer/DeepSkyBillboard"
         _DsoM0      ("Riferimento luminosità superficie", Float) = 23.0
         _DsoExposure("Esposizione", Float) = 0.01
         _DsoGain    ("Guadagno tone-map", Float) = 0.7
-        _DsoZoomPow ("Risalto sullo zoom", Float) = 1.3
+        _DsoZoomPow ("Risalto sullo zoom", Float) = 1.1
         _SizeScale  ("Scala dimensione (inquadratura)", Float) = 2.2
         _MinPx      ("Dimensione minima (px)", Float) = 3.0
         _MaxPx      ("Dimensione massima (px)", Float) = 4000.0
