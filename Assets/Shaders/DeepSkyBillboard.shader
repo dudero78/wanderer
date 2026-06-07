@@ -12,7 +12,7 @@ Shader "Wanderer/DeepSkyBillboard"
         // esposizione BASSISSIMA: a occhio nudo i deep-sky sono fiochi aloni; la luminosità sale FORTE con lo zoom
         // (_DsoZoomPow=1 → ∝ _SkyZoom) → solo col binocolo/telescopio "si accendono" (come nella realtà: ogni oggetto
         // ha bisogno del suo ingrandimento per emergere). I deboli compaiono solo ad alti ingrandimenti.
-        _DsoExposure("Esposizione", Float) = 0.0005
+        _DsoExposure("Esposizione", Float) = 0.0002
         _DsoGain    ("Guadagno tone-map", Float) = 0.7
         _DsoZoomPow ("Risalto sullo zoom", Float) = 1.5
         _SizeScale  ("Scala dimensione (inquadratura)", Float) = 2.2

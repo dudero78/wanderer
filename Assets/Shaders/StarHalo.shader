@@ -19,9 +19,10 @@ Shader "Wanderer/StarHalo"
         // (8 punte in tutto). Appaiono e CRESCONO salendo d'ingrandimento (telescopio), come nelle foto vere.
         _SpikeSharp ("Finezza dei raggi", Float) = 320.0
         _SpikeStr   ("Intensità dei raggi", Float) = 0.55
-        _SpikeOn    ("Zoom inizio croce dritta", Float) = 40.0
-        _SpikeOn2   ("Zoom inizio croce a 45°", Float) = 85.0
-        _SpikeRamp  ("Velocità comparsa raggi", Float) = 0.012
+        _SpikeOn    ("Zoom inizio croce dritta", Float) = 20.0
+        _SpikeOn2   ("Zoom inizio croce a 45°", Float) = 70.0
+        _SpikeRamp  ("Velocità comparsa raggi", Float) = 0.016
+        _SpikeShort ("Quanto è corta la croce a 45° (0..1)", Float) = 0.55
     }
     SubShader
     {
@@ -41,7 +42,7 @@ Shader "Wanderer/StarHalo"
             struct v2f     { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; fixed3 col:TEXCOORD1; float2 spikes:TEXCOORD2; };
 
             float _M0, _HaloBasePx, _HaloPow, _HaloMinPx, _HaloMaxPx, _HaloFall, _HaloStr, _HaloFluxRef;
-            float _SpikeSharp, _SpikeStr, _SpikeOn, _SpikeOn2, _SpikeRamp;
+            float _SpikeSharp, _SpikeStr, _SpikeOn, _SpikeOn2, _SpikeRamp, _SpikeShort;
             float _SkyZoom, _SkyPxScale;
 
             v2f vert(appdata v)
@@ -75,11 +76,12 @@ Shader "Wanderer/StarHalo"
                 float r = length(i.uv);
                 float a = pow(saturate(1.0 - r), _HaloFall);   // bagliore radiale concentrato
                 // raggi di diffrazione: croce dritta (assi x/y) + croce a 45° (assi ruotati), gaussiane sottili, sfumate al bordo
-                float falloff = saturate(1.0 - r); falloff *= falloff;
+                float fA = saturate(1.0 - r); fA *= fA;                          // croce DRITTA: lunghezza piena
+                float fB = saturate(1.0 - r / _SpikeShort); fB *= fB;            // croce a 45°: PIÙ CORTA (sfuma a r=_SpikeShort)
                 float2 d = i.uv * 0.70710678;
                 float2 rot = float2(d.x - d.y, d.x + d.y);     // uv ruotato di 45°
-                float crossA = (exp(-i.uv.x * i.uv.x * _SpikeSharp) + exp(-i.uv.y * i.uv.y * _SpikeSharp)) * falloff;
-                float crossB = (exp(-rot.x  * rot.x  * _SpikeSharp) + exp(-rot.y  * rot.y  * _SpikeSharp)) * falloff;
+                float crossA = (exp(-i.uv.x * i.uv.x * _SpikeSharp) + exp(-i.uv.y * i.uv.y * _SpikeSharp)) * fA;
+                float crossB = (exp(-rot.x  * rot.x  * _SpikeSharp) + exp(-rot.y  * rot.y  * _SpikeSharp)) * fB;
                 float cross = crossA * i.spikes.x + crossB * i.spikes.y;
                 return fixed4(i.col * (a + cross * _SpikeStr), 1.0);
             }

@@ -65,9 +65,8 @@ public static class StarCatalogBakeTool
         string athygPath = Path.Combine(srcDir, "athyg_m10.csv.gz");
         if (File.Exists(athygPath))
         {
-            var deep = ReadAthygDeep(athygPath);
-            WriteStarBlob("Assets/Resources/Sky/deepstars.bytes", deep, 0);
-            deepCount = deep.Count;
+            try { var deep = ReadAthygDeep(athygPath); WriteStarBlob("Assets/Resources/Sky/deepstars.bytes", deep, 0); deepCount = deep.Count; }
+            catch (System.Exception e) { Debug.LogError("Bake: campo profondo (ATHYG) saltato: " + e.Message); }
         }
 
         // Deep-sky (OpenNGC): galassie, nebulose, ammassi. Opzionale (se il CSV c'è).
@@ -98,7 +97,10 @@ public static class StarCatalogBakeTool
         using var sr = new StreamReader(new GZipStream(File.OpenRead(gzPath), CompressionMode.Decompress));
         string header = sr.ReadLine();
         if (header == null) return list;
-        var col = MapColumns(header);
+        // mappa colonne PROPRIA (non MapColumns, che è specifica HYG e pretende x/y/z): ATHYG ha x0/y0/z0
+        var hf = SplitCsv(header);
+        var col = new Dictionary<string, int>();
+        for (int i = 0; i < hf.Count; i++) col[hf[i].Trim().ToLowerInvariant()] = i;
         if (!col.ContainsKey("hyg") || !col.ContainsKey("x0") || !col.ContainsKey("mag")) { Debug.LogWarning("ATHYG: colonne inattese."); return list; }
         int iHyg = col["hyg"], iX = col["x0"], iY = col["y0"], iZ = col["z0"], iMag = col["mag"];
         int iCi = col.TryGetValue("ci", out int c0) ? c0 : -1;
@@ -326,6 +328,13 @@ public static class StarCatalogBakeTool
             list.Add(new Dso { dir = SkyData.EquatorialToGame(eq), radArcmin = radArcmin, mag = mag,
                                type = (byte)cat, flags = flags, tile = (ushort)Mathf.Max(0, tile), name = label });
         }
+
+        // Oggetti famosi ASSENTI da OpenNGC (non sono NGC/IC): aggiunti a mano se c'è la loro immagine. Il caso chiave è
+        // M45 (Pleiadi = Melotte 22) → senza questo la nebulosità non verrebbe MAI renderizzata (si vedono solo le stelle).
+        if (useImages && tiles.TryGetValue("M45", out int t45))
+            list.Add(new Dso { dir = SkyData.EquatorialToGame(EqUnit(56.871f, 24.105f)), radArcmin = 55f, mag = 1.6f,
+                               type = 1, flags = 1, tile = (ushort)t45, name = "M 45" });
+
         list.Sort((a, b) => a.mag.CompareTo(b.mag));
         return list;
     }
