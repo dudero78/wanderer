@@ -7,9 +7,12 @@ Shader "Wanderer/MilkyWay"
     Properties
     {
         _MainTex  ("Cielo equirettangolare", 2D) = "black" {}
-        _Strength ("Intensità", Float) = 0.42
-        _Boost    ("Guadagno pre-soglia", Float) = 1.15
-        _Floor    ("Black-point (sottratto)", Float) = 0.22
+        // La texture NASA è MOLTO piatta (fondo ~0.256, banda solo ~0.31): il fondo grigino veniva aggiunto su TUTTO
+        // il cielo → grigiore diffuso. Cura: amplifico (_Boost) e SOTTRAGGO il fondo (_Floor ≈ fondo×_Boost) → il cielo
+        // vuoto diventa NERO e resta solo la banda + il suo alone. Le stelle deboli le dà il catalogo, non la texture.
+        _Strength ("Intensità", Float) = 0.6
+        _Boost    ("Guadagno pre-soglia", Float) = 5.0
+        _Floor    ("Black-point (sottratto)", Float) = 1.32
         _Tint     ("Tinta", Color) = (0.9, 0.94, 1.0, 1)
         _OffsetU  ("Offset U (rotazione fine)", Float) = 0
     }
