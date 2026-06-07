@@ -75,7 +75,12 @@ public static class StarCatalogBakeTool
             try
             {
                 var deep = new List<Star>(2600000);
-                foreach (var p in athygParts) ReadAthygDeep(p, deep);
+                // L'header sta SOLO nella prima parte (athyg_v32-2 inizia coi dati) → costruisco la mappa-colonne una
+                // volta e la applico a tutte le parti (stesso ordine di colonne).
+                var col = AthygColumns(athygParts[0]);
+                if (col != null)
+                    for (int pi = 0; pi < athygParts.Count; pi++)
+                        ReadAthygDeep(athygParts[pi], deep, col, pi == 0);
                 WriteStarBlob("Assets/Resources/Sky/deepstars.bytes", deep, 0);
                 deepCount = deep.Count;
             }
@@ -106,16 +111,23 @@ public static class StarCatalogBakeTool
     /// doppioni. Direzione da x0/y0/z0 (normalizzati, frame eclittica di gioco) come l'HYG; colore dal B−V (ci).</summary>
     const float DeepMagMax = 13.5f;   // limite del campo profondo (ATHYG v3.2 arriva ~mag 13)
 
-    static void ReadAthygDeep(string gzPath, List<Star> list)
+    /// <summary>Mappa colonne ATHYG dall'header (PROPRIA, non MapColumns che pretende x/y/z: ATHYG ha x0/y0/z0).</summary>
+    static Dictionary<string, int> AthygColumns(string gzPath)
     {
         using var sr = new StreamReader(new GZipStream(File.OpenRead(gzPath), CompressionMode.Decompress));
         string header = sr.ReadLine();
-        if (header == null) return;
-        // mappa colonne PROPRIA (non MapColumns, che è specifica HYG e pretende x/y/z): ATHYG ha x0/y0/z0
+        if (header == null) return null;
         var hf = SplitCsv(header);
         var col = new Dictionary<string, int>();
         for (int i = 0; i < hf.Count; i++) col[hf[i].Trim().ToLowerInvariant()] = i;
-        if (!col.ContainsKey("hyg") || !col.ContainsKey("x0") || !col.ContainsKey("mag")) { Debug.LogWarning("ATHYG: colonne inattese."); return; }
+        if (!col.ContainsKey("hyg") || !col.ContainsKey("x0") || !col.ContainsKey("mag")) { Debug.LogWarning("ATHYG: colonne inattese."); return null; }
+        return col;
+    }
+
+    static void ReadAthygDeep(string gzPath, List<Star> list, Dictionary<string, int> col, bool hasHeader)
+    {
+        using var sr = new StreamReader(new GZipStream(File.OpenRead(gzPath), CompressionMode.Decompress));
+        if (hasHeader) sr.ReadLine();   // salta l'header (solo la prima parte ce l'ha)
         int iHyg = col["hyg"], iX = col["x0"], iY = col["y0"], iZ = col["z0"], iMag = col["mag"];
         int iCi = col.TryGetValue("ci", out int c0) ? c0 : -1;
         string line;
