@@ -37,3 +37,6 @@ build-test.app/
 # (sono una cache delle ricette). Le RICETTE (Resources/Planets/*.json) e le texture sorgente
 # (Resources/Textures) restano versionate: sono le fonti, il bake è derivato.
 /[Aa]ssets/[Rr]esources/BakedPlanet*
+
+# Cataloghi astronomici GREZZI (HYG/OpenNGC): riscaricabili, il bake Resources/Sky è il derivato versionato
+/StarData/

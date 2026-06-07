@@ -116,6 +116,10 @@ public class GameBootstrap : MonoBehaviour
         UiSetup.Setup(gameObject, solar, rig, sys);
         gameObject.AddComponent<DistantStars>().Init(solar);   // stelle dei sistemi dormienti come punti sempre visibili in cielo
 
+        // CIELO STELLATO reale (catalogo HYG): bolla che segue la camera, frame fisso, disegnata in Background.
+        // Sta DIETRO il sole/pianeti/punti distanti (che la coprono dove ci sono). Esclusa dalla mappa (layer Sky).
+        gameObject.AddComponent<SkyController>().Init(rig.Cam);
+
         // TAPPA 4 multi-sistema: cabla sveglia/sonno dei sistemi DISTANTI (SolarSystem decide il QUANDO per
         // prossimità; qui il COSA: costruisci/distruggi i corpi + ri-punta la luce alla stella giusta + ricostruisci
         // le eclissi sui nuovi corpi). Il sistema-casa resta residente. Identico a prima finché resti nel sistema-casa.

@@ -1,0 +1,9 @@
+Cielo stellato di Wanderer — sorgenti dei dati (CC BY-SA: credito richiesto, dati non rilicenziati)
+
+Stelle: HYG Database v4.2 — astronexus (David Nash), CC BY-SA 4.0.
+  https://www.astronexus.com/projects/hyg  ·  https://codeberg.org/astronexus/hyg
+  (fonde Hipparcos, Yale Bright Star Catalog e Gliese.)
+
+Deep-sky: OpenNGC — Mattia Verga, CC BY-SA 4.0.  https://github.com/mattiaverga/OpenNGC
+
+Linee di costellazione: generate da noi dagli ID Hipparcos (non derivate dai file GPL di Stellarium).
