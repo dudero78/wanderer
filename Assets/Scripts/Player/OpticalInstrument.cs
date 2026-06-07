@@ -37,7 +37,7 @@ public class OpticalInstrument : MonoBehaviour
     {
         cam = camera; walker = w;
         nakedFov = targetFov = cam != null ? cam.fieldOfView : 52f;
-        eyepieceTex = BuildEyepiece(256);
+        eyepieceTex = BuildEyepiece(512);
     }
 
     void Update()
@@ -184,7 +184,7 @@ public class OpticalInstrument : MonoBehaviour
             {
                 float dx = (x - c) / c, dy = (y - c) / c;
                 float r = Mathf.Sqrt(dx * dx + dy * dy);             // 0 al centro, 1 sul bordo inscritto, ~1.41 agli angoli
-                float a = Smooth01(0.78f, 0.94f, r);                 // 0 dentro (trasparente) → 1 fuori (nero), bordo morbido
+                float a = Smooth01(0.962f, 0.972f, r);               // 0 dentro (trasparente) → 1 fuori (nero): bordo NETTO (field stop), appena anti-aliased
                 px[y * size + x] = new Color32(0, 0, 0, (byte)(a * 255f));
             }
         tex.SetPixels32(px);

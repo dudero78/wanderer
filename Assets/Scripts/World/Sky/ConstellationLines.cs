@@ -161,16 +161,13 @@ public class ConstellationLines : MonoBehaviour
         int fs = Mathf.Max(13, Mathf.RoundToInt(Screen.height / 58f));   // font scalato (leggibile in build, anche Retina)
         if (labelStyle == null || labelStyle.fontSize != fs) labelStyle = new GUIStyle(GUI.skin.label) { fontSize = fs };
         var prev = GUI.color;
-        Vector3 origin = skyRoot != null ? skyRoot.position : playerCam.transform.position;
-        float sx = (float)Screen.width / Mathf.Max(1, playerCam.pixelWidth);
-        float sy = (float)Screen.height / Mathf.Max(1, playerCam.pixelHeight);
         placed.Clear();
 
         // OGGETTI DEL PROFONDO CIELO (toggle L): pallino sulla posizione ESATTA + nome + ingrandimento necessario.
         // Prima di tutto, così hanno priorità nel de-clutter.
         if (showD && SkyData.DsoName != null)
             for (int i = 0; i < SkyData.DsoCount; i++)
-                DrawDso(i, origin, sx, sy, fs);
+                DrawDso(i, fs);
 
         if (showCon)
         {
@@ -178,13 +175,13 @@ public class ConstellationLines : MonoBehaviour
             if (SkyData.Cons != null)
                 foreach (var c in SkyData.Cons)
                     if (Active(c))
-                        DrawLabel(c.Centroid, c.Name.ToUpperInvariant(), new Color(0.55f, 0.78f, 1f, alpha * 0.8f), origin, sx, sy, fs);
+                        DrawLabel(c.Centroid, c.Name.ToUpperInvariant(), new Color(0.55f, 0.78f, 1f, alpha * 0.8f), fs);
 
             // nomi delle STELLE famose (le più brillanti) — bianco
             if (SkyData.StarNameStr != null)
                 for (int i = 0; i < SkyData.StarNameCount; i++)
                     if (SkyData.StarNameMag[i] <= 3.0f)
-                        DrawLabel(SkyData.StarNameDir[i], SkyData.StarNameStr[i], new Color(0.92f, 0.95f, 1f, alpha * 0.95f), origin, sx, sy, fs);
+                        DrawLabel(SkyData.StarNameDir[i], SkyData.StarNameStr[i], new Color(0.92f, 0.95f, 1f, alpha * 0.95f), fs);
 
             // indicatore di modalità (in basso al centro)
             GUI.color = new Color(0.6f, 0.8f, 1f, alpha * 0.7f);
@@ -194,12 +191,23 @@ public class ConstellationLines : MonoBehaviour
         }
     }
 
-    void DrawLabel(Vector3 dir, string text, Color col, Vector3 origin, float sx, float sy, int fs)
+    // Proietta una DIREZIONE del cielo a coordinate-schermo usando SOLO la rotazione della camera (mai la posizione del
+    // mondo): all'infinito conta solo la direzione, e così le etichette non "ballano" lontano dall'origine (come le stelle).
+    bool DirToScreen(Vector3 dir, out float x, out float y)
     {
-        Vector3 sp = playerCam.WorldToScreenPoint(origin + dir * Radius);
-        if (sp.z <= 0) return;
-        float x = sp.x * sx, y = Screen.height - sp.y * sy;
-        if (x < 0 || x > Screen.width || y < 0 || y > Screen.height) return;
+        x = y = 0f;
+        Vector3 vp = playerCam.worldToCameraMatrix.MultiplyVector(dir);   // direzione in spazio camera (ignora la traslazione)
+        if (vp.z >= 0f) return false;                                     // dietro la camera (avanti = -z)
+        Vector4 clip = playerCam.projectionMatrix * new Vector4(vp.x, vp.y, vp.z, 1f);
+        if (clip.w <= 1e-6f) return false;
+        x = (clip.x / clip.w * 0.5f + 0.5f) * Screen.width;
+        y = (1f - (clip.y / clip.w * 0.5f + 0.5f)) * Screen.height;       // flip Y per la GUI
+        return x >= 0f && x <= Screen.width && y >= 0f && y <= Screen.height;
+    }
+
+    void DrawLabel(Vector3 dir, string text, Color col, int fs)
+    {
+        if (!DirToScreen(dir, out float x, out float y)) return;
         var p = new Vector2(x, y);
         float minD = fs * 1.9f;
         for (int k = 0; k < placed.Count; k++) if ((placed[k] - p).sqrMagnitude < minD * minD) return;
@@ -212,12 +220,9 @@ public class ConstellationLines : MonoBehaviour
         GUI.color = col; GUI.Label(rect, text, labelStyle);
     }
 
-    void DrawDso(int i, Vector3 origin, float sx, float sy, int fs)
+    void DrawDso(int i, int fs)
     {
-        Vector3 sp = playerCam.WorldToScreenPoint(origin + SkyData.DsoDir[i] * Radius);
-        if (sp.z <= 0) return;
-        float x = sp.x * sx, y = Screen.height - sp.y * sy;
-        if (x < 0 || x > Screen.width || y < 0 || y > Screen.height) return;
+        if (!DirToScreen(SkyData.DsoDir[i], out float x, out float y)) return;
         var p = new Vector2(x, y);
         float minD = fs * 1.9f;
         for (int k = 0; k < placed.Count; k++) if ((placed[k] - p).sqrMagnitude < minD * minD) return;
