@@ -1161,8 +1161,9 @@ public class MapMode : MonoBehaviour
         Vector3 sp = mapCam.WorldToScreenPoint(worldAnchor);
         if (sp.z <= 0f) return;
         Vector2 size = style.CalcSize(new GUIContent(text));
+        float pw = size.x + 14f, ph = size.y + 4f;   // padding: evita che il testo venga TAGLIATO ai bordi del box
         labelList.Add(new LabelItem {
-            rect = new Rect(sp.x - size.x * 0.5f, Screen.height - sp.y - size.y * 0.5f, size.x, size.y),
+            rect = new Rect(sp.x - pw * 0.5f, Screen.height - sp.y - ph * 0.5f, pw, ph),
             text = text, style = style });
     }
 

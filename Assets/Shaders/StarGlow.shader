@@ -7,13 +7,14 @@ Shader "Wanderer/StarGlow"
     {
         _Color ("Colore", Color) = (1, 0.9, 0.6, 1)
         _Strength ("Intensità", Float) = 1.0
+        [HideInInspector] _ZTest ("ZTest", Float) = 8   // 8=Always (sole, sopra tutto) · 4=LEqual (stelle distanti, occluse dal terreno)
     }
     SubShader
     {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
         Blend One One
         ZWrite Off
-        ZTest Always
+        ZTest [_ZTest]
         Cull Off
         Pass
         {

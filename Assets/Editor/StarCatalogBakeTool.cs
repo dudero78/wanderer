@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 
@@ -60,7 +61,7 @@ public static class StarCatalogBakeTool
         string ngcPath = Path.Combine(srcDir, "NGC.csv");
         if (File.Exists(ngcPath))
         {
-            var dso = ReadOpenNgc(ngcPath);
+            var dso = ReadOpenNgc(ngcPath, LoadTileMap(srcDir));
             WriteDsoBlob("Assets/Resources/Sky/dso.bytes", dso);
             dsoCount = dso.Count;
         }
@@ -201,7 +202,19 @@ public static class StarCatalogBakeTool
 
     // ---- Deep-sky (OpenNGC) ---------------------------------------------------------------------------------------
 
-    struct Dso { public Vector3 dir; public float radArcmin; public float mag; public byte type; public byte flags; }
+    struct Dso { public Vector3 dir; public float radArcmin; public float mag; public byte type; public byte flags; public ushort tile; }
+
+    /// <summary>Mappa identificatore ("M42"/"NGC7000"/"IC434") → indice tile nell'atlante foto, da StarData/dso_tiles.json
+    /// (scritto dallo script che impacchetta le immagini). Parser semplice: il file è un dizionario piatto stringa→intero.</summary>
+    static Dictionary<string, int> LoadTileMap(string srcDir)
+    {
+        var map = new Dictionary<string, int>();
+        string path = Path.Combine(srcDir, "dso_tiles.json");
+        if (!File.Exists(path)) return map;
+        foreach (Match m in Regex.Matches(File.ReadAllText(path), "\"([^\"]+)\"\\s*:\\s*(\\d+)"))
+            map[m.Groups[1].Value] = int.Parse(m.Groups[2].Value);
+        return map;
+    }
 
     // categorie (type byte): 0 galassia · 1 ammasso aperto · 2 ammasso globulare · 3 nebulosa · 4 nebulosa planetaria
     static int Category(string t)
@@ -217,8 +230,9 @@ public static class StarCatalogBakeTool
         }
     }
 
-    static List<Dso> ReadOpenNgc(string path)
+    static List<Dso> ReadOpenNgc(string path, Dictionary<string, int> tiles)
     {
+        bool useImages = tiles.Count > 0;   // se c'è l'atlante foto → teniamo SOLO gli oggetti con immagine vera
         var list = new List<Dso>(1024);
         using var sr = new StreamReader(path);
         sr.ReadLine();   // header (campi fissi, separatore ';')
@@ -226,26 +240,41 @@ public static class StarCatalogBakeTool
         while ((line = sr.ReadLine()) != null)
         {
             var f = line.Split(';');
-            if (f.Length < 25) continue;
+            if (f.Length < 26) continue;
             int cat = Category(f[1]);
             if (cat < 0) continue;
 
             if (!TryHms(f[2], out float raDeg) || !TryDms(f[3], out float decDeg)) continue;
 
             float mag = TryF(f[9], out float v) ? v : (TryF(f[8], out float b) ? b : 11f);   // V, poi B, poi default
-            bool messier = !string.IsNullOrEmpty(f[24].Trim());
+
+            // identificatori candidati: M (col 23), NGC/IC dal NOME (col 0, es. "NGC0224"→"NGC224")
+            string name = f[0].Trim();
+            string mId = !string.IsNullOrEmpty(f[23].Trim()) && int.TryParse(f[23].Trim(), out int mn) ? "M" + mn : null;
+            string ngcId = name.StartsWith("NGC") && int.TryParse(name.Substring(3).TrimStart('0'), out int gn) ? "NGC" + gn : null;
+            string icId = name.StartsWith("IC") && int.TryParse(name.Substring(2).TrimStart('0'), out int icn) ? "IC" + icn : null;
+
+            int tile = -1;
+            if (mId != null && tiles.TryGetValue(mId, out int t1)) tile = t1;
+            else if (ngcId != null && tiles.TryGetValue(ngcId, out int t2)) tile = t2;
+            else if (icId != null && tiles.TryGetValue(icId, out int t3)) tile = t3;
+
+            bool messier = mId != null;
             bool named = f.Length > 28 && !string.IsNullOrEmpty(f[28].Trim());
-            // tieni: Messier, o con nome comune, o abbastanza luminosi (le galassie deboli sono migliaia → soglia)
-            if (!messier && !named && !(mag <= 10.5f)) continue;
+            if (useImages)
+            {
+                if (tile < 0) continue;   // niente foto → scarta (solo oggetti veri da esplorare)
+            }
+            else if (!messier && !named && !(mag <= 10.5f)) continue;   // fallback senza atlante: vecchio criterio
 
             float major = TryF(f[5], out float maj) ? maj : 2f;   // asse maggiore in arcmin
             float radArcmin = Mathf.Max(major * 0.5f, 0.5f);
 
             var eq = EqUnit(raDeg, decDeg);
             byte flags = (byte)((messier ? 1 : 0) | (named ? 2 : 0));
-            list.Add(new Dso { dir = SkyData.EquatorialToGame(eq), radArcmin = radArcmin, mag = mag, type = (byte)cat, flags = flags });
+            list.Add(new Dso { dir = SkyData.EquatorialToGame(eq), radArcmin = radArcmin, mag = mag,
+                               type = (byte)cat, flags = flags, tile = (ushort)Mathf.Max(0, tile) });
         }
-        // ordina per luminosità: se mai servisse cappare, i più belli restano
         list.Sort((a, b) => a.mag.CompareTo(b.mag));
         return list;
     }
@@ -289,6 +318,7 @@ public static class StarCatalogBakeTool
             w.Write(Mathf.FloatToHalf(d.radArcmin));
             w.Write(Mathf.FloatToHalf(d.mag));
             w.Write(d.type); w.Write(d.flags);
+            w.Write(d.tile);   // ushort: indice nell'atlante foto
         }
         File.WriteAllBytes(assetPath, ms.ToArray());
     }

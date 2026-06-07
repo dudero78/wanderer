@@ -1,18 +1,20 @@
 Shader "Wanderer/DeepSkyBillboard"
 {
-    // Oggetti del cielo profondo (galassie, nebulose, ammassi) come billboard TIPIZZATI con sprite dall'atlante 2×2
-    // (forma per tipo, con FINESTRA radiale → alpha 0 sul bordo, mai un quadrato). Tinta per-vertice. Dimensione dal
-    // RAGGIO ANGOLARE → crescono restringendo il campo (binocolo/telescopio): una macchia che "si risolve" zoomando.
-    // Molto tenui a occhio nudo (solo le poche grandi/luminose) → EMERGONO con lo zoom.
+    // Oggetti del cielo profondo come billboard con FOTO VERE (Hubble/ESO ecc.) da un atlante 16×16. Lo sfondo nero
+    // della foto, in additivo, non aggiunge nulla → si vede solo l'oggetto (una vignetta radiale, bakeata, spegne i
+    // bordi → niente quadrato). Dimensione dal RAGGIO ANGOLARE → crescono restringendo il campo (binocolo/telescopio):
+    // una macchia che a occhio nudo è un fiocco, ingrandendo "si risolve" nella nebulosa/galassia vera. La luminosità
+    // dipende dalla magnitudine e dallo zoom (le deboli EMERGONO ingrandendo).
     Properties
     {
-        _Atlas      ("Atlante (2×2)", 2D) = "black" {}
-        _DsoM0      ("Magnitudine di riferimento", Float) = 5.5
+        _Atlas      ("Atlante foto (16×16)", 2D) = "black" {}
+        _DsoM0      ("Magnitudine di riferimento", Float) = 6.5
         _DsoExposure("Esposizione", Float) = 1.0
-        _DsoGain    ("Guadagno tone-map", Float) = 0.8
-        _DsoZoomPow ("Risalto sullo zoom", Float) = 0.85
-        _MinPx      ("Dimensione minima (px)", Float) = 2.5
-        _MaxPx      ("Dimensione massima (px)", Float) = 6000.0
+        _DsoGain    ("Guadagno tone-map", Float) = 0.7
+        _DsoZoomPow ("Risalto sullo zoom", Float) = 0.6
+        _SizeScale  ("Scala dimensione (inquadratura)", Float) = 2.2
+        _MinPx      ("Dimensione minima (px)", Float) = 3.0
+        _MaxPx      ("Dimensione massima (px)", Float) = 4000.0
     }
     SubShader
     {
@@ -28,42 +30,44 @@ Shader "Wanderer/DeepSkyBillboard"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
+            #define ATLAS_DIM 16.0
+
             struct appdata { float4 vertex:POSITION; float4 uv:TEXCOORD0; float4 uv1:TEXCOORD1; fixed4 color:COLOR; };
-            struct v2f     { float4 pos:SV_POSITION; float2 auv:TEXCOORD0; fixed3 col:TEXCOORD1; };
+            struct v2f     { float4 pos:SV_POSITION; float2 auv:TEXCOORD0; float lum:TEXCOORD1; };
 
             sampler2D _Atlas;
-            float _DsoM0, _DsoExposure, _DsoGain, _DsoZoomPow, _MinPx, _MaxPx;
-            float _SkyZoom, _SkyPxScale, _SkyTanHalfFov;
+            float _DsoM0, _DsoExposure, _DsoGain, _DsoZoomPow, _SizeScale, _MinPx, _MaxPx;
+            float _SkyZoom, _SkyTanHalfFov;
 
             v2f vert(appdata v)
             {
                 v2f o;
                 o.pos = UnityObjectToClipPos(float4(v.vertex.xyz, 1));
 
-                float radArcmin = v.uv.z, mag = v.uv.w, type = v.uv1.x;
+                float radArcmin = v.uv.z, mag = v.uv.w, tile = v.uv1.x;
                 float zoom = max(_SkyZoom, 1.0);
-                float pxScale = _SkyPxScale <= 0.0 ? 1.0 : _SkyPxScale;
 
-                float radRad = radArcmin / 60.0 * 0.0174533;
-                float px = clamp(radRad * (_ScreenParams.y * 0.5) / max(_SkyTanHalfFov, 1e-4), _MinPx, _MaxPx) * pxScale;
+                // dimensione ANGOLARE (già indipendente dalla risoluzione: NON moltiplicare per _SkyPxScale, o pulsa col
+                // RenderScaler). ×_SizeScale perché nelle foto l'oggetto riempie solo una frazione dell'inquadratura.
+                float radRad = radArcmin / 60.0 * 0.0174533 * _SizeScale;
+                float px = clamp(radRad * (_ScreenParams.y * 0.5) / max(_SkyTanHalfFov, 1e-4), _MinPx, _MaxPx);
 
                 float I = pow(10.0, 0.4 * (_DsoM0 - mag)) * _DsoExposure * pow(zoom, _DsoZoomPow);
-                float lum = 1.0 - exp(-I * _DsoGain);
+                o.lum = 1.0 - exp(-I * _DsoGain);
 
-                float tile = min(type, 3.0);
-                float2 t = float2(fmod(tile, 2.0), floor(tile / 2.0));
-                float2 local = v.uv.xy * 0.5 + 0.5;
-                o.auv = (t + local) * 0.5;
+                // UV nell'atlante: tile → cella (col, riga), local = angolo del quad in [0,1] con piccolo inset
+                float tx = fmod(tile, ATLAS_DIM), ty = floor(tile / ATLAS_DIM);
+                float2 local = (v.uv.xy * 0.5 + 0.5) * 0.98 + 0.01;
+                o.auv = (float2(tx, ty) + local) / ATLAS_DIM;
 
-                o.col = v.color.rgb * lum;
                 o.pos.xy += v.uv.xy * px * (2.0 / _ScreenParams.xy) * o.pos.w;
                 return o;
             }
 
             fixed4 frag(v2f i) : SV_Target
             {
-                fixed a = tex2D(_Atlas, i.auv).a;
-                return fixed4(i.col * a, 1.0);
+                fixed3 c = tex2D(_Atlas, i.auv).rgb;   // foto vera (colori reali); sfondo nero = additivo trasparente
+                return fixed4(c * i.lum, 1.0);
             }
             ENDCG
         }

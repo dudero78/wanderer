@@ -70,10 +70,10 @@ public class SkyController : MonoBehaviour
         float t0 = Mathf.Tan(baseFov * 0.5f * Mathf.Deg2Rad);
         float t = Mathf.Tan(Mathf.Max(cam.fieldOfView, 0.05f) * 0.5f * Mathf.Deg2Rad);
         float mag = t0 / Mathf.Max(t, 1e-4f);
-        Shader.SetGlobalFloat("_SkyZoom", Mathf.Max(mag * mag, 1f));
+        // _SkyZoom = magnificazione LINEARE (non al quadrato!): a 7× moltiplica la luminosità ×7, che corrisponde a
+        // ~2 magnitudini più in profondità (come un vero binocolo). Col quadrato (×49) il cielo saturava a bianco.
+        Shader.SetGlobalFloat("_SkyZoom", Mathf.Max(mag, 1f));
         Shader.SetGlobalFloat("_SkyTanHalfFov", t);   // raggio angolare dei deep-sky → pixel (dimensione cresce con lo zoom)
-
-        if (milkyWay != null) milkyWay.UpdateRays(cam);   // raggi-di-vista per il pass a schermo intero
     }
 
     /// <summary>La camera che disegna il cielo ADESSO: quella attiva il cui cullingMask include il layer Sky

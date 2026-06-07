@@ -1,10 +1,9 @@
 Shader "Wanderer/MilkyWay"
 {
-    // Via Lattea (+ alone di stelle non risolte) come PASS A SCHERMO INTERO: un quad che copre lo schermo e ricostruisce
-    // per ogni pixel la DIREZIONE di vista nel mondo (interpolando i 4 raggi d'angolo passati dalla CPU), la converte in
-    // coordinate EQUATORIALI (inverso dell'allineamento eclittica) e campiona la texture equirettangolare equatoriale
-    // (NASA Deep Star Map 2020, pubblico dominio). Niente sfera → nessun problema di orientamento/culling.
-    // Additivo, dietro le stelle (queue Background+5). Black-point: il vuoto resta nero.
+    // Via Lattea (texture equirettangolare EQUATORIALE, NASA Deep Star Map) su una SFERA WATERTIGHT (nessuna cucitura
+    // geometrica: il wrap in RA usa il modulo, vertici condivisi). Le UV sono calcolate PER-PIXEL dalla direzione
+    // (niente colonna di cucitura duplicata → niente "riga nera" sul meridiano). Il salto della atan2 al meridiano è
+    // gestito con gradienti CONTINUI (tex2Dgrad) → niente artefatto neanche di mipmap. Additiva, dietro le stelle.
     Properties
     {
         _MainTex  ("Cielo equirettangolare", 2D) = "black" {}
@@ -12,9 +11,7 @@ Shader "Wanderer/MilkyWay"
         _Boost    ("Guadagno pre-soglia", Float) = 1.15
         _Floor    ("Black-point (sottratto)", Float) = 0.22
         _Tint     ("Tinta", Color) = (0.9, 0.94, 1.0, 1)
-        _FlipU    ("Specchia U (0/1)", Float) = 0
-        _OffsetU  ("Offset U", Float) = 0
-        _ZoomBoost("Risalto sullo zoom", Float) = 0.25
+        _OffsetU  ("Offset U (rotazione fine)", Float) = 0
     }
     SubShader
     {
@@ -30,42 +27,45 @@ Shader "Wanderer/MilkyWay"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
-            struct appdata { float4 vertex:POSITION; float4 uv:TEXCOORD0; };   // uv.xyz = raggio mondo dell'angolo
-            struct v2f     { float4 pos:SV_POSITION; float3 ray:TEXCOORD0; };
+            struct appdata { float4 vertex:POSITION; };
+            struct v2f     { float4 pos:SV_POSITION; float3 dir:TEXCOORD0; };
 
             sampler2D _MainTex;
-            float _Strength, _Boost, _Floor, _FlipU, _OffsetU, _ZoomBoost;
+            float _Strength, _Boost, _Floor, _OffsetU;
             fixed4 _Tint;
-            float _SkyZoom;
 
             v2f vert(appdata v)
             {
                 v2f o;
-                o.pos = float4(v.vertex.xy, 1.0, 1.0);   // angoli in clip space: copre lo schermo, profondità = far
-                o.ray = v.uv.xyz;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                o.dir = v.vertex.xyz;   // direzione in spazio oggetto = frame di gioco (skyRoot ha rotazione identità)
                 return o;
             }
 
             fixed4 frag(v2f i) : SV_Target
             {
-                float3 d = normalize(i.ray);
-
+                float3 d = normalize(i.dir);
                 // game → equatoriale (inverso dell'allineamento eclittica, ε = 23.439°)
                 const float ce = 0.917482, se = 0.397777;
                 float ex = d.x;
                 float ey = d.z * ce - d.y * se;
                 float ez = d.z * se + d.y * ce;
 
-                float ra = atan2(ey, ex);                 // -π..π
-                float dec = asin(clamp(ez, -1.0, 1.0));   // -π/2..π/2
-                float u = ra * 0.1591549;                 // /(2π)
-                u = lerp(u, -u, _FlipU);
-                float2 uv = float2(frac(u + _OffsetU + 1.0), dec * 0.3183099 + 0.5);
+                float uRaw = atan2(ey, ex) * 0.1591549;          // RA/(2π): mappa u=RA/360 (come il bake originale). NIENTE +0.5
+                                                                 // (spostava la banda di 180° → centro galattico fuori dal Sagittario)
+                float v = asin(clamp(ez, -1.0, 1.0)) * 0.3183099 + 0.5;
 
-                fixed3 c = tex2D(_MainTex, uv).rgb;
+                // gradienti CONTINUI: ddx/ddy della uRaw, col salto del meridiano corretto (|d|>0.5 → era un wrap)
+                float dux = ddx(uRaw), duy = ddy(uRaw);
+                if (abs(dux) > 0.5) dux -= sign(dux);
+                if (abs(duy) > 0.5) duy -= sign(duy);
+                float dvx = ddx(v), dvy = ddy(v);
+
+                float2 uv = float2(frac(uRaw + _OffsetU), v);
+                fixed3 c = tex2Dgrad(_MainTex, uv, float2(dux, dvx), float2(duy, dvy)).rgb;
+
                 c = max(c * _Boost - _Floor, 0.0);
-                float zoom = 1.0 + (max(_SkyZoom, 1.0) - 1.0) * _ZoomBoost;   // un filo più luminosa zoomando
-                return fixed4(c * _Strength * zoom * _Tint.rgb, 1.0);
+                return fixed4(c * _Strength * _Tint.rgb, 1.0);
             }
             ENDCG
         }

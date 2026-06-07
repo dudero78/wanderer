@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using UnityEngine;
 
 /// <summary>
@@ -67,6 +68,7 @@ public static class SkyData
     public static float[] DsoMag;         // magnitudine
     public static byte[] DsoType;         // 0 galassia · 1 ammasso aperto · 2 globulare · 3 nebulosa · 4 planetaria
     public static byte[] DsoFlags;        // bit0 Messier · bit1 con nome comune
+    public static ushort[] DsoTile;       // indice nell'atlante delle foto vere
 
     public static bool LoadDso()
     {
@@ -79,7 +81,7 @@ public static class SkyData
         r.ReadInt32();
         DsoCount = r.ReadInt32();
         DsoDir = new Vector3[DsoCount]; DsoRadArcmin = new float[DsoCount]; DsoMag = new float[DsoCount];
-        DsoType = new byte[DsoCount]; DsoFlags = new byte[DsoCount];
+        DsoType = new byte[DsoCount]; DsoFlags = new byte[DsoCount]; DsoTile = new ushort[DsoCount];
         for (int i = 0; i < DsoCount; i++)
         {
             float x = Mathf.HalfToFloat(r.ReadUInt16()), y = Mathf.HalfToFloat(r.ReadUInt16()), z = Mathf.HalfToFloat(r.ReadUInt16());
@@ -87,8 +89,78 @@ public static class SkyData
             DsoRadArcmin[i] = Mathf.HalfToFloat(r.ReadUInt16());
             DsoMag[i] = Mathf.HalfToFloat(r.ReadUInt16());
             DsoType[i] = r.ReadByte(); DsoFlags[i] = r.ReadByte();
+            DsoTile[i] = r.ReadUInt16();
         }
         DsoLoaded = true;
+        return true;
+    }
+
+    // ---- Costellazioni (tutte le 88, da d3-celestial) + nomi delle stelle (da HYG) --------------------------------
+
+    public sealed class Constellation
+    {
+        public string Name; public bool Zodiac; public bool North; public Vector3 Centroid;
+        public Vector3[] A, B;   // estremi dei segmenti (direzioni di gioco)
+    }
+    public static Constellation[] Cons;
+    public static bool ConsLoaded { get; private set; }
+
+    public static bool LoadConstellations()
+    {
+        if (ConsLoaded) return Cons != null;
+        ConsLoaded = true;
+        var ta = Resources.Load<TextAsset>("Sky/constellations");
+        if (ta == null) return false;
+        using var r = new BinaryReader(new MemoryStream(ta.bytes));
+        if (r.ReadByte() != 'W' || r.ReadByte() != 'C' || r.ReadByte() != 'O' || r.ReadByte() != 'N') return false;
+        r.ReadInt32();
+        int n = r.ReadInt32();
+        Cons = new Constellation[n];
+        for (int i = 0; i < n; i++)
+        {
+            int ln = r.ReadInt32();
+            string name = Encoding.UTF8.GetString(r.ReadBytes(ln));
+            bool zod = r.ReadByte() != 0;
+            float avgDec = r.ReadSingle();
+            int sc = r.ReadInt32();
+            var A = new Vector3[sc]; var B = new Vector3[sc]; var cen = Vector3.zero;
+            for (int s = 0; s < sc; s++)
+            {
+                float ra0 = r.ReadSingle(), dec0 = r.ReadSingle(), ra1 = r.ReadSingle(), dec1 = r.ReadSingle();
+                A[s] = StarDirection(ra0, dec0); B[s] = StarDirection(ra1, dec1);
+                cen += A[s] + B[s];
+            }
+            Cons[i] = new Constellation { Name = name, Zodiac = zod, North = avgDec >= 0f,
+                Centroid = cen.sqrMagnitude > 1e-6f ? cen.normalized : Vector3.forward, A = A, B = B };
+        }
+        return true;
+    }
+
+    public static int StarNameCount { get; private set; }
+    public static string[] StarNameStr;
+    public static Vector3[] StarNameDir;
+    public static float[] StarNameMag;
+    public static bool NamesLoaded { get; private set; }
+
+    public static bool LoadStarNames()
+    {
+        if (NamesLoaded) return StarNameStr != null;
+        NamesLoaded = true;
+        var ta = Resources.Load<TextAsset>("Sky/starnames");
+        if (ta == null) return false;
+        using var r = new BinaryReader(new MemoryStream(ta.bytes));
+        if (r.ReadByte() != 'W' || r.ReadByte() != 'S' || r.ReadByte() != 'N' || r.ReadByte() != 'M') return false;
+        r.ReadInt32();
+        StarNameCount = r.ReadInt32();
+        StarNameStr = new string[StarNameCount]; StarNameDir = new Vector3[StarNameCount]; StarNameMag = new float[StarNameCount];
+        for (int i = 0; i < StarNameCount; i++)
+        {
+            int ln = r.ReadInt32();
+            StarNameStr[i] = Encoding.UTF8.GetString(r.ReadBytes(ln));
+            float ra = r.ReadSingle(), dec = r.ReadSingle();
+            StarNameDir[i] = StarDirection(ra, dec);
+            StarNameMag[i] = r.ReadSingle();
+        }
         return true;
     }
 
