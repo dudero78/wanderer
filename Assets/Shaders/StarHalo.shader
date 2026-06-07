@@ -48,7 +48,9 @@ Shader "Wanderer/StarHalo"
             v2f vert(appdata v)
             {
                 v2f o;
-                o.pos = UnityObjectToClipPos(float4(v.vertex.xyz, 1));
+                // skybox all'infinito: solo rotazione camera, coordinate oggetto piccole (niente tremolio lontano dall'origine)
+                float3 wd = mul((float3x3)unity_ObjectToWorld, v.vertex.xyz);
+                o.pos = mul(UNITY_MATRIX_P, float4(mul((float3x3)UNITY_MATRIX_V, wd), 1.0));
 
                 float mag = v.uv.z;
                 float flux = pow(10.0, 0.4 * (_M0 - mag));

@@ -28,12 +28,19 @@ Shader "Wanderer/ConstellationLine"
             struct v2f     { float4 pos:SV_POSITION; float side:TEXCOORD0; };
             fixed4 _Color; float _PixelWidth, _Core, _Alpha;
 
+            // skybox all'infinito: solo rotazione camera, coordinate oggetto piccole → niente tremolio lontano dall'origine
+            float4 SkyClip(float3 obj)
+            {
+                float3 wd = mul((float3x3)unity_ObjectToWorld, obj);
+                return mul(UNITY_MATRIX_P, float4(mul((float3x3)UNITY_MATRIX_V, wd), 1.0));
+            }
+
             v2f vert(appdata v)
             {
                 v2f o;
                 float3 ahead = v.vertex.xyz + v.normal * (0.002 * length(v.vertex.xyz) + 0.001);
-                float4 c0 = UnityObjectToClipPos(v.vertex.xyz);
-                float4 c1 = UnityObjectToClipPos(ahead);
+                float4 c0 = SkyClip(v.vertex.xyz);
+                float4 c1 = SkyClip(ahead);
 
                 float aspect = _ScreenParams.x / _ScreenParams.y;
                 float2 d = (c1.xy / c1.w) - (c0.xy / c0.w);

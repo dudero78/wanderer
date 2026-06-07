@@ -61,7 +61,11 @@ Shader "Wanderer/StarPoint"
             v2f vert(appdata v)
             {
                 v2f o;
-                o.pos = UnityObjectToClipPos(float4(v.vertex.xyz, 1));
+                // SKYBOX ALL'INFINITO: trasformo con la sola ROTAZIONE della camera (ignoro la traslazione), in coordinate
+                // OGGETTO piccole (dir×R) → niente cancellazione catastrofica quando il giocatore è lontano dall'origine
+                // (prima la bolla seguiva la camera a coordinate grandi → le stelle "ballavano" al telescopio).
+                float3 wd = mul((float3x3)unity_ObjectToWorld, v.vertex.xyz);
+                o.pos = mul(UNITY_MATRIX_P, float4(mul((float3x3)UNITY_MATRIX_V, wd), 1.0));
 
                 float mag = v.uv.z;
                 float flux = pow(10.0, 0.4 * (_M0 - mag));           // Pogson
