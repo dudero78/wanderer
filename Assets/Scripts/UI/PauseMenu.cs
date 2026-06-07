@@ -110,49 +110,57 @@ public class PauseMenu : MonoBehaviour
             new Cmd("WASD", "spinta"), new Cmd("Space / Shift", "sali / scendi"), new Cmd("Q / E", "rollio"),
             new Cmd("N", "cambia volo (Crociera / Newtoniano)"), new Cmd("X", "freno (match velocity)"),
             new Cmd("T", "autopilota (serve destinazione + in volo)") }),
+        new Section("MAPPA", new[] { new Cmd("Trascina sx / WASD", "sposta"), new Cmd("Trascina dx", "ruota"), new Cmd("Rotella", "zoom"), new Cmd("Click", "seleziona") }),
     };
     static readonly Section[] ColRight =
     {
-        new Section("STRUMENTI", new[] { new Cmd("F", "torcia"), new Cmd("M", "mappa"), new Cmd("O", "orbite a schermo") }),
         new Section("CIELO", new[] {
             new Cmd("B", "binocolo / telescopio (rotella = zoom)"), new Cmd("G", "foto (all'oculare)"),
             new Cmd("C", "costellazioni (+ equatore / eclittica)"), new Cmd("L", "nomi del profondo cielo") }),
+        new Section("STRUMENTI", new[] { new Cmd("F", "torcia"), new Cmd("M", "mappa"), new Cmd("O", "orbite a schermo") }),
         new Section("SONDA", new[] { new Cmd("P", "lancia"), new Cmd("V", "guarda attraverso"), new Cmd("K", "richiama"), new Cmd("G", "scatta una foto") }),
-        new Section("MAPPA", new[] { new Cmd("Trascina sx / WASD", "sposta"), new Cmd("Trascina dx", "ruota"), new Cmd("Rotella", "zoom"), new Cmd("Click", "seleziona") }),
         new Section("INTERFACCIA", new[] { new Cmd("à", "impostazioni"), new Cmd("è", "perf. on/off"), new Cmd("ESC", "questo menu") }),
     };
 
+    Vector2 scrollL, scrollR;   // posizioni di scorrimento delle due colonne comandi
+
     void DrawCommands(float ui)
     {
-        float w = 900f * ui, h = 620f * ui;
+        // box alto quanto serve, ma mai oltre lo schermo: se i comandi non ci stanno → scrollbar (non sbordano più)
+        float w = Mathf.Min(940f * ui, Screen.width - 40f);
+        float h = Mathf.Min(720f * ui, Screen.height - 40f);
         float x = (Screen.width - w) * 0.5f, y = (Screen.height - h) * 0.5f;
         GUI.Box(new Rect(x, y, w, h), GUIContent.none);
         GUI.Label(new Rect(x, y + 18f * ui, w, 40f * ui), "COMANDI", title);
 
-        float pad = 40f * ui, colW = (w - 3f * pad) * 0.5f, top = y + 78f * ui;
-        DrawColumn(new Rect(x + pad, top, colW, h), ColLeft, ui);
-        DrawColumn(new Rect(x + 2f * pad + colW, top, colW, h), ColRight, ui);
+        float pad = 36f * ui, colW = (w - 3f * pad) * 0.5f, top = y + 72f * ui;
+        float colH = h - 72f * ui - 64f * ui;   // spazio fra il titolo e il pulsante Indietro
+        DrawColumn(new Rect(x + pad, top, colW, colH), ColLeft, ui, ref scrollL);
+        DrawColumn(new Rect(x + 2f * pad + colW, top, colW, colH), ColRight, ui, ref scrollR);
 
-        if (GUI.Button(new Rect(x + (w - 200f * ui) * 0.5f, y + h - 54f * ui, 200f * ui, 40f * ui), "Indietro", btn)) page = Page.Main;
+        if (GUI.Button(new Rect(x + (w - 200f * ui) * 0.5f, y + h - 52f * ui, 200f * ui, 40f * ui), "Indietro", btn)) page = Page.Main;
     }
 
-    void DrawColumn(Rect r, Section[] sections, float ui)
+    void DrawColumn(Rect r, Section[] sections, float ui, ref Vector2 scroll)
     {
         GUILayout.BeginArea(r);
+        scroll = GUILayout.BeginScrollView(scroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar);
+        float labW = r.width - 24f * ui;   // lascia spazio alla scrollbar
         foreach (var sec in sections)
         {
             GUILayout.Label(sec.title, secStyle);
             GUILayout.Space(2f * ui);
             foreach (var c in sec.cmds)
             {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(c.keys, keyStyle, GUILayout.Width(150f * ui));
-                GUILayout.Label(c.desc, item, GUILayout.Width(r.width - 162f * ui));
+                GUILayout.BeginHorizontal(GUILayout.Width(labW));
+                GUILayout.Label(c.keys, keyStyle, GUILayout.Width(140f * ui));
+                GUILayout.Label(c.desc, item, GUILayout.Width(labW - 148f * ui));
                 GUILayout.EndHorizontal();
                 GUILayout.Space(3f * ui);
             }
             GUILayout.Space(14f * ui);
         }
+        GUILayout.EndScrollView();
         GUILayout.EndArea();
     }
 

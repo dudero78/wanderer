@@ -21,7 +21,7 @@ Shader "Wanderer/StarPoint"
         _MinPx     ("Disco minimo (px)", Float) = 1.3
         _MaxPx     ("Disco massimo (px)", Float) = 14.0
         _SizeScale ("Crescita disco con luminosità", Float) = 0.22
-        _ZoomGrow  ("Crescita disco con lo zoom", Float) = 0.10
+        _ZoomGrow  ("Crescita disco con lo zoom", Float) = 0.0
         _RevealThresh ("Soglia di comparsa", Float) = 0.45
         _SatStart  ("Inizio saturazione colore", Float) = 0.12
         _SatScale  ("Pendenza saturazione colore", Float) = 1.6

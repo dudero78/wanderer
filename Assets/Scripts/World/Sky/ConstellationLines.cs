@@ -28,7 +28,8 @@ public class ConstellationLines : MonoBehaviour
     bool showDso;                       // toggle nomi deep-sky (L)
     float dsoAlpha;
     readonly List<Vector2> placed = new List<Vector2>();
-    GUIStyle labelStyle;
+    GUIStyle labelStyle, smallStyle;
+    Texture2D dotTex;
 
     public void Build(Transform root, int layer, Camera cam)
     {
@@ -165,10 +166,11 @@ public class ConstellationLines : MonoBehaviour
         float sy = (float)Screen.height / Mathf.Max(1, playerCam.pixelHeight);
         placed.Clear();
 
-        // nomi degli OGGETTI DEL PROFONDO CIELO (toggle L) — verde-acqua, per trovarli. Prima, così hanno priorità nel de-clutter.
+        // OGGETTI DEL PROFONDO CIELO (toggle L): pallino sulla posizione ESATTA + nome + ingrandimento necessario.
+        // Prima di tutto, così hanno priorità nel de-clutter.
         if (showD && SkyData.DsoName != null)
             for (int i = 0; i < SkyData.DsoCount; i++)
-                DrawLabel(SkyData.DsoDir[i], SkyData.DsoName[i], new Color(0.55f, 1f, 0.8f, dsoAlpha * 0.92f), origin, sx, sy, fs);
+                DrawDso(i, origin, sx, sy, fs);
 
         if (showCon)
         {
@@ -208,5 +210,64 @@ public class ConstellationLines : MonoBehaviour
         var sh = new Rect(rect.x + 1.5f, rect.y + 1.5f, rect.width, rect.height);
         GUI.color = new Color(0f, 0f, 0f, col.a * 0.9f); GUI.Label(sh, text, labelStyle);
         GUI.color = col; GUI.Label(rect, text, labelStyle);
+    }
+
+    void DrawDso(int i, Vector3 origin, float sx, float sy, int fs)
+    {
+        Vector3 sp = playerCam.WorldToScreenPoint(origin + SkyData.DsoDir[i] * Radius);
+        if (sp.z <= 0) return;
+        float x = sp.x * sx, y = Screen.height - sp.y * sy;
+        if (x < 0 || x > Screen.width || y < 0 || y > Screen.height) return;
+        var p = new Vector2(x, y);
+        float minD = fs * 1.9f;
+        for (int k = 0; k < placed.Count; k++) if ((placed[k] - p).sqrMagnitude < minD * minD) return;
+        placed.Add(p);
+
+        if (dotTex == null) dotTex = MakeDot(32);
+        int sfs = Mathf.Max(10, Mathf.RoundToInt(fs * 0.72f));
+        if (smallStyle == null || smallStyle.fontSize != sfs) smallStyle = new GUIStyle(GUI.skin.label) { fontSize = sfs };
+        var prev = GUI.color;
+
+        // pallino sulla posizione ESATTA dell'oggetto
+        float ds = fs * 0.34f;
+        GUI.color = new Color(0.55f, 1f, 0.8f, dsoAlpha * 0.95f);
+        GUI.DrawTexture(new Rect(x - ds, y - ds, ds * 2f, ds * 2f), dotTex);
+
+        // nome (con ombra) di fianco al pallino
+        var rect = new Rect(x + fs * 0.6f, y - fs * 0.72f, fs * 16f, fs * 1.3f);
+        GUI.color = new Color(0, 0, 0, dsoAlpha * 0.9f); GUI.Label(new Rect(rect.x + 1.5f, rect.y + 1.5f, rect.width, rect.height), SkyData.DsoName[i], labelStyle);
+        GUI.color = new Color(0.6f, 1f, 0.82f, dsoAlpha * 0.95f); GUI.Label(rect, SkyData.DsoName[i], labelStyle);
+
+        // sotto, più piccolo: ingrandimento necessario per vederlo
+        int req = ReqMag(SkyData.DsoMag[i]);
+        string sub = req <= 1 ? "a occhio nudo" : req + "× per vederlo";
+        var srect = new Rect(x + fs * 0.6f, y + fs * 0.45f, fs * 16f, sfs * 1.4f);
+        GUI.color = new Color(0, 0, 0, dsoAlpha * 0.8f); GUI.Label(new Rect(srect.x + 1f, srect.y + 1f, srect.width, srect.height), sub, smallStyle);
+        GUI.color = new Color(0.62f, 0.86f, 0.76f, dsoAlpha * 0.85f); GUI.Label(srect, sub, smallStyle);
+        GUI.color = prev;
+    }
+
+    // ingrandimento (×) a cui l'oggetto "si accende" nel nostro modello (coerente con lo shader deep-sky)
+    static int ReqMag(float mag)
+    {
+        float flux = Mathf.Pow(10f, 0.4f * (6.5f - mag));
+        float skyZoom = Mathf.Pow(0.51f / Mathf.Max(flux * 0.0005f, 1e-6f), 1f / 1.5f);   // dove lum≈0.3 (vedi DeepSkyBillboard)
+        return Mathf.Clamp(Mathf.RoundToInt(Mathf.Pow(Mathf.Max(skyZoom, 1f), 1f / 1.3f)), 1, 400);
+    }
+
+    static Texture2D MakeDot(int size)
+    {
+        var px = new Color32[size * size];
+        float c = (size - 1) * 0.5f;
+        for (int yy = 0; yy < size; yy++)
+            for (int xx = 0; xx < size; xx++)
+            {
+                float r = Mathf.Sqrt((xx - c) * (xx - c) + (yy - c) * (yy - c)) / c;
+                float a = Mathf.Clamp01(1f - (r - 0.55f) / 0.35f);   // cerchio pieno con bordo morbido
+                px[yy * size + xx] = new Color32(255, 255, 255, (byte)(a * 255f));
+            }
+        var t = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+        t.SetPixels32(px); t.Apply(false);
+        return t;
     }
 }

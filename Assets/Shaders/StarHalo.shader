@@ -15,11 +15,13 @@ Shader "Wanderer/StarHalo"
         _HaloFall  ("Durezza caduta", Float) = 2.5
         _HaloStr   ("Intensità", Float) = 0.42
         _HaloFluxRef ("Flusso di riferimento (forza alone)", Float) = 250.0
-        // raggi di diffrazione (croce a 4 punte): appaiono salendo d'ingrandimento (telescopio), come nelle foto vere
+        // raggi di diffrazione: prima una croce a 4 punte (assi), poi — più in alto — una seconda croce ruotata di 45°
+        // (8 punte in tutto). Appaiono e CRESCONO salendo d'ingrandimento (telescopio), come nelle foto vere.
         _SpikeSharp ("Finezza dei raggi", Float) = 320.0
-        _SpikeStr   ("Intensità dei raggi", Float) = 0.6
-        _SpikeOn    ("Zoom d'inizio raggi", Float) = 20.0
-        _SpikeRamp  ("Velocità comparsa raggi", Float) = 0.018
+        _SpikeStr   ("Intensità dei raggi", Float) = 0.55
+        _SpikeOn    ("Zoom inizio croce dritta", Float) = 40.0
+        _SpikeOn2   ("Zoom inizio croce a 45°", Float) = 85.0
+        _SpikeRamp  ("Velocità comparsa raggi", Float) = 0.012
     }
     SubShader
     {
@@ -36,10 +38,10 @@ Shader "Wanderer/StarHalo"
             #include "UnityCG.cginc"
 
             struct appdata { float4 vertex:POSITION; float4 uv:TEXCOORD0; fixed4 color:COLOR; };
-            struct v2f     { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; fixed3 col:TEXCOORD1; float spike:TEXCOORD2; };
+            struct v2f     { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; fixed3 col:TEXCOORD1; float2 spikes:TEXCOORD2; };
 
             float _M0, _HaloBasePx, _HaloPow, _HaloMinPx, _HaloMaxPx, _HaloFall, _HaloStr, _HaloFluxRef;
-            float _SpikeSharp, _SpikeStr, _SpikeOn, _SpikeRamp;
+            float _SpikeSharp, _SpikeStr, _SpikeOn, _SpikeOn2, _SpikeRamp;
             float _SkyZoom, _SkyPxScale;
 
             v2f vert(appdata v)
@@ -60,8 +62,10 @@ Shader "Wanderer/StarHalo"
                 float s = saturate(flux / _HaloFluxRef);
                 o.col = v.color.rgb * _HaloStr * s;
                 o.uv = v.uv.xy;
-                // i raggi compaiono salendo d'ingrandimento (da ~telescopio in su): 0 a occhio nudo/binocolo
-                o.spike = saturate((zoom - _SpikeOn) * _SpikeRamp);
+                // i raggi compaiono e crescono salendo d'ingrandimento (0 a occhio nudo/binocolo). La croce dritta parte
+                // prima (~telescopio), quella a 45° più in alto; entrambe continuano a intensificarsi (clamp generoso).
+                o.spikes.x = clamp((zoom - _SpikeOn)  * _SpikeRamp, 0.0, 1.8);
+                o.spikes.y = clamp((zoom - _SpikeOn2) * _SpikeRamp, 0.0, 1.4);
                 o.pos.xy += v.uv.xy * px * (2.0 / _ScreenParams.xy) * o.pos.w;
                 return o;
             }
@@ -70,10 +74,14 @@ Shader "Wanderer/StarHalo"
             {
                 float r = length(i.uv);
                 float a = pow(saturate(1.0 - r), _HaloFall);   // bagliore radiale concentrato
-                // raggi di diffrazione: croce a 4 punte (assi x/y), sottile (gaussiana), che sfuma verso il bordo
-                float falloff = saturate(1.0 - r);
-                float cross = (exp(-i.uv.x * i.uv.x * _SpikeSharp) + exp(-i.uv.y * i.uv.y * _SpikeSharp)) * falloff * falloff;
-                return fixed4(i.col * (a + cross * i.spike * _SpikeStr), 1.0);
+                // raggi di diffrazione: croce dritta (assi x/y) + croce a 45° (assi ruotati), gaussiane sottili, sfumate al bordo
+                float falloff = saturate(1.0 - r); falloff *= falloff;
+                float2 d = i.uv * 0.70710678;
+                float2 rot = float2(d.x - d.y, d.x + d.y);     // uv ruotato di 45°
+                float crossA = (exp(-i.uv.x * i.uv.x * _SpikeSharp) + exp(-i.uv.y * i.uv.y * _SpikeSharp)) * falloff;
+                float crossB = (exp(-rot.x  * rot.x  * _SpikeSharp) + exp(-rot.y  * rot.y  * _SpikeSharp)) * falloff;
+                float cross = crossA * i.spikes.x + crossB * i.spikes.y;
+                return fixed4(i.col * (a + cross * _SpikeStr), 1.0);
             }
             ENDCG
         }
