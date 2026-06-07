@@ -59,6 +59,36 @@ public static class SkyData
         return true;
     }
 
+    // ---- Campo PROFONDO (ATHYG, ~mag 7-10): stelle che si vedono solo zoomando. Mesh separato, acceso col binocolo. --
+
+    public static bool DeepLoaded { get; private set; }
+    public static int DeepCount { get; private set; }
+    public static Vector3[] DeepDir;
+    public static float[] DeepMag;
+    public static Color32[] DeepColor;
+
+    public static bool LoadDeep()
+    {
+        if (DeepLoaded) return DeepDir != null;
+        DeepLoaded = true;
+        var ta = Resources.Load<TextAsset>("Sky/deepstars");
+        if (ta == null) return false;   // opzionale: niente campo profondo, nessun errore
+        using var ms = new MemoryStream(ta.bytes);
+        using var r = new BinaryReader(ms);
+        if (r.ReadByte() != 'W' || r.ReadByte() != 'S' || r.ReadByte() != 'K' || r.ReadByte() != 'Y') return false;
+        r.ReadInt32(); DeepCount = r.ReadInt32(); r.ReadInt32();   // versione, conteggio, nakedCount(0)
+        DeepDir = new Vector3[DeepCount]; DeepMag = new float[DeepCount]; DeepColor = new Color32[DeepCount];
+        for (int i = 0; i < DeepCount; i++)
+        {
+            float x = Mathf.HalfToFloat(r.ReadUInt16()), y = Mathf.HalfToFloat(r.ReadUInt16()), z = Mathf.HalfToFloat(r.ReadUInt16());
+            DeepDir[i] = new Vector3(x, y, z);
+            DeepMag[i] = Mathf.HalfToFloat(r.ReadUInt16());
+            byte cr = r.ReadByte(), cg = r.ReadByte(), cb = r.ReadByte(); r.ReadByte();
+            DeepColor[i] = new Color32(cr, cg, cb, 255);
+        }
+        return true;
+    }
+
     // ---- Deep-sky (galassie/nebulose/ammassi) ---------------------------------------------------------------------
 
     public static bool DsoLoaded { get; private set; }

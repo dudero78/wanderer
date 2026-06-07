@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
@@ -56,6 +57,19 @@ public static class StarCatalogBakeTool
 
         WriteStarBlob("Assets/Resources/Sky/stars.bytes", stars, nakedCount);
 
+        // CAMPO PROFONDO (opzionale): ATHYG ridotto a mag 10 — milioni... no, ~330k stelle, di cui teniamo solo quelle
+        // NON già nell'HYG (colonna 'hyg' vuota) → niente doppioni. Sono le deboli (mag 7-10) che si vedono solo con
+        // binocolo/telescopio. Mesh separato, acceso solo zoomando (vedi StarFieldRenderer/SkyController) → costo ZERO
+        // a occhio nudo. File: StarData/athyg_m10.csv.gz.
+        int deepCount = 0;
+        string athygPath = Path.Combine(srcDir, "athyg_m10.csv.gz");
+        if (File.Exists(athygPath))
+        {
+            var deep = ReadAthygDeep(athygPath);
+            WriteStarBlob("Assets/Resources/Sky/deepstars.bytes", deep, 0);
+            deepCount = deep.Count;
+        }
+
         // Deep-sky (OpenNGC): galassie, nebulose, ammassi. Opzionale (se il CSV c'è).
         int dsoCount = 0;
         string ngcPath = Path.Combine(srcDir, "NGC.csv");
@@ -71,10 +85,41 @@ public static class StarCatalogBakeTool
 
         AssetDatabase.Refresh();
         Debug.Log($"Bake star catalog: FATTO. {stars.Count} stelle ({nakedCount} a occhio nudo, mag≤{NakedEyeMag}), "
-                + $"{dsoCount} deep-sky. Scritto Assets/Resources/Sky/stars.bytes (+ dso.bytes).");
+                + $"{deepCount} stelle profonde (ATHYG, solo zoom), {dsoCount} deep-sky. Scritto stars.bytes/deepstars.bytes/dso.bytes.");
     }
 
     struct Star { public Vector3 dir; public float mag; public byte r, g, b, flags; }
+
+    /// <summary>Campo profondo da ATHYG (gz): tiene SOLO le stelle non presenti nell'HYG (colonna 'hyg' vuota) → niente
+    /// doppioni. Direzione da x0/y0/z0 (normalizzati, frame eclittica di gioco) come l'HYG; colore dal B−V (ci).</summary>
+    static List<Star> ReadAthygDeep(string gzPath)
+    {
+        var list = new List<Star>(400000);
+        using var sr = new StreamReader(new GZipStream(File.OpenRead(gzPath), CompressionMode.Decompress));
+        string header = sr.ReadLine();
+        if (header == null) return list;
+        var col = MapColumns(header);
+        if (!col.ContainsKey("hyg") || !col.ContainsKey("x0") || !col.ContainsKey("mag")) { Debug.LogWarning("ATHYG: colonne inattese."); return list; }
+        int iHyg = col["hyg"], iX = col["x0"], iY = col["y0"], iZ = col["z0"], iMag = col["mag"];
+        int iCi = col.TryGetValue("ci", out int c0) ? c0 : -1;
+        string line;
+        while ((line = sr.ReadLine()) != null)
+        {
+            if (line.Length == 0) continue;
+            var f = SplitCsv(line);
+            if (f.Count <= iZ) continue;
+            if (!string.IsNullOrEmpty(f[iHyg].Trim())) continue;   // già nell'HYG → salta (no doppioni)
+            if (!TryF(f[iX], out float x) || !TryF(f[iY], out float y) || !TryF(f[iZ], out float z)) continue;
+            var dir = new Vector3(x, y, z); float len = dir.magnitude;
+            if (len < 1e-6f) continue;
+            dir = SkyData.EquatorialToGame(dir / len);
+            if (!TryF(f[iMag], out float mag)) continue;
+            float bv = (iCi >= 0 && TryF(f[iCi], out float ci)) ? ci : 0.6f;
+            BvToRgb(bv, out byte r, out byte g, out byte b);
+            list.Add(new Star { dir = dir, mag = mag, r = r, g = g, b = b, flags = 0 });
+        }
+        return list;
+    }
 
     // ---- Lettura HYG ----------------------------------------------------------------------------------------------
 

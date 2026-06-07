@@ -19,6 +19,7 @@ public class SkyController : MonoBehaviour
     Camera playerCam;
     RenderScaler playerScaler;
     MilkyWayBand milkyWay;
+    StarFieldRenderer starField;   // per accendere il campo profondo solo zoomando
     int skyLayer;
     int skyMask;
     float baseFov = 52f;   // FOV "occhio nudo" di riferimento: zoom = (tan(base/2)/tan(fov/2))²
@@ -40,8 +41,8 @@ public class SkyController : MonoBehaviour
         // Ogni elemento del cielo è ISOLATO in un try/catch: se uno fallisce (shader, blob, texture), NON deve portare
         // giù gli altri (prima un errore nella Via Lattea spegneva anche le stelle, perché costruita per prima).
         // Le STELLE per prime: sono il cuore del cielo, costruiamole comunque vada il resto.
-        try { var stars = rootGo.AddComponent<StarFieldRenderer>();
-              if (!stars.Build(skyRoot, skyLayer)) Debug.LogWarning("[sky] campo stellare non costruito (blob mancante?)."); }
+        try { starField = rootGo.AddComponent<StarFieldRenderer>();
+              if (!starField.Build(skyRoot, skyLayer)) Debug.LogWarning("[sky] campo stellare non costruito (blob mancante?)."); }
         catch (System.Exception e) { Debug.LogError("[sky] stelle: " + e); }
 
         try { milkyWay = rootGo.AddComponent<MilkyWayBand>(); milkyWay.Build(skyRoot, skyLayer); }
@@ -77,6 +78,10 @@ public class SkyController : MonoBehaviour
         // sovrapposte → niente bianco). Il quadrato (×49 a 7×) saturava a bianco perché il campo largo ha tante stelle.
         Shader.SetGlobalFloat("_SkyZoom", Mathf.Max(Mathf.Pow(mag, 1.3f), 1f));
         Shader.SetGlobalFloat("_SkyTanHalfFov", t);   // raggio angolare dei deep-sky → pixel (dimensione cresce con lo zoom)
+
+        // CAMPO PROFONDO: acceso solo quando c'è uno zoom reale (binocolo/telescopio o slider FOV stretto). A occhio
+        // nudo è spento → ~840k vertici in meno da processare mentre voli (le stelle deboli lì sono comunque invisibili).
+        if (starField != null) starField.SetDeepEnabled(mag > 1.5f);
     }
 
     /// <summary>La camera che disegna il cielo ADESSO: quella attiva il cui cullingMask include il layer Sky
