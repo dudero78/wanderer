@@ -145,7 +145,14 @@ public class MapMode : MonoBehaviour
         // reali della scena. Senza, renderizzava anche le stelle vere — per giunta spostate fuori posto da StarRenderClamp,
         // che usa Camera.main (= la camera-mappa in mappa) → il "sole finto" vagante. La camera giocatore esclude il layer.
         mapLayer = LayerMask.NameToLayer("MapView");
-        if (mapLayer < 0) mapLayer = 9;
+        int skyLayer = LayerMask.NameToLayer(SkyController.SkyLayerName);
+        // MAI coincidere col layer del cielo: sotto togliamo mapLayer dalla camera del giocatore — se fosse il layer
+        // "Sky" la bolla del cielo sparirebbe (cielo nero). Era esattamente questo il bug.
+        if (mapLayer < 0 || mapLayer == skyLayer)
+        {
+            mapLayer = (skyLayer == 10) ? 11 : 10;
+            Debug.LogWarning($"[map] layer 'MapView' assente o in collisione col cielo (sky={skyLayer}) → uso il layer {mapLayer}.");
+        }
         mapCam.cullingMask = 1 << mapLayer;
         playerCam.cullingMask &= ~(1 << mapLayer);
 

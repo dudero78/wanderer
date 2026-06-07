@@ -16,9 +16,9 @@ public class OpticalInstrument : MonoBehaviour
     float photoFlash; bool flashQueued;
 
     // B cicla 3 stati: 1× (occhio nudo) · 7× (binocolo) · 20× (telescopio). Sul telescopio la ROTELLA alza ancora
-    // l'ingrandimento (fino a ×WheelMax → 80×). Così con 2 click di B entri/esci, niente 4 livelli da ciclare.
+    // l'ingrandimento (fino a ×WheelMax → 160×). Così con 2 click di B entri/esci, niente 4 livelli da ciclare.
     static readonly float[] Mag = { 1f, 7f, 20f };
-    const float WheelMax = 4f;   // moltiplicatore max della rotella sul telescopio (20× → 80×)
+    const float WheelMax = 8f;   // moltiplicatore max della rotella sul telescopio (20× → 160×, per oggetti piccoli/deboli)
 
     Camera cam;
     PlanetWalker walker;

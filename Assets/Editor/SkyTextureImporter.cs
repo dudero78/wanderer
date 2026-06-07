@@ -29,7 +29,7 @@ public class SkyTextureImporter : AssetPostprocessor
         {
             var ti = (TextureImporter)assetImporter;
             ti.textureType = TextureImporterType.Default;
-            ti.maxTextureSize = 4096;            // atlante 16×16 a piena risoluzione
+            ti.maxTextureSize = 8192;            // atlante 16×16 a 512px/tile = 8192²: piena risoluzione
             ti.mipmapEnabled = true;             // i DSO piccoli a schermo → mip contro lo shimmer (la vignetta nera fa da bordo anti-bleed)
             ti.wrapMode = TextureWrapMode.Clamp;
             ti.filterMode = FilterMode.Trilinear;

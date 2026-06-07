@@ -37,19 +37,21 @@ public class SkyController : MonoBehaviour
 
         Shader.SetGlobalFloat("_SkyZoom", 1f);   // occhio nudo (lo strumento ottico lo alzerà)
 
-        // Via Lattea (velo additivo dietro le stelle): pass a schermo intero, i raggi aggiornati ogni frame in LateUpdate.
-        milkyWay = rootGo.AddComponent<MilkyWayBand>();
-        milkyWay.Build(skyRoot, skyLayer);
+        // Ogni elemento del cielo è ISOLATO in un try/catch: se uno fallisce (shader, blob, texture), NON deve portare
+        // giù gli altri (prima un errore nella Via Lattea spegneva anche le stelle, perché costruita per prima).
+        // Le STELLE per prime: sono il cuore del cielo, costruiamole comunque vada il resto.
+        try { var stars = rootGo.AddComponent<StarFieldRenderer>();
+              if (!stars.Build(skyRoot, skyLayer)) Debug.LogWarning("[sky] campo stellare non costruito (blob mancante?)."); }
+        catch (System.Exception e) { Debug.LogError("[sky] stelle: " + e); }
 
-        var stars = rootGo.AddComponent<StarFieldRenderer>();
-        if (!stars.Build(skyRoot, skyLayer))
-            Debug.LogWarning("[sky] campo stellare non costruito (blob mancante?).");
+        try { milkyWay = rootGo.AddComponent<MilkyWayBand>(); milkyWay.Build(skyRoot, skyLayer); }
+        catch (System.Exception e) { Debug.LogError("[sky] Via Lattea: " + e); }
 
-        // Deep-sky (galassie/nebulose/ammassi): macchie sfocate che si risolvono restringendo il campo.
-        rootGo.AddComponent<DeepSkyRenderer>().Build(skyRoot, skyLayer);
+        try { rootGo.AddComponent<DeepSkyRenderer>().Build(skyRoot, skyLayer); }
+        catch (System.Exception e) { Debug.LogError("[sky] deep-sky: " + e); }
 
-        // Costellazioni + etichette (tasto C): figure curate, allineate alle stelle, fade morbido.
-        rootGo.AddComponent<ConstellationLines>().Build(skyRoot, skyLayer, playerCam);
+        try { rootGo.AddComponent<ConstellationLines>().Build(skyRoot, skyLayer, playerCam); }
+        catch (System.Exception e) { Debug.LogError("[sky] costellazioni: " + e); }
     }
 
     void LateUpdate()
@@ -70,9 +72,10 @@ public class SkyController : MonoBehaviour
         float t0 = Mathf.Tan(baseFov * 0.5f * Mathf.Deg2Rad);
         float t = Mathf.Tan(Mathf.Max(cam.fieldOfView, 0.05f) * 0.5f * Mathf.Deg2Rad);
         float mag = t0 / Mathf.Max(t, 1e-4f);
-        // _SkyZoom = magnificazione LINEARE (non al quadrato!): a 7× moltiplica la luminosità ×7, che corrisponde a
-        // ~2 magnitudini più in profondità (come un vero binocolo). Col quadrato (×49) il cielo saturava a bianco.
-        Shader.SetGlobalFloat("_SkyZoom", Mathf.Max(mag, 1f));
+        // _SkyZoom guida la luminosità: restringendo il campo le stelle deboli EMERGONO. Uso mag^1.3 (più del lineare,
+        // meno del quadrato): a 7× ≈12× (binocolo bello luminoso), a 80× ≈295× ma con campo strettissimo (poche stelle
+        // sovrapposte → niente bianco). Il quadrato (×49 a 7×) saturava a bianco perché il campo largo ha tante stelle.
+        Shader.SetGlobalFloat("_SkyZoom", Mathf.Max(Mathf.Pow(mag, 1.3f), 1f));
         Shader.SetGlobalFloat("_SkyTanHalfFov", t);   // raggio angolare dei deep-sky → pixel (dimensione cresce con lo zoom)
     }
 

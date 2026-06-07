@@ -202,7 +202,7 @@ public static class StarCatalogBakeTool
 
     // ---- Deep-sky (OpenNGC) ---------------------------------------------------------------------------------------
 
-    struct Dso { public Vector3 dir; public float radArcmin; public float mag; public byte type; public byte flags; public ushort tile; }
+    struct Dso { public Vector3 dir; public float radArcmin; public float mag; public byte type; public byte flags; public ushort tile; public string name; }
 
     /// <summary>Mappa identificatore ("M42"/"NGC7000"/"IC434") → indice tile nell'atlante foto, da StarData/dso_tiles.json
     /// (scritto dallo script che impacchetta le immagini). Parser semplice: il file è un dizionario piatto stringa→intero.</summary>
@@ -272,8 +272,14 @@ public static class StarCatalogBakeTool
 
             var eq = EqUnit(raDeg, decDeg);
             byte flags = (byte)((messier ? 1 : 0) | (named ? 2 : 0));
+            // etichetta: preferisci la sigla Messier (la più riconoscibile), poi il nome comune, poi NGC/IC
+            string common = f.Length > 28 ? f[28].Trim() : "";
+            string label = mId != null ? "M " + mId.Substring(1)
+                         : !string.IsNullOrEmpty(common) ? common
+                         : ngcId != null ? "NGC " + ngcId.Substring(3)
+                         : icId != null ? "IC " + icId.Substring(2) : name;
             list.Add(new Dso { dir = SkyData.EquatorialToGame(eq), radArcmin = radArcmin, mag = mag,
-                               type = (byte)cat, flags = flags, tile = (ushort)Mathf.Max(0, tile) });
+                               type = (byte)cat, flags = flags, tile = (ushort)Mathf.Max(0, tile), name = label });
         }
         list.Sort((a, b) => a.mag.CompareTo(b.mag));
         return list;
@@ -319,6 +325,8 @@ public static class StarCatalogBakeTool
             w.Write(Mathf.FloatToHalf(d.mag));
             w.Write(d.type); w.Write(d.flags);
             w.Write(d.tile);   // ushort: indice nell'atlante foto
+            var nb = System.Text.Encoding.UTF8.GetBytes(d.name ?? "");
+            w.Write((byte)Mathf.Min(nb.Length, 255)); w.Write(nb, 0, Mathf.Min(nb.Length, 255));   // etichetta (lunghezza in 1 byte)
         }
         File.WriteAllBytes(assetPath, ms.ToArray());
     }

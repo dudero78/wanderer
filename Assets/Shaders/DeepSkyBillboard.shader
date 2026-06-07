@@ -9,9 +9,12 @@ Shader "Wanderer/DeepSkyBillboard"
     {
         _Atlas      ("Atlante foto (16×16)", 2D) = "black" {}
         _DsoM0      ("Magnitudine di riferimento", Float) = 6.5
-        _DsoExposure("Esposizione", Float) = 1.0
+        // esposizione BASSISSIMA: a occhio nudo i deep-sky sono fiochi aloni; la luminosità sale FORTE con lo zoom
+        // (_DsoZoomPow=1 → ∝ _SkyZoom) → solo col binocolo/telescopio "si accendono" (come nella realtà: ogni oggetto
+        // ha bisogno del suo ingrandimento per emergere). I deboli compaiono solo ad alti ingrandimenti.
+        _DsoExposure("Esposizione", Float) = 0.005
         _DsoGain    ("Guadagno tone-map", Float) = 0.7
-        _DsoZoomPow ("Risalto sullo zoom", Float) = 0.6
+        _DsoZoomPow ("Risalto sullo zoom", Float) = 1.0
         _SizeScale  ("Scala dimensione (inquadratura)", Float) = 2.2
         _MinPx      ("Dimensione minima (px)", Float) = 3.0
         _MaxPx      ("Dimensione massima (px)", Float) = 4000.0
@@ -55,8 +58,10 @@ Shader "Wanderer/DeepSkyBillboard"
                 float I = pow(10.0, 0.4 * (_DsoM0 - mag)) * _DsoExposure * pow(zoom, _DsoZoomPow);
                 o.lum = 1.0 - exp(-I * _DsoGain);
 
-                // UV nell'atlante: tile → cella (col, riga), local = angolo del quad in [0,1] con piccolo inset
-                float tx = fmod(tile, ATLAS_DIM), ty = floor(tile / ATLAS_DIM);
+                // UV nell'atlante: tile → cella (col, riga). L'atlante è scritto con la riga 0 IN ALTO (PIL/numpy), ma
+                // le UV di Unity hanno V=0 IN BASSO → ribalto la riga, altrimenti i DSO pescano i riquadri vuoti = neri.
+                float tx = fmod(tile, ATLAS_DIM);
+                float ty = (ATLAS_DIM - 1.0) - floor(tile / ATLAS_DIM);
                 float2 local = (v.uv.xy * 0.5 + 0.5) * 0.98 + 0.01;
                 o.auv = (float2(tx, ty) + local) / ATLAS_DIM;
 

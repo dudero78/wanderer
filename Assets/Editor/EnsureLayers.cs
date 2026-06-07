@@ -11,9 +11,10 @@ public static class EnsureLayers
 {
     public static string AvatarLayerName => ModelHost.AvatarLayer;   // unica fonte del nome (runtime)
 
-    // I layer nominati che il gioco si aspetta. "Sky" = la bolla del cielo stellato (vista dal giocatore/sonda,
-    // esclusa dalla mappa che renderizza solo "MapView"). "MapView" è già nel TagManager del progetto.
-    static readonly string[] Needed = { ModelHost.AvatarLayer, SkyController.SkyLayerName };
+    // I layer nominati che il gioco si aspetta. "Sky" = la bolla del cielo stellato; "MapView" = ciò che la camera-mappa
+    // renderizza. DEVONO essere DISTINTI: se "MapView" manca, MapMode cade sul fallback 9 = proprio "Sky" → la camera
+    // del giocatore esclude il layer 9 → CIELO NERO (bug reale). Creiamo entrambi, in slot distinti (8/9/10).
+    static readonly string[] Needed = { ModelHost.AvatarLayer, SkyController.SkyLayerName, "MapView" };
 
     static EnsureLayers()
     {

@@ -69,6 +69,7 @@ public static class SkyData
     public static byte[] DsoType;         // 0 galassia · 1 ammasso aperto · 2 globulare · 3 nebulosa · 4 planetaria
     public static byte[] DsoFlags;        // bit0 Messier · bit1 con nome comune
     public static ushort[] DsoTile;       // indice nell'atlante delle foto vere
+    public static string[] DsoName;       // etichetta (M 42, NGC 7000, nome comune…)
 
     public static bool LoadDso()
     {
@@ -81,7 +82,7 @@ public static class SkyData
         r.ReadInt32();
         DsoCount = r.ReadInt32();
         DsoDir = new Vector3[DsoCount]; DsoRadArcmin = new float[DsoCount]; DsoMag = new float[DsoCount];
-        DsoType = new byte[DsoCount]; DsoFlags = new byte[DsoCount]; DsoTile = new ushort[DsoCount];
+        DsoType = new byte[DsoCount]; DsoFlags = new byte[DsoCount]; DsoTile = new ushort[DsoCount]; DsoName = new string[DsoCount];
         for (int i = 0; i < DsoCount; i++)
         {
             float x = Mathf.HalfToFloat(r.ReadUInt16()), y = Mathf.HalfToFloat(r.ReadUInt16()), z = Mathf.HalfToFloat(r.ReadUInt16());
@@ -90,6 +91,8 @@ public static class SkyData
             DsoMag[i] = Mathf.HalfToFloat(r.ReadUInt16());
             DsoType[i] = r.ReadByte(); DsoFlags[i] = r.ReadByte();
             DsoTile[i] = r.ReadUInt16();
+            int nl = r.ReadByte();
+            DsoName[i] = nl > 0 ? Encoding.UTF8.GetString(r.ReadBytes(nl)) : "";
         }
         DsoLoaded = true;
         return true;

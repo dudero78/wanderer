@@ -114,11 +114,15 @@ public class GameBootstrap : MonoBehaviour
         var rig = PlayerSpawn.Spawn(solar, sys.HomePlanetGo, sys.HomeTerrain, sys.StarTransform);
         var eclipse = LightingSetup.Setup(gameObject, solar, sys.StarTransform, sys.HomePlanetGo.transform);
         UiSetup.Setup(gameObject, solar, rig, sys);
-        gameObject.AddComponent<DistantStars>().Init(solar);   // stelle dei sistemi dormienti come punti sempre visibili in cielo
+        // stelle dei sistemi dormienti come punti sempre visibili in cielo. ISOLATA: se va in errore NON deve
+        // impedire il setup del CIELO (riga sotto) — prima un'eccezione qui spegneva tutto il cielo.
+        try { gameObject.AddComponent<DistantStars>().Init(solar); }
+        catch (System.Exception e) { Debug.LogError("[boot] DistantStars in errore (cielo salvato): " + e); }
 
         // CIELO STELLATO reale (catalogo HYG): bolla che segue la camera, frame fisso, disegnata in Background.
         // Sta DIETRO il sole/pianeti/punti distanti (che la coprono dove ci sono). Esclusa dalla mappa (layer Sky).
-        gameObject.AddComponent<SkyController>().Init(rig.Cam);
+        try { gameObject.AddComponent<SkyController>().Init(rig.Cam); }
+        catch (System.Exception e) { Debug.LogError("[boot] SkyController in errore: " + e); }
 
         // TAPPA 4 multi-sistema: cabla sveglia/sonno dei sistemi DISTANTI (SolarSystem decide il QUANDO per
         // prossimità; qui il COSA: costruisci/distruggi i corpi + ri-punta la luce alla stella giusta + ricostruisci
