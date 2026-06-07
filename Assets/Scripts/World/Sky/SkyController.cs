@@ -43,6 +43,12 @@ public class SkyController : MonoBehaviour
         var stars = rootGo.AddComponent<StarFieldRenderer>();
         if (!stars.Build(skyRoot, skyLayer))
             Debug.LogWarning("[sky] campo stellare non costruito (blob mancante?).");
+
+        // Deep-sky (galassie/nebulose/ammassi): macchie sfocate che si risolvono restringendo il campo.
+        rootGo.AddComponent<DeepSkyRenderer>().Build(skyRoot, skyLayer);
+
+        // Costellazioni + etichette (tasto C): figure curate, allineate alle stelle, fade morbido.
+        rootGo.AddComponent<ConstellationLines>().Build(skyRoot, skyLayer, playerCam);
     }
 
     void LateUpdate()
@@ -64,6 +70,7 @@ public class SkyController : MonoBehaviour
         float t = Mathf.Tan(Mathf.Max(cam.fieldOfView, 0.05f) * 0.5f * Mathf.Deg2Rad);
         float mag = t0 / Mathf.Max(t, 1e-4f);
         Shader.SetGlobalFloat("_SkyZoom", Mathf.Max(mag * mag, 1f));
+        Shader.SetGlobalFloat("_SkyTanHalfFov", t);   // raggio angolare dei deep-sky → pixel (dimensione cresce con lo zoom)
     }
 
     /// <summary>La camera che disegna il cielo ADESSO: quella attiva il cui cullingMask include il layer Sky

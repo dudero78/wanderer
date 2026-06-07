@@ -58,6 +58,40 @@ public static class SkyData
         return true;
     }
 
+    // ---- Deep-sky (galassie/nebulose/ammassi) ---------------------------------------------------------------------
+
+    public static bool DsoLoaded { get; private set; }
+    public static int DsoCount { get; private set; }
+    public static Vector3[] DsoDir;       // direzione unitaria (frame di gioco)
+    public static float[] DsoRadArcmin;   // raggio angolare apparente (arcmin)
+    public static float[] DsoMag;         // magnitudine
+    public static byte[] DsoType;         // 0 galassia · 1 ammasso aperto · 2 globulare · 3 nebulosa · 4 planetaria
+    public static byte[] DsoFlags;        // bit0 Messier · bit1 con nome comune
+
+    public static bool LoadDso()
+    {
+        if (DsoLoaded) return true;
+        var ta = Resources.Load<TextAsset>("Sky/dso");
+        if (ta == null) return false;   // opzionale: niente deep-sky, nessun errore
+        using var ms = new MemoryStream(ta.bytes);
+        using var r = new BinaryReader(ms);
+        if (r.ReadByte() != 'W' || r.ReadByte() != 'D' || r.ReadByte() != 'S' || r.ReadByte() != 'O') return false;
+        r.ReadInt32();
+        DsoCount = r.ReadInt32();
+        DsoDir = new Vector3[DsoCount]; DsoRadArcmin = new float[DsoCount]; DsoMag = new float[DsoCount];
+        DsoType = new byte[DsoCount]; DsoFlags = new byte[DsoCount];
+        for (int i = 0; i < DsoCount; i++)
+        {
+            float x = Mathf.HalfToFloat(r.ReadUInt16()), y = Mathf.HalfToFloat(r.ReadUInt16()), z = Mathf.HalfToFloat(r.ReadUInt16());
+            DsoDir[i] = new Vector3(x, y, z);
+            DsoRadArcmin[i] = Mathf.HalfToFloat(r.ReadUInt16());
+            DsoMag[i] = Mathf.HalfToFloat(r.ReadUInt16());
+            DsoType[i] = r.ReadByte(); DsoFlags[i] = r.ReadByte();
+        }
+        DsoLoaded = true;
+        return true;
+    }
+
     // ---- Frame del cielo ------------------------------------------------------------------------------------------
 
     public const float Obliquity = 23.4392811f;   // inclinazione dell'eclittica (gradi): angolo equatore↔eclittica

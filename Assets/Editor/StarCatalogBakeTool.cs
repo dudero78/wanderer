@@ -54,11 +54,23 @@ public static class StarCatalogBakeTool
         foreach (var s in stars) { if (s.mag <= NakedEyeMag) nakedCount++; else break; }
 
         WriteStarBlob("Assets/Resources/Sky/stars.bytes", stars, nakedCount);
+
+        // Deep-sky (OpenNGC): galassie, nebulose, ammassi. Opzionale (se il CSV c'è).
+        int dsoCount = 0;
+        string ngcPath = Path.Combine(srcDir, "NGC.csv");
+        if (File.Exists(ngcPath))
+        {
+            var dso = ReadOpenNgc(ngcPath);
+            WriteDsoBlob("Assets/Resources/Sky/dso.bytes", dso);
+            dsoCount = dso.Count;
+        }
+        else Debug.LogWarning("Bake star catalog: NGC.csv non trovato in StarData/ → niente deep-sky.");
+
         WriteAttribution("Assets/Resources/Sky/ATTRIBUTION.txt");
 
         AssetDatabase.Refresh();
-        Debug.Log($"Bake star catalog: FATTO. {stars.Count} stelle ({nakedCount} a occhio nudo, mag≤{NakedEyeMag}). "
-                + "Scritto Assets/Resources/Sky/stars.bytes.");
+        Debug.Log($"Bake star catalog: FATTO. {stars.Count} stelle ({nakedCount} a occhio nudo, mag≤{NakedEyeMag}), "
+                + $"{dsoCount} deep-sky. Scritto Assets/Resources/Sky/stars.bytes (+ dso.bytes).");
     }
 
     struct Star { public Vector3 dir; public float mag; public byte r, g, b, flags; }
@@ -183,6 +195,100 @@ public static class StarCatalogBakeTool
             w.Write(Mathf.FloatToHalf(s.dir.z));
             w.Write(Mathf.FloatToHalf(s.mag));
             w.Write(s.r); w.Write(s.g); w.Write(s.b); w.Write(s.flags);
+        }
+        File.WriteAllBytes(assetPath, ms.ToArray());
+    }
+
+    // ---- Deep-sky (OpenNGC) ---------------------------------------------------------------------------------------
+
+    struct Dso { public Vector3 dir; public float radArcmin; public float mag; public byte type; public byte flags; }
+
+    // categorie (type byte): 0 galassia · 1 ammasso aperto · 2 ammasso globulare · 3 nebulosa · 4 nebulosa planetaria
+    static int Category(string t)
+    {
+        switch (t)
+        {
+            case "G": case "GPair": case "GTrpl": case "GGroup": return 0;
+            case "OCl": case "*Ass": return 1;
+            case "GCl": return 2;
+            case "Neb": case "HII": case "EmN": case "RfN": case "Cl+N": case "SNR": return 3;
+            case "PN": return 4;
+            default: return -1;   // Dup, *, **, NonEx, Nova, Other → scarta
+        }
+    }
+
+    static List<Dso> ReadOpenNgc(string path)
+    {
+        var list = new List<Dso>(1024);
+        using var sr = new StreamReader(path);
+        sr.ReadLine();   // header (campi fissi, separatore ';')
+        string line;
+        while ((line = sr.ReadLine()) != null)
+        {
+            var f = line.Split(';');
+            if (f.Length < 25) continue;
+            int cat = Category(f[1]);
+            if (cat < 0) continue;
+
+            if (!TryHms(f[2], out float raDeg) || !TryDms(f[3], out float decDeg)) continue;
+
+            float mag = TryF(f[9], out float v) ? v : (TryF(f[8], out float b) ? b : 11f);   // V, poi B, poi default
+            bool messier = !string.IsNullOrEmpty(f[24].Trim());
+            bool named = f.Length > 28 && !string.IsNullOrEmpty(f[28].Trim());
+            // tieni: Messier, o con nome comune, o abbastanza luminosi (le galassie deboli sono migliaia → soglia)
+            if (!messier && !named && !(mag <= 10.5f)) continue;
+
+            float major = TryF(f[5], out float maj) ? maj : 2f;   // asse maggiore in arcmin
+            float radArcmin = Mathf.Max(major * 0.5f, 0.5f);
+
+            var eq = EqUnit(raDeg, decDeg);
+            byte flags = (byte)((messier ? 1 : 0) | (named ? 2 : 0));
+            list.Add(new Dso { dir = SkyData.EquatorialToGame(eq), radArcmin = radArcmin, mag = mag, type = (byte)cat, flags = flags });
+        }
+        // ordina per luminosità: se mai servisse cappare, i più belli restano
+        list.Sort((a, b) => a.mag.CompareTo(b.mag));
+        return list;
+    }
+
+    static Vector3 EqUnit(float raDeg, float decDeg)
+    {
+        float ra = raDeg * Mathf.Deg2Rad, dec = decDeg * Mathf.Deg2Rad;
+        return new Vector3(Mathf.Cos(dec) * Mathf.Cos(ra), Mathf.Cos(dec) * Mathf.Sin(ra), Mathf.Sin(dec));
+    }
+
+    // "HH:MM:SS.s" → gradi (×15)
+    static bool TryHms(string s, out float deg)
+    {
+        deg = 0; var p = s.Split(':'); if (p.Length < 3) return false;
+        if (!TryF(p[0], out float h) || !TryF(p[1], out float m) || !TryF(p[2], out float sec)) return false;
+        deg = (h + m / 60f + sec / 3600f) * 15f; return true;
+    }
+
+    // "+DD:MM:SS.s" → gradi (con segno)
+    static bool TryDms(string s, out float deg)
+    {
+        deg = 0; s = s.Trim(); if (s.Length == 0) return false;
+        float sign = s[0] == '-' ? -1f : 1f;
+        var p = s.TrimStart('+', '-').Split(':'); if (p.Length < 3) return false;
+        if (!TryF(p[0], out float d) || !TryF(p[1], out float m) || !TryF(p[2], out float sec)) return false;
+        deg = sign * (d + m / 60f + sec / 3600f); return true;
+    }
+
+    static void WriteDsoBlob(string assetPath, List<Dso> dso)
+    {
+        using var ms = new MemoryStream();
+        using var w = new BinaryWriter(ms);
+        w.Write((byte)'W'); w.Write((byte)'D'); w.Write((byte)'S'); w.Write((byte)'O');
+        w.Write(Version);
+        w.Write(dso.Count);
+        foreach (var d in dso)
+        {
+            w.Write(Mathf.FloatToHalf(d.dir.x));
+            w.Write(Mathf.FloatToHalf(d.dir.y));
+            w.Write(Mathf.FloatToHalf(d.dir.z));
+            w.Write(Mathf.FloatToHalf(d.radArcmin));
+            w.Write(Mathf.FloatToHalf(d.mag));
+            w.Write(d.type); w.Write(d.flags);
         }
         File.WriteAllBytes(assetPath, ms.ToArray());
     }

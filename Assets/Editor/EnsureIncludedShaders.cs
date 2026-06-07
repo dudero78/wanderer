@@ -23,6 +23,8 @@ public static class EnsureIncludedShaders
         "Wanderer/StarPoint",          // campo stellare del cielo (catalogo HYG): quad billboard additivi
         "Wanderer/StarHalo",           // alone delle stelle più brillanti (showpiece)
         "Wanderer/MilkyWay",           // banda della Via Lattea (equirettangolare equatoriale)
+        "Wanderer/DeepSkyBillboard",   // deep-sky (galassie/nebulose/ammassi) tipizzati
+        "Wanderer/ConstellationLine",  // linee delle costellazioni (toggle C)
         "Unlit/Color",                 // disco della stella + scanalatura luminosa della sonda
         "Standard",                    // corpo METALLICO della sonda e dell'omino-tuta (creato a runtime via Shader.Find)
     };
