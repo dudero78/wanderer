@@ -20,6 +20,7 @@ public class ConstellationLines : MonoBehaviour
     Material mat;
     float alpha, target;
     readonly List<(Vector3 dir, string name)> labels = new List<(Vector3, string)>();   // stelle + centroidi
+    readonly List<Vector2> placed = new List<Vector2>();   // posizioni etichette già disegnate (anti-sovrapposizione)
 
     public void Build(Transform root, int layer, Camera cam)
     {
@@ -29,29 +30,42 @@ public class ConstellationLines : MonoBehaviour
         var sh = Shader.Find("Wanderer/ConstellationLine");
         if (sh == null) { Debug.LogError("[sky] shader Wanderer/ConstellationLine non trovato (Always Included?)."); return; }
 
-        var verts = new List<Vector3>();
-        var idx = new List<int>();
+        // raccogli i segmenti (coppie di direzioni) + le etichette
+        var segs = new List<(Vector3 a, Vector3 b)>();
         foreach (var f in figs)
         {
-            int b = verts.Count;
             var dirs = new Vector3[f.radec.Length];
             for (int i = 0; i < f.radec.Length; i++)
             {
                 dirs[i] = SkyData.StarDirection(f.radec[i].x, f.radec[i].y);
-                verts.Add(dirs[i] * Radius);
                 if (f.starName != null && i < f.starName.Length && !string.IsNullOrEmpty(f.starName[i]))
                     labels.Add((dirs[i], f.starName[i]));
             }
-            for (int s = 0; s + 1 < f.seg.Length; s += 2) { idx.Add(b + f.seg[s]); idx.Add(b + f.seg[s + 1]); }
-
-            // centroide della figura per l'etichetta del nome
+            for (int s = 0; s + 1 < f.seg.Length; s += 2) segs.Add((dirs[f.seg[s]], dirs[f.seg[s + 1]]));
             var cen = Vector3.zero; foreach (var d in dirs) cen += d;
             if (cen.sqrMagnitude > 1e-6f) labels.Add((cen.normalized, f.name.ToUpperInvariant()));
         }
 
-        var mesh = new Mesh { name = "Constellations" };
+        // ogni segmento = un QUAD (espanso a spessore-px costante nel vertex shader): nucleo morbido = linea liscia.
+        var verts = new List<Vector3>(segs.Count * 4);
+        var norms = new List<Vector3>(segs.Count * 4);
+        var uvs = new List<Vector2>(segs.Count * 4);
+        var tris = new List<int>(segs.Count * 6);
+        foreach (var (a, b) in segs)
+        {
+            Vector3 pa = a * Radius, pb = b * Radius, tan = (pb - pa).normalized;
+            int bi = verts.Count;
+            verts.Add(pa); verts.Add(pa); verts.Add(pb); verts.Add(pb);
+            norms.Add(tan); norms.Add(tan); norms.Add(tan); norms.Add(tan);
+            uvs.Add(new Vector2(0, 0)); uvs.Add(new Vector2(0, 1)); uvs.Add(new Vector2(1, 1)); uvs.Add(new Vector2(1, 0));
+            tris.Add(bi); tris.Add(bi + 1); tris.Add(bi + 2); tris.Add(bi); tris.Add(bi + 2); tris.Add(bi + 3);
+        }
+
+        var mesh = new Mesh { name = "Constellations", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
         mesh.SetVertices(verts);
-        mesh.SetIndices(idx.ToArray(), MeshTopology.Lines, 0);
+        mesh.SetNormals(norms);
+        mesh.SetUVs(0, uvs);
+        mesh.SetTriangles(tris, 0, false);
         mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 1e9f);
 
         var go = new GameObject("Constellations");
@@ -80,13 +94,27 @@ public class ConstellationLines : MonoBehaviour
         var style = GUI.skin.label;
         var prev = GUI.color;
         Vector3 origin = skyRoot != null ? skyRoot.position : playerCam.transform.position;
+        // WorldToScreenPoint dà coordinate nella RenderTexture della camera (ridotta dal RenderScaler): riscalale a
+        // schermo pieno, altrimenti le etichette si ammucchiano verso un angolo (disallineate dalle stelle disegnate).
+        float sx = (float)Screen.width / Mathf.Max(1, playerCam.pixelWidth);
+        float sy = (float)Screen.height / Mathf.Max(1, playerCam.pixelHeight);
+        placed.Clear();
         for (int i = 0; i < labels.Count; i++)
         {
             Vector3 world = origin + labels[i].dir * Radius;
             Vector3 sp = playerCam.WorldToScreenPoint(world);
             if (sp.z <= 0) continue;
-            float x = sp.x, y = Screen.height - sp.y;
+            float x = sp.x * sx, y = Screen.height - sp.y * sy;
             if (x < 0 || x > Screen.width || y < 0 || y > Screen.height) continue;
+
+            // anti-sovrapposizione: salta se troppo vicina a un'etichetta già messa
+            bool clash = false;
+            var p = new Vector2(x, y);
+            for (int k = 0; k < placed.Count; k++)
+                if ((placed[k] - p).sqrMagnitude < 34f * 34f) { clash = true; break; }
+            if (clash) continue;
+            placed.Add(p);
+
             bool isFig = labels[i].name == labels[i].name.ToUpperInvariant() && labels[i].name.Length > 2;
             GUI.color = isFig ? new Color(0.6f, 0.8f, 1f, alpha * 0.7f) : new Color(0.85f, 0.9f, 1f, alpha * 0.85f);
             GUI.Label(new Rect(x + 6, y - 8, 200, 20), labels[i].name, style);

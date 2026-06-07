@@ -16,7 +16,7 @@ Shader "Wanderer/StarPoint"
     Properties
     {
         _M0        ("Magnitudine di riferimento (flusso=1)", Float) = 6.5
-        _Exposure  ("Esposizione", Float) = 0.85
+        _Exposure  ("Esposizione", Float) = 0.55
         _Gain      ("Guadagno tone-map", Float) = 0.5
         _MinPx     ("Disco minimo (px)", Float) = 1.3
         _MaxPx     ("Disco massimo (px)", Float) = 10.0

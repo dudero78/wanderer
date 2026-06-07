@@ -13,7 +13,7 @@ Shader "Wanderer/StarHalo"
         _HaloMinPx ("Raggio minimo (px)", Float) = 8.0
         _HaloMaxPx ("Raggio massimo (px)", Float) = 55.0
         _HaloFall  ("Durezza caduta", Float) = 2.5
-        _HaloStr   ("Intensità", Float) = 0.65
+        _HaloStr   ("Intensità", Float) = 0.42
         _HaloFluxRef ("Flusso di riferimento (forza alone)", Float) = 250.0
     }
     SubShader

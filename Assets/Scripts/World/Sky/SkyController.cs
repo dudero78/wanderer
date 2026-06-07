@@ -18,6 +18,7 @@ public class SkyController : MonoBehaviour
     Transform skyRoot;
     Camera playerCam;
     RenderScaler playerScaler;
+    MilkyWayBand milkyWay;
     int skyLayer;
     int skyMask;
     float baseFov = 52f;   // FOV "occhio nudo" di riferimento: zoom = (tan(base/2)/tan(fov/2))²
@@ -36,9 +37,9 @@ public class SkyController : MonoBehaviour
 
         Shader.SetGlobalFloat("_SkyZoom", 1f);   // occhio nudo (lo strumento ottico lo alzerà)
 
-        // Via Lattea (velo additivo dietro le stelle): costruita PRIMA così l'ordine in gerarchia è naturale; l'ordine
-        // di disegno vero lo dà la render-queue (MilkyWay Background+5 < stelle +10).
-        rootGo.AddComponent<MilkyWayBand>().Build(skyRoot, skyLayer);
+        // Via Lattea (velo additivo dietro le stelle): pass a schermo intero, i raggi aggiornati ogni frame in LateUpdate.
+        milkyWay = rootGo.AddComponent<MilkyWayBand>();
+        milkyWay.Build(skyRoot, skyLayer);
 
         var stars = rootGo.AddComponent<StarFieldRenderer>();
         if (!stars.Build(skyRoot, skyLayer))
@@ -71,6 +72,8 @@ public class SkyController : MonoBehaviour
         float mag = t0 / Mathf.Max(t, 1e-4f);
         Shader.SetGlobalFloat("_SkyZoom", Mathf.Max(mag * mag, 1f));
         Shader.SetGlobalFloat("_SkyTanHalfFov", t);   // raggio angolare dei deep-sky → pixel (dimensione cresce con lo zoom)
+
+        if (milkyWay != null) milkyWay.UpdateRays(cam);   // raggi-di-vista per il pass a schermo intero
     }
 
     /// <summary>La camera che disegna il cielo ADESSO: quella attiva il cui cullingMask include il layer Sky

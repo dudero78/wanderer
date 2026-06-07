@@ -113,7 +113,8 @@ public class PauseMenu : MonoBehaviour
     };
     static readonly Section[] ColRight =
     {
-        new Section("STRUMENTI", new[] { new Cmd("F", "torcia"), new Cmd("M", "mappa"), new Cmd("O", "orbite a schermo") }),
+        new Section("STRUMENTI", new[] { new Cmd("F", "torcia"), new Cmd("M", "mappa"), new Cmd("O", "orbite a schermo"),
+            new Cmd("B", "binocolo / telescopio (cielo)"), new Cmd("C", "costellazioni") }),
         new Section("SONDA", new[] { new Cmd("P", "lancia"), new Cmd("V", "guarda attraverso"), new Cmd("K", "richiama"), new Cmd("G", "scatta una foto") }),
         new Section("MAPPA", new[] { new Cmd("Trascina sx / WASD", "sposta"), new Cmd("Trascina dx", "ruota"), new Cmd("Rotella", "zoom"), new Cmd("Click", "seleziona") }),
         new Section("INTERFACCIA", new[] { new Cmd("à", "impostazioni"), new Cmd("è", "perf. on/off"), new Cmd("ESC", "questo menu") }),

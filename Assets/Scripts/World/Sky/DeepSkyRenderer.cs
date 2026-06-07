@@ -74,82 +74,11 @@ public class DeepSkyRenderer : MonoBehaviour
         if (layer >= 0) go.layer = layer;
         go.AddComponent<MeshFilter>().sharedMesh = mesh;
         var mr = go.AddComponent<MeshRenderer>();
-        var mat = new Material(sh); mat.SetTexture("_Atlas", BuildAtlas(256));
-        mr.sharedMaterial = mat;
+        mr.sharedMaterial = new Material(sh);
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         mr.receiveShadows = false;
         mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
         mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
         return true;
-    }
-
-    /// <summary>Atlante 2×2 (solo alpha = forma; il colore lo dà la tinta per-vertice): galassia · ammasso aperto ·
-    /// globulare · nebulosa. Generato proceduralmente una volta.</summary>
-    static Texture2D BuildAtlas(int size)
-    {
-        int half = size / 2;
-        var px = new Color32[size * size];
-        var rng = new System.Random(12345);
-
-        // tile 0 (basso-sx): GALASSIA — ellisse soffusa + nucleo
-        FillTile(px, size, 0, 0, half, (x, y) =>
-        {
-            float a = Mathf.Exp(-(x * x * 1.6f + y * y * 4.2f)) + 0.7f * Mathf.Exp(-(x * x + y * y) * 16f);
-            return Mathf.Clamp01(a);
-        });
-        // tile 1 (basso-dx): AMMASSO APERTO — granelli sparsi
-        var dots = new List<Vector3>();   // x,y,intensità
-        for (int k = 0; k < 44; k++)
-            dots.Add(new Vector3((float)rng.NextDouble() * 2 - 1, (float)rng.NextDouble() * 2 - 1, 0.5f + (float)rng.NextDouble() * 0.5f));
-        FillTile(px, size, 1, 0, half, (x, y) =>
-        {
-            float a = 0.04f * Mathf.Exp(-(x * x + y * y) * 1.5f);   // velo tenue
-            foreach (var d in dots) a += d.z * Mathf.Exp(-((x - d.x) * (x - d.x) + (y - d.y) * (y - d.y)) * 420f);
-            return Mathf.Clamp01(a);
-        });
-        // tile 2 (alto-sx): GLOBULARE — denso, centro brillante + granuli concentrati
-        var gdots = new List<Vector3>();
-        for (int k = 0; k < 120; k++)
-        {
-            float ang = (float)rng.NextDouble() * 6.2832f;
-            float rr = Mathf.Pow((float)rng.NextDouble(), 1.7f) * 0.85f;   // concentrati al centro
-            gdots.Add(new Vector3(Mathf.Cos(ang) * rr, Mathf.Sin(ang) * rr, 0.4f + (float)rng.NextDouble() * 0.5f));
-        }
-        FillTile(px, size, 0, 1, half, (x, y) =>
-        {
-            float a = 0.55f * Mathf.Exp(-Mathf.Sqrt(x * x + y * y) * 3.0f);
-            foreach (var d in gdots) a += d.z * Mathf.Exp(-((x - d.x) * (x - d.x) + (y - d.y) * (y - d.y)) * 900f);
-            return Mathf.Clamp01(a);
-        });
-        // tile 3 (alto-dx): NEBULOSA — nuvola irregolare (somma di blob)
-        var blobs = new List<Vector4>();
-        for (int k = 0; k < 7; k++)
-            blobs.Add(new Vector4((float)rng.NextDouble() * 1.2f - 0.6f, (float)rng.NextDouble() * 1.2f - 0.6f,
-                                  0.5f + (float)rng.NextDouble() * 0.9f, 1.2f + (float)rng.NextDouble() * 3.5f));
-        FillTile(px, size, 1, 1, half, (x, y) =>
-        {
-            float a = 0f;
-            foreach (var b in blobs) a += b.z * Mathf.Exp(-((x - b.x) * (x - b.x) + (y - b.y) * (y - b.y)) * b.w);
-            return Mathf.Clamp01(a * 0.9f);
-        });
-
-        var tex = new Texture2D(size, size, TextureFormat.Alpha8, true) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear };
-        tex.SetPixels32(px);
-        tex.Apply(true);
-        return tex;
-    }
-
-    // riempie un tile [tx,ty] (in unità di 'tile' size = half) con f(x,y) in coord [-1,1] → alpha
-    static void FillTile(Color32[] px, int size, int tx, int ty, int tile, System.Func<float, float, float> f)
-    {
-        int ox = tx * tile, oy = ty * tile;
-        float c = (tile - 1) * 0.5f;
-        for (int y = 0; y < tile; y++)
-            for (int x = 0; x < tile; x++)
-            {
-                float fx = (x - c) / c, fy = (y - c) / c;
-                byte a = (byte)(Mathf.Clamp01(f(fx, fy)) * 255f);
-                px[(oy + y) * size + (ox + x)] = new Color32(255, 255, 255, a);
-            }
     }
 }
