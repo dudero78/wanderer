@@ -75,16 +75,17 @@ Shader "Wanderer/StarPoint"
                 // comparsa: sotto soglia → disco nullo (quad degenere, niente fragment)
                 float keep = step(_RevealThresh, I);
 
-                // SOLO al telescopio SPINTO (hz: 0 fino a ~50×, 1 a ~max zoom) le stelle diventano più grandi e VARIE:
-                // disco massimo più grande, disco minimo un filo più grande (le deboli non più puntini tutti uguali) e
-                // mappatura luminosità→dimensione più ripida (più gerarchia). A occhio nudo/binocolo/telescopio ai primi
-                // ingrandimenti tutto INVARIATO (hz≈0) — è il look che piace a Dario.
-                float hz = saturate((zoom - 170.0) / 630.0);
-                float grow = saturate(log2(max(I, 1.0)) * _SizeScale * (1.0 + hz * 1.6));
+                // hz = quanto siamo "al telescopio spinto" (0 sotto ~40×, sale fino a max zoom). NON tocco la 'grow'
+                // (la mappatura luminosità→dimensione): se la potenzio SATURA e tornano tutte uguali. La varietà sta
+                // proprio nella grow non saturata; il telescopio spinto fa solo CRESCERE la scala (disco max e min più
+                // grandi) → le brillanti dischi grossi, le deboli puntini un filo più grandi, sempre VARIE e mai più
+                // piccole salendo. A occhio nudo/binocolo/primi ingrandimenti tutto INVARIATO (hz≈0).
+                float hz = saturate((zoom - 110.0) / 690.0);
+                float grow = saturate(log2(max(I, 1.0)) * _SizeScale);
                 float pxScale = _SkyPxScale <= 0.0 ? 1.0 : _SkyPxScale;   // compensa la risoluzione dinamica → apparenza costante
                 float zoomGrow = 1.0 + _ZoomGrow * log2(zoom);            // col binocolo/telescopio le stelle "ingrandiscono"
-                float effMaxPx = _MaxPx * (1.0 + hz * 1.4);
-                float effMinPx = _MinPx * (1.0 + hz * 1.0);
+                float effMaxPx = _MaxPx * (1.0 + hz * 1.8);
+                float effMinPx = _MinPx * (1.0 + hz * 1.2);
                 float px = lerp(effMinPx, effMaxPx, grow) * keep * pxScale * zoomGrow;
 
                 // tone-map: deboli nel tratto lineare, brillanti che saturano (fioriscono)
