@@ -20,11 +20,13 @@ public class SkyController : MonoBehaviour
     RenderScaler playerScaler;
     int skyLayer;
     int skyMask;
+    float baseFov = 52f;   // FOV "occhio nudo" di riferimento: zoom = (tan(base/2)/tan(fov/2))²
 
     public void Init(Camera playerCamera)
     {
         playerCam = playerCamera;
         playerScaler = playerCamera != null ? playerCamera.GetComponent<RenderScaler>() : null;
+        if (playerCamera != null) baseFov = playerCamera.fieldOfView;
         skyLayer = LayerMask.NameToLayer(SkyLayerName);   // -1 se il layer non esiste: il cielo resta su Default (la mappa lo esclude comunque)
         skyMask = skyLayer >= 0 ? (1 << skyLayer) : ~0;
 
@@ -33,6 +35,10 @@ public class SkyController : MonoBehaviour
         skyRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
 
         Shader.SetGlobalFloat("_SkyZoom", 1f);   // occhio nudo (lo strumento ottico lo alzerà)
+
+        // Via Lattea (velo additivo dietro le stelle): costruita PRIMA così l'ordine in gerarchia è naturale; l'ordine
+        // di disegno vero lo dà la render-queue (MilkyWay Background+5 < stelle +10).
+        rootGo.AddComponent<MilkyWayBand>().Build(skyRoot, skyLayer);
 
         var stars = rootGo.AddComponent<StarFieldRenderer>();
         if (!stars.Build(skyRoot, skyLayer))
@@ -50,6 +56,14 @@ public class SkyController : MonoBehaviour
         // scendere ancora la scala → pulsare. Passando la scala allo shader l'apparenza resta costante e il ciclo si spezza.
         float pxScale = (cam == playerCam && playerScaler != null) ? playerScaler.scale : 1f;
         Shader.SetGlobalFloat("_SkyPxScale", pxScale);
+
+        // ZOOM = magnificazione² rispetto alla FOV occhio-nudo: restringendo il campo (binocolo/telescopio, o anche lo
+        // slider FOV) le stelle DEBOLI attraversano la soglia di visibilità → "emergono", come davanti a un vero
+        // strumento che concentra più luce nello stesso schermo. A campo largo (sonda) resta ≤1 (clampato nello shader).
+        float t0 = Mathf.Tan(baseFov * 0.5f * Mathf.Deg2Rad);
+        float t = Mathf.Tan(Mathf.Max(cam.fieldOfView, 0.05f) * 0.5f * Mathf.Deg2Rad);
+        float mag = t0 / Mathf.Max(t, 1e-4f);
+        Shader.SetGlobalFloat("_SkyZoom", Mathf.Max(mag * mag, 1f));
     }
 
     /// <summary>La camera che disegna il cielo ADESSO: quella attiva il cui cullingMask include il layer Sky
