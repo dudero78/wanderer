@@ -329,6 +329,10 @@ public static class StarCatalogBakeTool
                 float areaArcsec2 = Mathf.PI * (major * minor / 4f) * 3600f;   // major,minor in arcmin → arcsec²
                 surfBr = areaArcsec2 > 1f ? mag + 2.5f * Mathf.Log10(areaArcsec2) : mag + 6f;
             }
+            // compressione dell'estremo BRILLANTE: le foto (Hubble, molto stirate) appaiono troppo vivide a basso
+            // ingrandimento → avvicino a ~24 gli oggetti con superficie più brillante, lasciando intatti i deboli
+            // (Pleiadi/galassie). Così Orione non è più "troppo luminoso" a 7×, il resto resta com'è.
+            surfBr += Mathf.Max(0f, 24f - surfBr) * 0.5f;
 
             var eq = EqUnit(raDeg, decDeg);
             byte flags = (byte)((messier ? 1 : 0) | (named ? 2 : 0));
