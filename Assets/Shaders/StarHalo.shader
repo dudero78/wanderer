@@ -57,8 +57,11 @@ Shader "Wanderer/StarHalo"
                 float zoom = max(_SkyZoom, 1.0);
                 float pxScale = _SkyPxScale <= 0.0 ? 1.0 : _SkyPxScale;
 
-                // raggio dell'alone: cresce col flusso e (poco) con lo zoom, clampato per non esplodere
-                float px = clamp(_HaloBasePx * pow(flux, _HaloPow) * sqrt(zoom), _HaloMinPx, _HaloMaxPx) * pxScale;
+                // raggio dell'alone: cresce col flusso e con lo zoom (sqrt). Il TETTO cresce dal binocolo in su → le
+                // brillanti si INGRANDISCONO salendo d'ingrandimento invece di restare "tappate" a un disco fisso (che,
+                // mentre tutto il resto magnifica, sembrava rimpicciolire da 7× a 20×). A occhio nudo/binocolo invariato.
+                float haloMax = _HaloMaxPx * (1.0 + saturate((zoom - 13.0) / 100.0) * 2.0);
+                float px = clamp(_HaloBasePx * pow(flux, _HaloPow) * sqrt(zoom), _HaloMinPx, haloMax) * pxScale;
 
                 // intensità ∝ flusso: solo le DAVVERO brillanti fioriscono; le showpiece deboli (mag~2) quasi niente
                 // → poche perle che spiccano invece di un campo ovattato.
