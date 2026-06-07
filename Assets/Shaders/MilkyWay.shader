@@ -70,10 +70,10 @@ Shader "Wanderer/MilkyWay"
                 fixed3 c = tex2Dgrad(_MainTex, uv, float2(dux, dvx), float2(duy, dvy)).rgb;
 
                 c = max(c * _Boost - _Floor, 0.0);
-                // DISSOLVENZA con lo zoom: la texture è a bassa risoluzione angolare → ingrandita molto diventa "blob"
-                // sfocati. La banda diffusa è giusta a occhio nudo/binocolo; oltre ~10× sfuma fino a sparire entro ~22×,
-                // lasciando le STELLE nitide (la nebbiolina "si risolve", come in un vero telescopio).
-                float zoomFade = saturate(1.0 - (_SkyZoom - 20.0) / 35.0);
+                // DISSOLVENZA con lo zoom: la texture è a bassa risoluzione angolare → ingrandita "spara" e diventa blob.
+                // A occhio nudo resta piena (la bella banda); appena zoomi cala, ed entro ~10× è sparita → resta il campo
+                // di stelle nitide (la nebbiolina "si risolve", come in un vero telescopio). A 7× ≈ 42%.
+                float zoomFade = saturate(1.0 - (_SkyZoom - 1.0) / 20.0);
                 return fixed4(c * _Strength * zoomFade * _Tint.rgb, 1.0);
             }
             ENDCG
