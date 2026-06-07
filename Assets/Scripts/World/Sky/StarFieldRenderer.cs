@@ -15,7 +15,10 @@ public class StarFieldRenderer : MonoBehaviour
 {
     public const float Radius = 100f;   // raggio della sfera-cielo (entro near/far della camera; non è una distanza vera)
 
-    GameObject fieldGo, haloGo, deepGo;
+    const int CellM = 5;   // suddivisione per faccia del cubo → 6·M·M = 150 celle di cielo per il culling del campo profondo
+
+    GameObject fieldGo, haloGo, deepParent;
+    Material deepMat;
 
     /// <summary>Costruisce campo + aloni + (se c'è) il campo PROFONDO, come figli di <paramref name="root"/>.</summary>
     public bool Build(Transform root, int layer)
@@ -32,15 +35,12 @@ public class StarFieldRenderer : MonoBehaviour
         for (int i = 0; i < SkyData.Count; i++) if ((SkyData.Flags[i] & 2) != 0) bright.Add(i);
         if (bright.Count > 0) haloGo = BuildMeshObject(root, layer, "StarHalos", bright, "Wanderer/StarHalo", SkyData.Dir, SkyData.Mag, SkyData.Flags, SkyData.Color);
 
-        // CAMPO PROFONDO (ATHYG): stelle deboli che si vedono solo zoomando. Mesh separato, INIZIALMENTE SPENTO:
-        // SkyController lo accende solo col binocolo/telescopio → a occhio nudo (mentre voli) non costa nulla.
+        // CAMPO PROFONDO (ATHYG/Gaia): milioni di stelle deboli che si vedono solo zoomando. INIZIALMENTE SPENTO
+        // (SkyController lo accende col binocolo/telescopio → a occhio nudo, mentre voli, non costa nulla) E suddiviso
+        // in CELLE di cielo: Unity fa il frustum-culling di ogni cella → al telescopio (campo strettissimo) disegna solo
+        // le poche celle inquadrate invece di tutte le stelle → si può andare profondi senza affossare le performance.
         if (SkyData.LoadDeep() && SkyData.DeepCount > 0)
-        {
-            var deep = new List<int>(SkyData.DeepCount);
-            for (int i = 0; i < SkyData.DeepCount; i++) deep.Add(i);
-            deepGo = BuildMeshObject(root, layer, "StarFieldDeep", deep, "Wanderer/StarPoint", SkyData.DeepDir, SkyData.DeepMag, null, SkyData.DeepColor);
-            if (deepGo != null) deepGo.SetActive(false);
-        }
+            BuildDeepCells(root, layer);
 
         return fieldGo != null;
     }
@@ -48,7 +48,68 @@ public class StarFieldRenderer : MonoBehaviour
     /// <summary>Accende/spegne il campo profondo (chiamato da SkyController in base allo zoom dello strumento).</summary>
     public void SetDeepEnabled(bool on)
     {
-        if (deepGo != null && deepGo.activeSelf != on) deepGo.SetActive(on);
+        if (deepParent != null && deepParent.activeSelf != on) deepParent.SetActive(on);
+    }
+
+    /// <summary>Cella di cielo (0..6·M·M) di una direzione, via proiezione cube-face (celle ~uniformi, niente poli degeneri).</summary>
+    static int CellIndex(Vector3 d)
+    {
+        float ax = Mathf.Abs(d.x), ay = Mathf.Abs(d.y), az = Mathf.Abs(d.z);
+        int face; float u, v;
+        if (ax >= ay && ax >= az) { face = d.x > 0 ? 0 : 1; u = d.y / ax; v = d.z / ax; }
+        else if (ay >= az)        { face = d.y > 0 ? 2 : 3; u = d.x / ay; v = d.z / ay; }
+        else                      { face = d.z > 0 ? 4 : 5; u = d.x / az; v = d.y / az; }
+        int cx = Mathf.Clamp((int)((u * 0.5f + 0.5f) * CellM), 0, CellM - 1);
+        int cy = Mathf.Clamp((int)((v * 0.5f + 0.5f) * CellM), 0, CellM - 1);
+        return (face * CellM + cy) * CellM + cx;
+    }
+
+    /// <summary>Costruisce il campo profondo come UNA mesh per cella di cielo (bounds STRETTI → frustum-culling di Unity),
+    /// tutte figlie di un parent che fa da interruttore. Un solo materiale condiviso fra le celle.</summary>
+    void BuildDeepCells(Transform root, int layer)
+    {
+        var sh = Shader.Find("Wanderer/StarPoint");
+        if (sh == null) { Debug.LogError("[sky] shader Wanderer/StarPoint non trovato."); return; }
+
+        deepParent = new GameObject("StarFieldDeep");
+        deepParent.transform.SetParent(root, false);
+        if (layer >= 0) deepParent.layer = layer;
+        deepParent.SetActive(false);   // acceso solo zoomando
+
+        int nCells = 6 * CellM * CellM;
+        var bins = new List<int>[nCells];
+        for (int i = 0; i < SkyData.DeepCount; i++)
+        {
+            int c = CellIndex(SkyData.DeepDir[i]);
+            (bins[c] ?? (bins[c] = new List<int>())).Add(i);
+        }
+
+        deepMat = new Material(sh);
+        // Costruisco le celle su PIÙ FRAME (~6/frame): 2.4M stelle in un colpo solo darebbero un singhiozzo al
+        // caricamento. Il campo profondo è spento finché non zoomi, quindi la costruzione progressiva è invisibile.
+        StartCoroutine(BuildCellsRoutine(bins, nCells, layer));
+    }
+
+    System.Collections.IEnumerator BuildCellsRoutine(List<int>[] bins, int nCells, int layer)
+    {
+        int built = 0;
+        for (int c = 0; c < nCells; c++)
+        {
+            if (bins[c] == null || bins[c].Count == 0) continue;
+            if (deepParent == null) yield break;   // cielo distrutto nel frattempo
+            var mesh = BuildQuadMesh("deepCell" + c, bins[c], SkyData.DeepDir, SkyData.DeepMag, null, SkyData.DeepColor, true);
+            var go = new GameObject("cell" + c);
+            go.transform.SetParent(deepParent.transform, false);
+            if (layer >= 0) go.layer = layer;
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = deepMat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            if (++built % 6 == 0) yield return null;
+        }
     }
 
     static GameObject BuildMeshObject(Transform root, int layer, string name, List<int> idx, string shaderName,
@@ -73,7 +134,7 @@ public class StarFieldRenderer : MonoBehaviour
 
     /// <summary>Una mesh di quad billboard (4 vert/stella) per le stelle in <paramref name="idx"/>. Per-vertice:
     /// posizione = direzione×Radius, uv.xy = angolo del quad (±1), uv.z = magnitudine, uv.w = tier, colore = B−V.</summary>
-    static Mesh BuildQuadMesh(string name, List<int> idx, Vector3[] dir, float[] mag, byte[] flags, Color32[] color)
+    static Mesh BuildQuadMesh(string name, List<int> idx, Vector3[] dir, float[] mag, byte[] flags, Color32[] color, bool tightBounds = false)
     {
         int n = idx.Count;
         var verts = new Vector3[n * 4];
@@ -109,7 +170,10 @@ public class StarFieldRenderer : MonoBehaviour
         mesh.SetUVs(0, uv);
         mesh.SetColors(cols);
         mesh.SetTriangles(tris, 0, false);
-        mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 1e9f);   // mai cullata
+        // bounds STRETTI (celle del campo profondo) → frustum-culling per cella; ENORMI (campo/aloni interi) → mai cullati
+        // (la camera è dentro la sfera). Le posizioni stanno a Radius attorno al centro della bolla che segue la camera.
+        if (tightBounds) mesh.RecalculateBounds();
+        else mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 1e9f);
         mesh.UploadMeshData(true);
         return mesh;
     }

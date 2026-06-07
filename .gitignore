@@ -41,7 +41,8 @@ build-test.app/
 # Cataloghi astronomici GREZZI (HYG/OpenNGC) + foto deep-sky scaricate: riscaricabili, il bake è il derivato.
 /StarData/
 
-# Texture PESANTI del cielo (foto): atlante deep-sky (~50 MB) + Via Lattea NASA (~22 MB). Rigenerabili dagli script
-# in StarData (build_dso_atlas.py / conversione EXR) + bake. I blob piccoli (.bytes) restano versionati.
+# Texture PESANTI del cielo (foto): atlante deep-sky (~50 MB) + Via Lattea NASA (~22 MB) + campo profondo (~29 MB, 2.4M
+# stelle Gaia). Rigenerabili dagli script in StarData + bake. I blob piccoli (.bytes) restano versionati.
 /[Aa]ssets/[Rr]esources/[Ss]ky/dso_atlas.png*
 /[Aa]ssets/[Rr]esources/[Ss]ky/MilkyWay.png*
+/[Aa]ssets/[Rr]esources/[Ss]ky/deepstars.bytes*

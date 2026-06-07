@@ -57,16 +57,28 @@ public static class StarCatalogBakeTool
 
         WriteStarBlob("Assets/Resources/Sky/stars.bytes", stars, nakedCount);
 
-        // CAMPO PROFONDO (opzionale): ATHYG ridotto a mag 10 — milioni... no, ~330k stelle, di cui teniamo solo quelle
-        // NON già nell'HYG (colonna 'hyg' vuota) → niente doppioni. Sono le deboli (mag 7-10) che si vedono solo con
-        // binocolo/telescopio. Mesh separato, acceso solo zoomando (vedi StarFieldRenderer/SkyController) → costo ZERO
-        // a occhio nudo. File: StarData/athyg_m10.csv.gz.
+        // CAMPO PROFONDO: ATHYG, di cui teniamo SOLO le stelle NON già nell'HYG (colonna 'hyg' vuota) → niente doppioni.
+        // Sono le deboli (mag 7-13) che risolvono la Via Lattea, viste solo con binocolo/telescopio. Mesh per-CELLA acceso
+        // solo zoomando (StarFieldRenderer fa il culling) → costo ZERO a occhio nudo. PREFERISCO il database COMPLETO
+        // (athyg_v32-1/-2, ~2.4M stelle a mag 13, molto più denso) → ripiego sui ridotti m11/m10 se manca.
         int deepCount = 0;
-        string athygPath = Path.Combine(srcDir, "athyg_m11.csv.gz");                 // più denso (preferito)
-        if (!File.Exists(athygPath)) athygPath = Path.Combine(srcDir, "athyg_m10.csv.gz");   // fallback
-        if (File.Exists(athygPath))
+        var athygParts = new List<string>();
+        if (File.Exists(Path.Combine(srcDir, "athyg_v32-1.csv.gz")))
         {
-            try { var deep = ReadAthygDeep(athygPath); WriteStarBlob("Assets/Resources/Sky/deepstars.bytes", deep, 0); deepCount = deep.Count; }
+            athygParts.Add(Path.Combine(srcDir, "athyg_v32-1.csv.gz"));
+            if (File.Exists(Path.Combine(srcDir, "athyg_v32-2.csv.gz"))) athygParts.Add(Path.Combine(srcDir, "athyg_v32-2.csv.gz"));
+        }
+        else if (File.Exists(Path.Combine(srcDir, "athyg_m11.csv.gz"))) athygParts.Add(Path.Combine(srcDir, "athyg_m11.csv.gz"));
+        else if (File.Exists(Path.Combine(srcDir, "athyg_m10.csv.gz"))) athygParts.Add(Path.Combine(srcDir, "athyg_m10.csv.gz"));
+        if (athygParts.Count > 0)
+        {
+            try
+            {
+                var deep = new List<Star>(2600000);
+                foreach (var p in athygParts) ReadAthygDeep(p, deep);
+                WriteStarBlob("Assets/Resources/Sky/deepstars.bytes", deep, 0);
+                deepCount = deep.Count;
+            }
             catch (System.Exception e) { Debug.LogError("Bake: campo profondo (ATHYG) saltato: " + e.Message); }
         }
 
@@ -92,17 +104,18 @@ public static class StarCatalogBakeTool
 
     /// <summary>Campo profondo da ATHYG (gz): tiene SOLO le stelle non presenti nell'HYG (colonna 'hyg' vuota) → niente
     /// doppioni. Direzione da x0/y0/z0 (normalizzati, frame eclittica di gioco) come l'HYG; colore dal B−V (ci).</summary>
-    static List<Star> ReadAthygDeep(string gzPath)
+    const float DeepMagMax = 13.5f;   // limite del campo profondo (ATHYG v3.2 arriva ~mag 13)
+
+    static void ReadAthygDeep(string gzPath, List<Star> list)
     {
-        var list = new List<Star>(400000);
         using var sr = new StreamReader(new GZipStream(File.OpenRead(gzPath), CompressionMode.Decompress));
         string header = sr.ReadLine();
-        if (header == null) return list;
+        if (header == null) return;
         // mappa colonne PROPRIA (non MapColumns, che è specifica HYG e pretende x/y/z): ATHYG ha x0/y0/z0
         var hf = SplitCsv(header);
         var col = new Dictionary<string, int>();
         for (int i = 0; i < hf.Count; i++) col[hf[i].Trim().ToLowerInvariant()] = i;
-        if (!col.ContainsKey("hyg") || !col.ContainsKey("x0") || !col.ContainsKey("mag")) { Debug.LogWarning("ATHYG: colonne inattese."); return list; }
+        if (!col.ContainsKey("hyg") || !col.ContainsKey("x0") || !col.ContainsKey("mag")) { Debug.LogWarning("ATHYG: colonne inattese."); return; }
         int iHyg = col["hyg"], iX = col["x0"], iY = col["y0"], iZ = col["z0"], iMag = col["mag"];
         int iCi = col.TryGetValue("ci", out int c0) ? c0 : -1;
         string line;
@@ -112,16 +125,15 @@ public static class StarCatalogBakeTool
             var f = SplitCsv(line);
             if (f.Count <= iZ) continue;
             if (!string.IsNullOrEmpty(f[iHyg].Trim())) continue;   // già nell'HYG → salta (no doppioni)
+            if (!TryF(f[iMag], out float mag) || mag > DeepMagMax) continue;
             if (!TryF(f[iX], out float x) || !TryF(f[iY], out float y) || !TryF(f[iZ], out float z)) continue;
             var dir = new Vector3(x, y, z); float len = dir.magnitude;
             if (len < 1e-6f) continue;
             dir = SkyData.EquatorialToGame(dir / len);
-            if (!TryF(f[iMag], out float mag)) continue;
             float bv = (iCi >= 0 && TryF(f[iCi], out float ci)) ? ci : 0.6f;
             BvToRgb(bv, out byte r, out byte g, out byte b);
             list.Add(new Star { dir = dir, mag = mag, r = r, g = g, b = b, flags = 0 });
         }
-        return list;
     }
 
     // ---- Lettura HYG ----------------------------------------------------------------------------------------------
