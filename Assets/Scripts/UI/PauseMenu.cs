@@ -52,6 +52,7 @@ public class PauseMenu : MonoBehaviour
         if (walker != null) walker.ControlsActive = !f;
         Cursor.lockState = f ? CursorLockMode.None : CursorLockMode.Locked;
         Cursor.visible = f;
+        Time.timeScale = f ? 0f : 1f;   // ESC mette in PAUSA il gioco (sim/fisica/orbite ferme); l'UI IMGUI gira lo stesso
     }
 
     void OnGUI()

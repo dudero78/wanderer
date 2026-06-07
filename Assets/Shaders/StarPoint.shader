@@ -75,14 +75,17 @@ Shader "Wanderer/StarPoint"
                 // comparsa: sotto soglia → disco nullo (quad degenere, niente fragment)
                 float keep = step(_RevealThresh, I);
 
-                // dimensione: minima per (quasi) tutte (I≤1 → disco minimo), cresce solo per le luminose
-                float grow = saturate(log2(max(I, 1.0)) * _SizeScale);
+                // SOLO al telescopio SPINTO (hz: 0 fino a ~50×, 1 a ~max zoom) le stelle diventano più grandi e VARIE:
+                // disco massimo più grande, disco minimo un filo più grande (le deboli non più puntini tutti uguali) e
+                // mappatura luminosità→dimensione più ripida (più gerarchia). A occhio nudo/binocolo/telescopio ai primi
+                // ingrandimenti tutto INVARIATO (hz≈0) — è il look che piace a Dario.
+                float hz = saturate((zoom - 170.0) / 630.0);
+                float grow = saturate(log2(max(I, 1.0)) * _SizeScale * (1.0 + hz * 1.6));
                 float pxScale = _SkyPxScale <= 0.0 ? 1.0 : _SkyPxScale;   // compensa la risoluzione dinamica → apparenza costante
                 float zoomGrow = 1.0 + _ZoomGrow * log2(zoom);            // col binocolo/telescopio le stelle "ingrandiscono"
-                // i dischi delle BRILLANTI crescono SOLO ad alto ingrandimento (zoom 100→400 ≈ 40×→100×) → più varietà
-                // di dimensione al telescopio spinto, mentre a occhio nudo/binocolo restano invariati.
-                float effMaxPx = lerp(_MaxPx, _MaxPx * 1.6, saturate((zoom - 100.0) / 300.0));
-                float px = lerp(_MinPx, effMaxPx, grow) * keep * pxScale * zoomGrow;
+                float effMaxPx = _MaxPx * (1.0 + hz * 1.4);
+                float effMinPx = _MinPx * (1.0 + hz * 1.0);
+                float px = lerp(effMinPx, effMaxPx, grow) * keep * pxScale * zoomGrow;
 
                 // tone-map: deboli nel tratto lineare, brillanti che saturano (fioriscono)
                 float lum = 1.0 - exp(-I * _Gain);

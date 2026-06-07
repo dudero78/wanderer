@@ -70,10 +70,9 @@ Shader "Wanderer/MilkyWay"
                 fixed3 c = tex2Dgrad(_MainTex, uv, float2(dux, dvx), float2(duy, dvy)).rgb;
 
                 c = max(c * _Boost - _Floor, 0.0);
-                // DISSOLVENZA con lo zoom: la texture è a bassa risoluzione angolare → ingrandita "spara" e diventa blob.
-                // A occhio nudo resta piena (la bella banda); appena zoomi cala, ed entro ~10× è sparita → resta il campo
-                // di stelle nitide (la nebbiolina "si risolve", come in un vero telescopio). A 7× ≈ 42%.
-                float zoomFade = saturate(1.0 - (_SkyZoom - 1.0) / 20.0);
+                // Con lo zoom la banda CALA (a occhio nudo piena, ~42% a 7×) ma NON sparisce: resta un FLOOR ~0.4 → il velo
+                // diffuso (ora sfocato, niente blob) è sempre visibile come contesto dietro le stelle, anche al telescopio.
+                float zoomFade = max(0.4, saturate(1.0 - (_SkyZoom - 1.0) / 20.0));
                 return fixed4(c * _Strength * zoomFade * _Tint.rgb, 1.0);
             }
             ENDCG
