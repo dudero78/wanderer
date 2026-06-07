@@ -34,6 +34,7 @@ Shader "Wanderer/MilkyWay"
 
             sampler2D _MainTex;
             float _Strength, _Boost, _Floor, _OffsetU;
+            float _SkyZoom;   // magnificazione (globale, da SkyController): la banda diffusa si DISSOLVE salendo d'ingrandimento
             fixed4 _Tint;
 
             v2f vert(appdata v)
@@ -69,7 +70,11 @@ Shader "Wanderer/MilkyWay"
                 fixed3 c = tex2Dgrad(_MainTex, uv, float2(dux, dvx), float2(duy, dvy)).rgb;
 
                 c = max(c * _Boost - _Floor, 0.0);
-                return fixed4(c * _Strength * _Tint.rgb, 1.0);
+                // DISSOLVENZA con lo zoom: la texture è a bassa risoluzione angolare → ingrandita molto diventa "blob"
+                // sfocati. La banda diffusa è giusta a occhio nudo/binocolo; oltre ~10× sfuma fino a sparire entro ~22×,
+                // lasciando le STELLE nitide (la nebbiolina "si risolve", come in un vero telescopio).
+                float zoomFade = saturate(1.0 - (_SkyZoom - 20.0) / 35.0);
+                return fixed4(c * _Strength * zoomFade * _Tint.rgb, 1.0);
             }
             ENDCG
         }
