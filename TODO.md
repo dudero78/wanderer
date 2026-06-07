@@ -1,7 +1,57 @@
 # Wanderer — TODO
 
-Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **6 giugno 2026** (sessioni UX: sonda, modelli
-intercambiabili, menu ESC, multi-sistema/interstellare, mappa, effetto velocità, loading). Dettaglio tecnico nel `CLAUDE.md`.
+Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **7 giugno 2026** (sessione CIELO STELLATO).
+Dettaglio tecnico nel `CLAUDE.md`.
+
+> ## 🌌 7 giu 2026 (sera) — CIELO STELLATO REALE — feature NUOVA, da rifinire INSIEME a Dario (branch `cielo-stellato`)
+>
+> **FATTO (catalogo reale HYG ~119k stelle + OpenNGC + NASA Via Lattea, tutto leggero):** addio fondo nero. Vedi
+> memoria [[wanderer-cielo-stellato]] + `AUDIT4_*.md`. Architettura: "bolla cielo" camera-following in render-queue
+> Background (NO seconda camera, per compatibilità RenderScaler) + compensazione `_SkyPxScale` (fix pulsare).
+> Allineato all'ECLITTICA (`SkyData.EquatorialToGame`) → zodiaco sul piano orbitale. Vega/Antares (ex Helios) messe
+> nella DIREZIONE REALE. Dati grezzi in `/StarData` (gitignored) → `Wanderer → Bake star catalog` → `Resources/Sky/`.
+> File: `World/Sky/{SkyController,SkyData,StarFieldRenderer,MilkyWayBand,DeepSkyRenderer,ConstellationLines}`,
+> `Player/OpticalInstrument`, shader `{StarPoint,StarHalo,MilkyWay,DeepSkyBillboard,ConstellationLine}`. Tasti **B**
+> (binocolo/telescopio) e **C** (costellazioni). 4 commit: `43c2c20` → `718ac28`.
+>
+> ### 🔴 BUG/RIFINITURE da debuggare INSIEME domani (Dario ha PARCHEGGIATO la questione la notte del 7 giu)
+> **NB confondente:** Dario ha testato l'iterazione 2 (`718ac28`) e ha detto "stessi identici problemi + tornati i
+> blob" → **sospetto forte che gli SHADER non si fossero re-importati** quando ha testato (il C# ricompila subito, gli
+> shader Metal no). **PRIMA REGOLA DOMANI: forza un reimport pulito degli shader e ri-testa da zero**, poi attacca i bug.
+>
+> 1. **BLOB/QUADRATI rosa/ciano tra le stelle (deep-sky).** ⚠️ **ROOT CAUSE TROVATA** (confermata da audit codice):
+>    in `DeepSkyRenderer.FillTile` la finestra `Mathf.SmoothStep(1.0f, 0.5f, r)` **non arriva a 0** — `Mathf.SmoothStep`
+>    è un LERP fra 1.0 e 0.5 (Unity), NON la smoothstep di GLSL → **floor 0.5 sul bordo del tile** → bordi quadri.
+>    È **lo stesso trap già in [[wanderer-hud-navigazione]]: "Mathf.SmoothStep ≠ GLSL"** (ci sono ricascato).
+>    Concorrono: (a) gli angoli del quad cadono ESATTAMENTE sulla cucitura dei tile dell'atlante (`local∈{0,1}`) +
+>    l'atlante ha mipmap+Trilinear → **bleeding fra tile**; (b) `_MaxPx=6000` → un DSO grande può riempire lo schermo;
+>    (c) a forte zoom `lum→1` (satura a bianco pieno) → il bordo non-nullo diventa un blocco additivo luminoso.
+>    **FIX:** finestra fatta a mano `1 - Smooth01(0.78,1.0,r)` (helper, niente Mathf.SmoothStep) + **inset UV** dei quad
+>    (gutter ~3% per tile, niente cucitura) + atlante **senza mipmap** (`Alpha8,false`+`Apply(false)`+Bilinear) +
+>    `_MaxPx`→~1200 + abbassare `_DsoGain`/`_DsoZoomPow` (non saturare → si vede la FORMA). Da valutare anche: i deep-sky
+>    sono troppi/troppo presenti a occhio nudo (planetarie 130, ecc.) — alzare `_DsoM0`/gate-zoom.
+> 2. **TELESCOPIO insoddisfacente (buio/rivela poco).** Cause: (a) **etichetta MENTE** — dice "10×/50×" ma i fattori
+>    sono `{1,8,25}` (`OpticalInstrument.cs` Mag vs label) → allineare; Dario vuole stelle "super luminose" e trovare
+>    deep-sky. (b) catalogo SPARSO a forte zoom (~119k stelle → un campo da 1° contiene pochissime) → serve la **Via
+>    Lattea VISIBILE** come sfondo (oggi forse non si re-importa, vedi sopra) + reveal più generoso (`_Exposure`/`_Gain`
+>    su) + magari alzare il mag REALE a 50× MA con più stelle/deep-sky. **Da ridisegnare il "feel" insieme.**
+> 3. **VIA LATTEA che "nuota" girandosi.** Il codice ATTUALE (raggi NON normalizzati, normalizzati nel fragment) DOVREBBE
+>    essere esatto e non nuotare (audit concorda). Se nuota ancora: (a) verifica che lo shader sia ricompilato; (b)
+>    residuo = calibrazione `_FlipU`/`_OffsetU` (non geometria). **Alternativa robusta se persiste:** Via Lattea su
+>    GEOMETRIA sfera (stessa proiezione delle stelle = zero nuoto), sfera inside-out con scale negativa (Cull Back
+>    default) per evitare il problema di winding che mi aveva fatto scegliere il fullscreen.
+> 4. **COSTELLAZIONI: poche + linee.** "Poche" = **dato** (ho ~22 figure con linee + 2 sole-etichetta su 88 reali) →
+>    aggiungerne (solo dati in `ConstellationLines.Catalog()`). Linee: ora strisce screen-space morbide (sembra OK in
+>    audit); se ancora seghettate, verifica reimport shader; alza `_Alpha` cap (oggi `alpha*0.9`) o `_PixelWidth`.
+>    Etichette in vista SONDA sono proiettate con la camera GIOCATORE (bug latente, bassa priorità).
+> 5. **MIGLIORIE viste stasera (Dario):** atlante deep-sky "vero" possibile (immagini CC dei Messier) come passo
+>    futuro; per ora procedurale tipizzato (una volta tolti i quadrati). **Telescopio nel menu Comandi → FATTO** (B/C aggiunti).
+>
+> **Quick-win sicuri (da audit codice, fattibili a freddo):** drop `uv.w` tier inutilizzato in StarPoint; guard di
+> versione in `SkyData.Load`; helper `Smooth01` condiviso (il trap Mathf.SmoothStep è in 2 punti); fattorizzare il
+> boilerplate del quad billboard (StarField/DeepSky/Constellation lo ripetono).
+>
+> ## ✅ 7 giu 2026 — BLOCCO 1 (mappa multi-sistema) FATTO + caricamenti graduali (dettaglio in `CHANGELOG.md`)
 
 > ## ✅ 7 giu 2026 — BLOCCO 1 (mappa multi-sistema) FATTO + caricamenti graduali (dettaglio in `CHANGELOG.md`)
 > - **Mappa RISCRITTA**: spazio-mappa LOCALE (precisione a ogni distanza), camera TRACKBALL (clic=pivot senza snap, pivot

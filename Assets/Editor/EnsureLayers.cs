@@ -11,6 +11,11 @@ public static class EnsureLayers
 {
     public static string AvatarLayerName => ModelHost.AvatarLayer;   // unica fonte del nome (runtime)
 
+    // I layer nominati che il gioco si aspetta. "Sky" = la bolla del cielo stellato; "MapView" = ciò che la camera-mappa
+    // renderizza. DEVONO essere DISTINTI: se "MapView" manca, MapMode cade sul fallback 9 = proprio "Sky" → la camera
+    // del giocatore esclude il layer 9 → CIELO NERO (bug reale). Creiamo entrambi, in slot distinti (8/9/10).
+    static readonly string[] Needed = { ModelHost.AvatarLayer, SkyController.SkyLayerName, "MapView" };
+
     static EnsureLayers()
     {
         var assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset");
@@ -19,20 +24,27 @@ public static class EnsureLayers
         var layers = tagManager.FindProperty("layers");
         if (layers == null) return;
 
+        bool changed = false;
+        foreach (var name in Needed) changed |= EnsureOne(layers, name);
+        if (changed) tagManager.ApplyModifiedProperties();
+    }
+
+    static bool EnsureOne(SerializedProperty layers, string name)
+    {
         for (int i = 0; i < layers.arraySize; i++)
-            if (layers.GetArrayElementAtIndex(i).stringValue == AvatarLayerName) return;   // già presente
+            if (layers.GetArrayElementAtIndex(i).stringValue == name) return false;   // già presente
 
         for (int i = 8; i < layers.arraySize; i++)   // user layer 8..31
         {
             var el = layers.GetArrayElementAtIndex(i);
             if (string.IsNullOrEmpty(el.stringValue))
             {
-                el.stringValue = AvatarLayerName;
-                tagManager.ApplyModifiedProperties();
-                Debug.Log($"[layers] aggiunto layer '{AvatarLayerName}' allo slot {i}.");
-                return;
+                el.stringValue = name;
+                Debug.Log($"[layers] aggiunto layer '{name}' allo slot {i}.");
+                return true;
             }
         }
-        Debug.LogWarning($"[layers] nessuno user-layer libero per '{AvatarLayerName}': il modello del giocatore userà il fallback.");
+        Debug.LogWarning($"[layers] nessuno user-layer libero per '{name}'.");
+        return false;
     }
 }

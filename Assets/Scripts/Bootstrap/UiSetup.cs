@@ -43,5 +43,8 @@ public static class UiSetup
         var probe = host.AddComponent<ProbeController>();
         probe.Init(rig.Cam, rig.CamTransform, rig.Walker, solar);
         route.ProbeTarget = probe.Probe;   // il reticolo segue la sonda con un triangolo ambra (tracker HUD)
+
+        // Strumento ottico (B): binocolo → telescopio per osservare il cielo (le stelle deboli/deep-sky emergono).
+        host.AddComponent<OpticalInstrument>().Init(rig.Cam, rig.Walker);
     }
 }

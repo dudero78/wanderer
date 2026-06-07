@@ -93,23 +93,26 @@ public static class SolarSystemSetup
     {
         new SystemRecipe { Name = "Casa", SystemOrigin = Vector3d.Zero, StarRadius = 2000f, StarGravity = 100,
                            StarColor = new Color(1f, 0.88f, 0.55f), Bodies = null },   // Bodies=null: la casa la costruisce Build (bespoke)
-        // Sistema distante "Helios" (~6 Mm sull'asse X): stella rossastra + 2 corpi (riusano ricette esistenti).
+        // Sistema distante "Antares" (la stella rossa del Cuore dello Scorpione): posizionato nella DIREZIONE REALE di
+        // Antares nel cielo (stessa rotazione del catalogo) → quando lo guardi è dov'è la vera Antares. Distanza di
+        // gioco invariata (~6 Mm). Rosso-arancio del supergigante. + 2 corpi (riusano ricette esistenti).
         new SystemRecipe {
-            Name = "Helios", SystemOrigin = new Vector3d(6_000_000, 0, 0), StarRadius = 1600f, StarGravity = 90,
-            StarColor = new Color(1f, 0.62f, 0.42f),
+            Name = "Antares", SystemOrigin = StarOrigin(247.3517f, -26.4319f, 6_000_000), StarRadius = 1600f, StarGravity = 90,
+            StarColor = new Color(1f, 0.5f, 0.34f),
             Bodies = new[] {
-                new OrbitBody { Name = "Helios-I", Radius = Luna6Radius, Gravity = 9.81, AroundStar = true, ProxyRes = 32,
+                new OrbitBody { Name = "Antares-I", Radius = Luna6Radius, Gravity = 9.81, AroundStar = true, ProxyRes = 32,
                     BakedDir = Luna6BakedDir, Apply = ApplyLuna6Recipe,
                     Orbit = new KeplerOrbit { SemiMajorAxis = 70000, Eccentricity = 0.06, Period = 900, Inclination = 0.2 } },
-                new OrbitBody { Name = "Helios-II", Radius = CetraRadius, Gravity = 3.0, AroundStar = true, ProxyRes = 24,
+                new OrbitBody { Name = "Antares-II", Radius = CetraRadius, Gravity = 3.0, AroundStar = true, ProxyRes = 24,
                     BakedDir = CetraBakedDir, Apply = ApplyCetraRecipe,
                     Orbit = new KeplerOrbit { SemiMajorAxis = 120000, Eccentricity = 0.1, Period = 1500, Inclination = 0.35 } },
             },
         },
-        // Sistema distante "Vega" (~ -5 Mm X, +4 Mm Z): stella azzurra + 2 corpi.
+        // Sistema distante "Vega" (Lyra, vertice del Triangolo Estivo): posizionato nella DIREZIONE REALE di Vega nel
+        // cielo. Azzurra brillante. + 2 corpi.
         new SystemRecipe {
-            Name = "Vega", SystemOrigin = new Vector3d(-5_000_000, 0, 4_000_000), StarRadius = 2400f, StarGravity = 120,
-            StarColor = new Color(0.72f, 0.82f, 1f),
+            Name = "Vega", SystemOrigin = StarOrigin(279.2347f, 38.7837f, 6_400_000), StarRadius = 2400f, StarGravity = 120,
+            StarColor = new Color(0.75f, 0.84f, 1f),
             Bodies = new[] {
                 new OrbitBody { Name = "Vega-I", Radius = Valentina2Radius, Gravity = 9.81, AroundStar = true, ProxyRes = 32,
                     BakedDir = Valentina2BakedDir, Apply = ApplyValentina2Recipe,
@@ -120,6 +123,15 @@ public static class SolarSystemSetup
             },
         },
     };
+
+    /// <summary>Posizione-galassia di un sistema lungo la DIREZIONE REALE di una stella (RA/Dec gradi), a distanza di
+    /// gioco data. Stessa rotazione del cielo (SkyData) → la stella-destinazione cade dov'è la stella vera fra le
+    /// costellazioni.</summary>
+    static Vector3d StarOrigin(float raDeg, float decDeg, double dist)
+    {
+        Vector3 d = SkyData.StarDirection(raDeg, decDeg);
+        return new Vector3d(d.x * dist, d.y * dist, d.z * dist);
+    }
 
     // I corpi in orbita, in un solo posto. L'ordine non conta. Per aggiungerne uno: una riga qui.
     static readonly OrbitBody[] Orbiting =
