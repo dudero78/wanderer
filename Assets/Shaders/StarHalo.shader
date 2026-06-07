@@ -11,10 +11,15 @@ Shader "Wanderer/StarHalo"
         _HaloBasePx("Raggio base (px)", Float) = 7.0
         _HaloPow   ("Esponente flusso→raggio", Float) = 0.25
         _HaloMinPx ("Raggio minimo (px)", Float) = 8.0
-        _HaloMaxPx ("Raggio massimo (px)", Float) = 55.0
+        _HaloMaxPx ("Raggio massimo (px)", Float) = 90.0
         _HaloFall  ("Durezza caduta", Float) = 2.5
         _HaloStr   ("Intensità", Float) = 0.42
         _HaloFluxRef ("Flusso di riferimento (forza alone)", Float) = 250.0
+        // raggi di diffrazione (croce a 4 punte): appaiono salendo d'ingrandimento (telescopio), come nelle foto vere
+        _SpikeSharp ("Finezza dei raggi", Float) = 320.0
+        _SpikeStr   ("Intensità dei raggi", Float) = 0.6
+        _SpikeOn    ("Zoom d'inizio raggi", Float) = 20.0
+        _SpikeRamp  ("Velocità comparsa raggi", Float) = 0.018
     }
     SubShader
     {
@@ -31,9 +36,10 @@ Shader "Wanderer/StarHalo"
             #include "UnityCG.cginc"
 
             struct appdata { float4 vertex:POSITION; float4 uv:TEXCOORD0; fixed4 color:COLOR; };
-            struct v2f     { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; fixed3 col:TEXCOORD1; };
+            struct v2f     { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; fixed3 col:TEXCOORD1; float spike:TEXCOORD2; };
 
             float _M0, _HaloBasePx, _HaloPow, _HaloMinPx, _HaloMaxPx, _HaloFall, _HaloStr, _HaloFluxRef;
+            float _SpikeSharp, _SpikeStr, _SpikeOn, _SpikeRamp;
             float _SkyZoom, _SkyPxScale;
 
             v2f vert(appdata v)
@@ -54,6 +60,8 @@ Shader "Wanderer/StarHalo"
                 float s = saturate(flux / _HaloFluxRef);
                 o.col = v.color.rgb * _HaloStr * s;
                 o.uv = v.uv.xy;
+                // i raggi compaiono salendo d'ingrandimento (da ~telescopio in su): 0 a occhio nudo/binocolo
+                o.spike = saturate((zoom - _SpikeOn) * _SpikeRamp);
                 o.pos.xy += v.uv.xy * px * (2.0 / _ScreenParams.xy) * o.pos.w;
                 return o;
             }
@@ -61,9 +69,11 @@ Shader "Wanderer/StarHalo"
             fixed4 frag(v2f i) : SV_Target
             {
                 float r = length(i.uv);
-                float a = saturate(1.0 - r);
-                a = pow(a, _HaloFall);     // bagliore concentrato con coda lunga e tenue
-                return fixed4(i.col * a, 1.0);
+                float a = pow(saturate(1.0 - r), _HaloFall);   // bagliore radiale concentrato
+                // raggi di diffrazione: croce a 4 punte (assi x/y), sottile (gaussiana), che sfuma verso il bordo
+                float falloff = saturate(1.0 - r);
+                float cross = (exp(-i.uv.x * i.uv.x * _SpikeSharp) + exp(-i.uv.y * i.uv.y * _SpikeSharp)) * falloff * falloff;
+                return fixed4(i.col * (a + cross * i.spike * _SpikeStr), 1.0);
             }
             ENDCG
         }
