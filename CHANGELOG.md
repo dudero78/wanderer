@@ -339,10 +339,18 @@ Sessione lunga e iterativa, soprattutto su mappa e caricamenti. Tutto verificato
 - **Selezione di QUALSIASI pianeta** (anche di sistemi dormienti): `SolarSystem.DormantTarget` (posizione da ricetta) →
   l'autopilota ci vola; avvicinandoti il sistema si sveglia e il bersaglio si **promuove** al corpo vero (collisione/
   atterraggio reali). HUD destinazione unificato `TryGetTarget` → "Vega-II — ★ Vega".
-- **Animazione d'apertura** (iterata a lungo): salita verticale sopra il giocatore (sguardo a picco, giocatore al
-  centro) → sorvolo in alto sopra il centro guardando A PICCO (il sistema si rivela dall'alto, mai "di taglio") →
-  inclinazione dolce all'overview. Principio: **non guardare mai la stella stando bassi** (da lì è di taglio = scatto).
-  Finale = overview canonico esatto.
+- **Animazione d'apertura**: un solo movimento fluido. La camera parte dalla tua vista, si **stacca dalla superficie
+  verso l'esterno** e arca fino all'overview lungo un'unica curva (Bézier, col punto di controllo sollevato lungo la
+  verticale locale del pianeta → non tocca mai il suolo), mentre l'orientamento ruota con un solo slerp (cammino più
+  breve) dalla tua vista a quella d'arrivo. Tutto guidato da un'unica curva di ease (smootherstep): parte e arriva
+  morbida, costante in mezzo → niente scatti, picchiate o rimbalzi. Finale = overview canonico esatto.
+  - **Robustezza del clock**: il primo frame dell'apertura (pesante: build proxy, primo render della camera-mappa,
+    toggle GPU) viene saltato e il `deltaTime` è cappato → l'animazione non può più essere "compressa" in pochi frame
+    (era lo scatto-ribaltamento). Clock in tempo `unscaled` (indipendente dal TimeScale).
+  - **Fade da nero** in apertura (~0.18 s): maschera lo swap inevitabile mondo-reale → proxy della mappa (la camera-
+    mappa disegna i proxy, non il terreno vero, quindi il primo fotogramma non può combaciare con la tua vista).
+  - **Proxy del corpo su cui sei** nascosto finché la camera è dentro il suo raggio visuale → niente lampo dell'interno
+    del guscio nell'istante d'apertura.
 
 ### Caricamenti graduali (il grande sblocco)
 - **Risveglio di un sistema su più frame** (`BuildSystemRoutine` coroutine): stella + **un corpo per frame**, e ogni

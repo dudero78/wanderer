@@ -32,7 +32,7 @@ public class MapMode : MonoBehaviour
     public KeyCode namesKey = KeyCode.N;     // mostra/nascondi i nomi dei corpi
     bool showBodyNames = true;               // DEV: nomi dei corpi (anche dei sistemi distanti) visibili da subito
     [Tooltip("Durata dello zoom-out/in in secondi.")]
-    public float transitionTime = 0.7f;
+    public float transitionTime = 1.0f;
     [Tooltip("Dimensione dei marker come frazione della distanza camera (≈ costante a schermo).")]
     public float markerScreenSize = 0.02f;
 
@@ -47,6 +47,10 @@ public class MapMode : MonoBehaviour
     enum State { Off, Entering, On, Exiting }
     State state = State.Off;
     float t;
+    bool animSkipFrame;   // salta il PRIMO frame dell'animazione (il deltaTime di EnterMap/ExitMap è gonfio = vedi sotto)
+    float fadeT;          // tempo dall'apertura: un breve fade da nero maschera lo swap mondo-reale → proxy della mappa
+    Texture2D fadeTex;    // 1×1 bianco per il velo nero del fade
+    const float FadeTime = 0.18f;   // durata del fade in secondi (assoluta: indipendente da transitionTime)
 
     // ── Camera trackball, in coordinate-UNIVERSO ──
     Vector3d camPosU;            // posizione della camera (universo)
@@ -489,57 +493,45 @@ public class MapMode : MonoBehaviour
 
         if (state == State.Entering || state == State.Exiting)
         {
-            t += Time.deltaTime / Mathf.Max(0.01f, transitionTime);
-            float s = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t));
+            // Clock dell'animazione ROBUSTO. L'animazione "scattava e si ribaltava" perché l'intera rotazione di 0.7s
+            // (che include la picchiata a 90°) veniva compressa in 1-2 frame → sembrava un teletrasporto capovolto.
+            // Causa: il frame di EnterMap/ExitMap è PESANTE (1ª volta costruisce i proxy; ogni volta riaccende la
+            // camera-mappa al primo render e fa il toggle SuppressDraw della GPU) → tutto quel tempo entra nel
+            // deltaTime del frame DOPO e fa schizzare t oltre 1. Cura: (1) SALTA il primo frame, lasciando sfogare
+            // l'hitch (la camera resta sulla tua vista esatta); (2) CAPPA il dt, così nessuno spike futuro può
+            // comprimere l'animazione. unscaled: la mappa non deve dipendere dal TimeScale del gioco.
+            if (animSkipFrame) animSkipFrame = false;
+            else t += Mathf.Min(Time.unscaledDeltaTime, 0.05f) / Mathf.Max(0.01f, transitionTime);
+            if (state == State.Entering) fadeT += Time.unscaledDeltaTime;   // fade da nero in apertura (tempo assoluto)
+            float c = Mathf.Clamp01(t);
+            float s = c * c * c * (c * (6f * c - 15f) + 10f);   // smootherstep (C2): velocità E accelerazione nulle ai capi → moto fluido
 
             if (state == State.Entering)
             {
                 Overview(out var toU, out var toRot);
-                Vector3d cU = SystemCenterU(SystemInView());
                 Vector3d playerU = FloatingOrigin.SceneOrigin + new Vector3d(walker != null ? walker.transform.position : playerCamT.position);
-                bool playerNear = (float)Vector3d.Distance(playerU, cU) < SystemRadius(SystemInView()) * 3f;   // sei NEL sistema in vista?
+                bool playerNear = (float)Vector3d.Distance(playerU, SystemCenterU(SystemInView())) < SystemRadius(SystemInView()) * 3f;   // sei NEL sistema in vista?
 
                 if (playerNear)
                 {
-                    // ── TRE FASI: il principio è NON GUARDARE MAI LA STELLA STANDO BASSI (da lì la stella, lontana in
-                    // orizzontale, sarebbe "di taglio" → lo scatto). La camera scende SEMPRE da sopra.
-                    //  1) [0..a1]  SALI verticale sopra il giocatore, sguardo che si abbassa A PICCO (giocatore al centro);
-                    //  2) [a1..a2] SORVOLA in ALTO fino a sopra il CENTRO, sempre A PICCO → il sistema si rivela dall'alto, mai di taglio;
-                    //  3) [a2..1]  INCLINA dolce (pitch) dalla picchiata all'angolo dell'overview, assestandoti nella vista finale.
-                    // 'back' = "su" orizzontale della vista overview (yaw 0, sempre dietro in −z) → continuità di rollio fra le fasi.
-                    float bodyR = (walker != null && walker.GravityBody != null) ? (float)walker.GravityBody.Radius : 2000f;
-                    Vector3d phaseAEnd = playerU + new Vector3d(0, Mathf.Clamp(bodyR * 4f, 1500f, 50000f), 0);   // sopra il giocatore
-                    double ovH = System.Math.Max(1.0, (toU - cU).ToVector3().y);            // altezza dell'overview sopra il centro
-                    Vector3d apexCenter = cU + new Vector3d(0, ovH, 0);                     // alto, DIRETTAMENTE sopra il centro
-                    Vector3 back = new Vector3(0f, 0f, 1f);
-                    Quaternion downRot = Quaternion.LookRotation(Vector3.down, back);       // sguardo a PICCO
+                    // ENTRATA — UN SOLO movimento fluido (niente fasi). POSIZIONE: arco morbido (Bézier quadratica) che si STACCA
+                    // dalla superficie verso l'ESTERNO — il punto di controllo è sollevato lungo il "su" locale (radiale dal
+                    // pianeta) → la tangente iniziale punta via dal suolo, mai un tuffo dentro il pianeta — e arca fino
+                    // all'overview. ROTAZIONE: un solo slerp dalla tua vista a quella d'arrivo (cammino più breve → fluido,
+                    // niente giravolte). Tutto guidato da 's' (smootherstep): velocità nulla ai capi, costante e morbida in mezzo.
+                    var gb = walker != null ? walker.GravityBody : null;
+                    Vector3 localUp = gb != null ? (playerU - gb.UniversePosition).ToVector3().normalized : Vector3.up;
+                    if (localUp.sqrMagnitude < 0.5f) localUp = Vector3.up;
+                    float clearance = (gb != null ? (float)gb.Radius : 500f) * 4f;        // stacco dal suolo prima di arcare via
+                    Vector3d ctrl = fromU + new Vector3d(localUp * clearance);
 
-                    const float a1 = 0.35f, a2 = 0.7f;
-                    if (s < a1)
-                    {
-                        float ue = Mathf.SmoothStep(0f, 1f, s / a1);
-                        camPosU = fromU + (phaseAEnd - fromU) * (double)ue;                 // salita verticale
-                        camRot = Quaternion.Slerp(fromRot, downRot, ue);                    // sguardo → a picco
-                    }
-                    else if (s < a2)
-                    {
-                        float ue = Mathf.SmoothStep(0f, 1f, (s - a1) / (a2 - a1));
-                        camPosU = phaseAEnd + (apexCenter - phaseAEnd) * (double)ue;         // sorvolo in alto verso sopra il centro
-                        camRot = downRot;                                                   // SEMPRE a picco (mai di taglio)
-                    }
-                    else
-                    {
-                        float ue = Mathf.SmoothStep(0f, 1f, (s - a2) / (1f - a2));
-                        camPosU = apexCenter + (toU - apexCenter) * (double)ue;             // dalla verticale all'overview
-                        Vector3 toC = ToMap(cU) - ToMap(camPosU);                           // sempre il centro inquadrato
-                        Vector3 upRef = Vector3.Slerp(back, Vector3.up, ue);                // su: orizzontale (a picco) → verticale (overview)
-                        camRot = toC.sqrMagnitude > 1e-6f ? Quaternion.LookRotation(toC, upRef) : downRot;
-                    }
+                    double om = 1.0 - s;
+                    camPosU = fromU * (om * om) + ctrl * (2.0 * om * s) + toU * (s * s);
+                    camRot = Quaternion.Slerp(fromRot, toRot, s);
                 }
                 else
                 {
-                    // ── LONTANO dal sistema in vista (in viaggio): zoom DIRETTO dalla tua vista all'overview. Niente
-                    // "inquadra il giocatore" — sei troppo lontano e l'arco impazzirebbe. Finisce nell'overview pulito.
+                    // LONTANO (in crociera, nessun pianeta da scavalcare): retta diretta dalla tua vista all'overview.
                     camPosU = fromU + (toU - fromU) * s;
                     camRot = Quaternion.Slerp(fromRot, toRot, s);
                 }
@@ -799,13 +791,13 @@ public class MapMode : MonoBehaviour
         GpuPlanetRenderer.SuppressDraw = true;   // la superficie GPU entrerebbe nella camera-mappa: in mappa solo i proxy
         IsOpen = true;
         ShowVisuals(true);
-        state = State.Entering; t = 0f;
+        state = State.Entering; t = 0f; animSkipFrame = true; fadeT = 0f;
     }
 
     void ExitMap()
     {
         fromU = camPosU; fromRot = camRot;
-        state = State.Exiting; t = 0f;
+        state = State.Exiting; t = 0f; animSkipFrame = true;
     }
 
     void FinishExit()
@@ -975,6 +967,10 @@ public class MapMode : MonoBehaviour
                 px.position = bp;
                 px.localScale = Vector3.one * (R / Mathf.Max(1f, (float)b.Radius));   // mesh a raggio reale → scala a R
                 mk.transform.localScale = Vector3.one * (R * 2f);   // sfera-collider (raggio 0.5) → copre il proxy
+                // Se la camera è DENTRO il raggio visuale del proxy (= sei sulla superficie del corpo aprendo la mappa),
+                // nasconderlo: altrimenti vedi l'INTERNO del guscio per un istante prima di sollevarti. Riappare appena sali.
+                bool inside = Vector3.Distance(camPos, bp) < R * 1.05f;
+                if (px.gameObject.activeSelf == inside) px.gameObject.SetActive(!inside);
             }
             else
             {
@@ -1143,6 +1139,18 @@ public class MapMode : MonoBehaviour
                         AddLabel(sv.discs[i].transform.position + mapCam.transform.up * (sv.discs[i].transform.localScale.x * 0.9f), sv.bodyNames[i], nameStyle);
         }
         DrawLabels();
+
+        // FADE da nero in apertura: maschera lo swap mondo-reale → proxy della mappa (il primo frame non può combaciare).
+        // Disegnato per ULTIMO → copre anche le etichette, dissolvenza uniforme.
+        float fade = state == State.Entering ? Mathf.Clamp01(1f - fadeT / FadeTime) : 0f;
+        if (fade > 0.001f)
+        {
+            if (fadeTex == null) { fadeTex = new Texture2D(1, 1); fadeTex.SetPixel(0, 0, Color.white); fadeTex.Apply(); }
+            var prev = GUI.color;
+            GUI.color = new Color(0f, 0f, 0f, fade);
+            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), fadeTex);
+            GUI.color = prev;
+        }
     }
 
     struct LabelItem { public Rect rect; public string text; public GUIStyle style; }
