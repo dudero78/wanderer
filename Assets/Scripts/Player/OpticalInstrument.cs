@@ -13,8 +13,9 @@ public class OpticalInstrument : MonoBehaviour
 {
     public const KeyCode ToggleKey = KeyCode.B;   // B = binocolo
 
-    // livelli: 1× (occhio nudo) · 10× (binocolo) · 50× (telescopio)
-    static readonly float[] Mag = { 1f, 10f, 50f };
+    // livelli: 1× (occhio nudo) · 8× (binocolo) · 25× (telescopio). Non troppo spinti: a ingrandimenti enormi il
+    // campo è così stretto che vedresti pochissime stelle del catalogo (~119k) → vuoto. 25× tiene il cielo popolato.
+    static readonly float[] Mag = { 1f, 8f, 25f };
 
     Camera cam;
     PlanetWalker walker;

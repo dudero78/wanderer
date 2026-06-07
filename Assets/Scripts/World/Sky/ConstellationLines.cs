@@ -228,6 +228,48 @@ public class ConstellationLines : MonoBehaviour
             starName = new[] { "Arturo" },
             radec = new[] { P(213.915f,19.182f) }, seg = new int[0] });
 
+        // Andromeda
+        L.Add(new Figure { name = "Andromeda",
+            starName = new[] { "Alpheratz", "Delta And", "Mirach", "Almach" },
+            radec = new[] { P(2.097f,29.090f), P(11.510f,30.861f), P(17.433f,35.621f), P(30.975f,42.330f) },
+            seg = new[] { 0,1, 1,2, 2,3 } });
+
+        // Perseo
+        L.Add(new Figure { name = "Perseo",
+            starName = new[] { "Mirfak", "Algol", "Gamma Per", "Delta Per", "Epsilon Per" },
+            radec = new[] { P(51.081f,49.861f), P(47.042f,40.956f), P(46.199f,53.506f), P(59.464f,47.788f), P(59.741f,40.010f) },
+            seg = new[] { 1,0, 0,2, 0,3, 3,4 } });
+
+        // Ercole (la Chiave di Volta)
+        L.Add(new Figure { name = "Ercole",
+            starName = new[] { "Zeta Her", "Eta Her", "Pi Her", "Epsilon Her" },
+            radec = new[] { P(250.321f,31.603f), P(245.480f,38.922f), P(258.758f,36.809f), P(255.073f,30.926f) },
+            seg = new[] { 0,1, 1,2, 2,3, 3,0 } });
+
+        // Sagittario (la Teiera)
+        L.Add(new Figure { name = "Sagittario",
+            starName = new[] { "Kaus Australis", "Kaus Media", "Kaus Borealis", "Nunki", "Ascella", "Phi Sgr" },
+            radec = new[] { P(276.043f,-34.385f), P(274.407f,-29.828f), P(276.993f,-25.421f),
+                            P(283.816f,-26.297f), P(287.441f,-29.880f), P(281.414f,-26.990f) },
+            seg = new[] { 0,1, 1,2, 2,5, 5,3, 3,4, 4,1, 4,0 } });
+
+        // Vergine
+        L.Add(new Figure { name = "Vergine",
+            starName = new[] { "Spica", "Porrima", "Vindemiatrix" },
+            radec = new[] { P(201.298f,-11.161f), P(190.415f,-1.449f), P(195.544f,10.959f) },
+            seg = new[] { 0,1, 1,2 } });
+
+        // Centauro (e i Puntatori verso la Croce del Sud)
+        L.Add(new Figure { name = "Centauro",
+            starName = new[] { "Rigil Kent.", "Hadar", "Gamma Cen", "Menkent" },
+            radec = new[] { P(219.902f,-60.834f), P(210.956f,-60.373f), P(190.379f,-48.960f), P(211.671f,-36.370f) },
+            seg = new[] { 0,1, 1,2, 2,3 } });
+
+        // Stella Polare (etichetta, niente figura)
+        L.Add(new Figure { name = "Orsa Minore",
+            starName = new[] { "Polaris" },
+            radec = new[] { P(37.954f,89.264f) }, seg = new int[0] });
+
         // Asterismo: Triangolo Estivo (Vega–Deneb–Altair) — lega la nostra Vega di gioco al cielo
         L.Add(new Figure { name = "Triangolo Estivo",
             starName = new string[] { null, null, null },

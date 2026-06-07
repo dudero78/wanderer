@@ -19,8 +19,9 @@ Shader "Wanderer/StarPoint"
         _Exposure  ("Esposizione", Float) = 0.55
         _Gain      ("Guadagno tone-map", Float) = 0.5
         _MinPx     ("Disco minimo (px)", Float) = 1.3
-        _MaxPx     ("Disco massimo (px)", Float) = 10.0
+        _MaxPx     ("Disco massimo (px)", Float) = 14.0
         _SizeScale ("Crescita disco con luminosità", Float) = 0.22
+        _ZoomGrow  ("Crescita disco con lo zoom", Float) = 0.16
         _RevealThresh ("Soglia di comparsa", Float) = 0.45
         _SatStart  ("Inizio saturazione colore", Float) = 0.12
         _SatScale  ("Pendenza saturazione colore", Float) = 1.6
@@ -52,7 +53,7 @@ Shader "Wanderer/StarPoint"
                 fixed3 col : TEXCOORD1;       // colore già desaturato + intensità
             };
 
-            float _M0, _Exposure, _Gain, _MinPx, _MaxPx, _SizeScale, _RevealThresh, _SatStart, _SatScale;
+            float _M0, _Exposure, _Gain, _MinPx, _MaxPx, _SizeScale, _ZoomGrow, _RevealThresh, _SatStart, _SatScale;
             float _SkyZoom;     // globale: magnificazione² dello strumento (1 a occhio nudo)
             float _SkyPxScale;  // globale: scala del RenderScaler (RT-pixel per pixel finale). Compensa la risoluzione
                                 // dinamica → dimensione APPARENTE costante (niente pulsare/sfocatura al variare dei pixel).
@@ -73,7 +74,8 @@ Shader "Wanderer/StarPoint"
                 // dimensione: minima per (quasi) tutte (I≤1 → disco minimo), cresce solo per le luminose
                 float grow = saturate(log2(max(I, 1.0)) * _SizeScale);
                 float pxScale = _SkyPxScale <= 0.0 ? 1.0 : _SkyPxScale;   // compensa la risoluzione dinamica → apparenza costante
-                float px = lerp(_MinPx, _MaxPx, grow) * keep * pxScale;
+                float zoomGrow = 1.0 + _ZoomGrow * log2(zoom);            // col binocolo/telescopio le stelle "ingrandiscono"
+                float px = lerp(_MinPx, _MaxPx, grow) * keep * pxScale * zoomGrow;
 
                 // tone-map: deboli nel tratto lineare, brillanti che saturano (fioriscono)
                 float lum = 1.0 - exp(-I * _Gain);

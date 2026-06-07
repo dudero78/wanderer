@@ -61,5 +61,8 @@ public class MilkyWayBand : MonoBehaviour
         mesh.SetUVs(0, rays);
     }
 
-    void SetRay(int i, Vector3 dir) { dir.Normalize(); rays[i] = new Vector4(dir.x, dir.y, dir.z, 0f); }
+    // NON normalizzare: i 4 raggi d'angolo (cx·tanX, cy·tanY, 1) ruotati sono LINEARI in (x,y) sullo schermo, quindi
+    // l'interpolazione lineare nel quad dà la direzione ESATTA del pixel (la normalizzazione la fa il fragment). Se
+    // normalizzassi qui, l'interpolazione fra angoli normalizzati sarebbe sbagliata → la banda "nuota" rispetto alle stelle.
+    void SetRay(int i, Vector3 dir) { rays[i] = new Vector4(dir.x, dir.y, dir.z, 0f); }
 }

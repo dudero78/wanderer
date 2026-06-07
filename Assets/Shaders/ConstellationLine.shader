@@ -6,8 +6,8 @@ Shader "Wanderer/ConstellationLine"
     Properties
     {
         _Color      ("Colore", Color) = (0.45, 0.7, 0.95, 1)
-        _PixelWidth ("Spessore (px)", Float) = 2.2
-        _Core       ("Nitidezza nucleo", Float) = 6.0
+        _PixelWidth ("Spessore (px)", Float) = 3.6
+        _Core       ("Nitidezza nucleo", Float) = 2.0
         _Alpha      ("Opacità", Float) = 0
     }
     SubShader
