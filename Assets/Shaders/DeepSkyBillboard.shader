@@ -8,13 +8,13 @@ Shader "Wanderer/DeepSkyBillboard"
     Properties
     {
         _Atlas      ("Atlante foto (16×16)", 2D) = "black" {}
-        _DsoM0      ("Magnitudine di riferimento", Float) = 6.5
-        // esposizione BASSISSIMA: a occhio nudo i deep-sky sono fiochi aloni; la luminosità sale FORTE con lo zoom
-        // (_DsoZoomPow=1 → ∝ _SkyZoom) → solo col binocolo/telescopio "si accendono" (come nella realtà: ogni oggetto
-        // ha bisogno del suo ingrandimento per emergere). I deboli compaiono solo ad alti ingrandimenti.
-        _DsoExposure("Esposizione", Float) = 0.0002
+        // _DsoM0 = luminosità di SUPERFICIE di riferimento (mag/arcsec²): il blob ora porta la surfBr, non la mag totale.
+        // Oggetti con superficie più brillante di ~23 si vedono già a basso ingrandimento (Orione); quelli più fiochi
+        // (Pleiadi ~24, galassie deboli ~25) emergono salendo d'ingrandimento. Rampa DOLCE (zoomPow 1.3) → salita graduale.
+        _DsoM0      ("Riferimento luminosità superficie", Float) = 23.0
+        _DsoExposure("Esposizione", Float) = 0.01
         _DsoGain    ("Guadagno tone-map", Float) = 0.7
-        _DsoZoomPow ("Risalto sullo zoom", Float) = 1.5
+        _DsoZoomPow ("Risalto sullo zoom", Float) = 1.3
         _SizeScale  ("Scala dimensione (inquadratura)", Float) = 2.2
         _MinPx      ("Dimensione minima (px)", Float) = 3.0
         _MaxPx      ("Dimensione massima (px)", Float) = 4000.0

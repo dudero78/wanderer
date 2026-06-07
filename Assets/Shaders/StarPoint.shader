@@ -19,8 +19,8 @@ Shader "Wanderer/StarPoint"
         _Exposure  ("Esposizione", Float) = 0.72
         _Gain      ("Guadagno tone-map", Float) = 0.5
         _MinPx     ("Disco minimo (px)", Float) = 1.3
-        _MaxPx     ("Disco massimo (px)", Float) = 14.0
-        _SizeScale ("Crescita disco con luminosità", Float) = 0.22
+        _MaxPx     ("Disco massimo (px)", Float) = 18.0
+        _SizeScale ("Crescita disco con luminosità", Float) = 0.30
         _ZoomGrow  ("Crescita disco con lo zoom", Float) = 0.0
         _RevealThresh ("Soglia di comparsa", Float) = 0.45
         _SatStart  ("Inizio saturazione colore", Float) = 0.12
@@ -95,8 +95,10 @@ Shader "Wanderer/StarPoint"
             fixed4 frag(v2f i) : SV_Target
             {
                 float r = length(i.uv);
-                float a = saturate(1.0 - r);
-                a = a * a * a;                 // profilo morbido (nucleo + coda)
+                // nucleo che si STRINGE salendo d'ingrandimento (a occhio nudo/binocolo resta morbido com'è; al
+                // telescopio spinto diventa più nitido/puntiforme). _SkyZoom 50→400 ≈ 20×→100×.
+                float sharp = lerp(3.0, 6.0, saturate((max(_SkyZoom, 1.0) - 50.0) / 350.0));
+                float a = pow(saturate(1.0 - r), sharp);
                 return fixed4(i.col * a, 1.0);
             }
             ENDCG

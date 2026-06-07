@@ -28,7 +28,7 @@ public class ConstellationLines : MonoBehaviour
     bool showDso;                       // toggle nomi deep-sky (L)
     float dsoAlpha;
     readonly List<Vector2> placed = new List<Vector2>();
-    GUIStyle labelStyle, smallStyle;
+    GUIStyle labelStyle, smallStyle, dsoNameStyle;
     Texture2D dotTex;
 
     public void Build(Transform root, int layer, Camera cam)
@@ -224,35 +224,38 @@ public class ConstellationLines : MonoBehaviour
         placed.Add(p);
 
         if (dotTex == null) dotTex = MakeDot(32);
-        int sfs = Mathf.Max(10, Mathf.RoundToInt(fs * 0.72f));
+        int nfs = Mathf.Max(11, Mathf.RoundToInt(fs * 0.82f));   // titolo un po' più piccolo
+        int sfs = Mathf.Max(9, Mathf.RoundToInt(fs * 0.60f));    // sottotitolo compatto
+        if (dsoNameStyle == null || dsoNameStyle.fontSize != nfs) dsoNameStyle = new GUIStyle(GUI.skin.label) { fontSize = nfs };
         if (smallStyle == null || smallStyle.fontSize != sfs) smallStyle = new GUIStyle(GUI.skin.label) { fontSize = sfs };
         var prev = GUI.color;
 
         // pallino sulla posizione ESATTA dell'oggetto
-        float ds = fs * 0.34f;
+        float ds = fs * 0.26f;
         GUI.color = new Color(0.55f, 1f, 0.8f, dsoAlpha * 0.95f);
         GUI.DrawTexture(new Rect(x - ds, y - ds, ds * 2f, ds * 2f), dotTex);
 
-        // nome (con ombra) di fianco al pallino
-        var rect = new Rect(x + fs * 0.6f, y - fs * 0.72f, fs * 16f, fs * 1.3f);
-        GUI.color = new Color(0, 0, 0, dsoAlpha * 0.9f); GUI.Label(new Rect(rect.x + 1.5f, rect.y + 1.5f, rect.width, rect.height), SkyData.DsoName[i], labelStyle);
-        GUI.color = new Color(0.6f, 1f, 0.82f, dsoAlpha * 0.95f); GUI.Label(rect, SkyData.DsoName[i], labelStyle);
+        // nome (con ombra) + sottotitolo INCOLONNATI e vicini, alla destra del pallino
+        float lx = x + ds + nfs * 0.35f, ly = y - nfs * 0.65f;
+        var rect = new Rect(lx, ly, nfs * 14f, nfs * 1.25f);
+        GUI.color = new Color(0, 0, 0, dsoAlpha * 0.85f); GUI.Label(new Rect(rect.x + 1f, rect.y + 1f, rect.width, rect.height), SkyData.DsoName[i], dsoNameStyle);
+        GUI.color = new Color(0.62f, 1f, 0.84f, dsoAlpha * 0.95f); GUI.Label(rect, SkyData.DsoName[i], dsoNameStyle);
 
-        // sotto, più piccolo: ingrandimento necessario per vederlo
         int req = ReqMag(SkyData.DsoMag[i]);
         string sub = req <= 1 ? "a occhio nudo" : req + "× per vederlo";
-        var srect = new Rect(x + fs * 0.6f, y + fs * 0.45f, fs * 16f, sfs * 1.4f);
-        GUI.color = new Color(0, 0, 0, dsoAlpha * 0.8f); GUI.Label(new Rect(srect.x + 1f, srect.y + 1f, srect.width, srect.height), sub, smallStyle);
-        GUI.color = new Color(0.62f, 0.86f, 0.76f, dsoAlpha * 0.85f); GUI.Label(srect, sub, smallStyle);
+        var srect = new Rect(lx, ly + nfs * 1.0f, nfs * 14f, sfs * 1.4f);
+        GUI.color = new Color(0, 0, 0, dsoAlpha * 0.75f); GUI.Label(new Rect(srect.x + 1f, srect.y + 1f, srect.width, srect.height), sub, smallStyle);
+        GUI.color = new Color(0.6f, 0.82f, 0.74f, dsoAlpha * 0.8f); GUI.Label(srect, sub, smallStyle);
         GUI.color = prev;
     }
 
-    // ingrandimento (×) a cui l'oggetto "si accende" nel nostro modello (coerente con lo shader deep-sky)
-    static int ReqMag(float mag)
+    // ingrandimento (×) a cui l'oggetto "si accende" nel nostro modello (coerente con DeepSkyBillboard: surfBr, M0=23,
+    // exp=0.01, zoomPow=1.3, gain=0.7 → lum≈0.3 quando I≈0.51 → _SkyZoom^1.3 = 51/10^(0.4·(23−surfBr)); mag=_SkyZoom^(1/1.3))
+    static int ReqMag(float surfBr)
     {
-        float flux = Mathf.Pow(10f, 0.4f * (6.5f - mag));
-        float skyZoom = Mathf.Pow(0.51f / Mathf.Max(flux * 0.0005f, 1e-6f), 1f / 1.5f);   // dove lum≈0.3 (vedi DeepSkyBillboard)
-        return Mathf.Clamp(Mathf.RoundToInt(Mathf.Pow(Mathf.Max(skyZoom, 1f), 1f / 1.3f)), 1, 400);
+        float ratio = Mathf.Pow(10f, 0.4f * (23f - surfBr));
+        float skyZoom = Mathf.Pow(51f / Mathf.Max(ratio, 1e-4f), 1f / 1.3f);
+        return Mathf.Clamp(Mathf.RoundToInt(Mathf.Pow(Mathf.Max(skyZoom, 1f), 1f / 1.3f)), 1, 999);
     }
 
     static Texture2D MakeDot(int size)

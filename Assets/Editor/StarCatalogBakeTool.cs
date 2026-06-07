@@ -62,7 +62,8 @@ public static class StarCatalogBakeTool
         // binocolo/telescopio. Mesh separato, acceso solo zoomando (vedi StarFieldRenderer/SkyController) → costo ZERO
         // a occhio nudo. File: StarData/athyg_m10.csv.gz.
         int deepCount = 0;
-        string athygPath = Path.Combine(srcDir, "athyg_m10.csv.gz");
+        string athygPath = Path.Combine(srcDir, "athyg_m11.csv.gz");                 // più denso (preferito)
+        if (!File.Exists(athygPath)) athygPath = Path.Combine(srcDir, "athyg_m10.csv.gz");   // fallback
         if (File.Exists(athygPath))
         {
             try { var deep = ReadAthygDeep(athygPath); WriteStarBlob("Assets/Resources/Sky/deepstars.bytes", deep, 0); deepCount = deep.Count; }
@@ -315,7 +316,19 @@ public static class StarCatalogBakeTool
             else if (!messier && !named && !(mag <= 10.5f)) continue;   // fallback senza atlante: vecchio criterio
 
             float major = TryF(f[5], out float maj) ? maj : 2f;   // asse maggiore in arcmin
+            float minor = TryF(f[6], out float mnr) && mnr > 0 ? mnr : major;
             float radArcmin = Mathf.Max(major * 0.5f, 0.5f);
+
+            // LUMINOSITÀ DI SUPERFICIE (mag/arcsec²): è ciò che determina QUANDO un oggetto si vede (un oggetto grande e
+            // debole come le Pleiadi ha superficie fioca → serve ingrandimento; uno compatto e brillante si vede subito).
+            // OpenNGC la dà (col 13) solo a volte → altrimenti la calcolo: SurfBr = V + 2.5·log10(area in arcsec²).
+            float surfBr;
+            if (TryF(f[13], out float sb) && sb > 1f) surfBr = sb;
+            else
+            {
+                float areaArcsec2 = Mathf.PI * (major * minor / 4f) * 3600f;   // major,minor in arcmin → arcsec²
+                surfBr = areaArcsec2 > 1f ? mag + 2.5f * Mathf.Log10(areaArcsec2) : mag + 6f;
+            }
 
             var eq = EqUnit(raDeg, decDeg);
             byte flags = (byte)((messier ? 1 : 0) | (named ? 2 : 0));
@@ -325,15 +338,16 @@ public static class StarCatalogBakeTool
                          : !string.IsNullOrEmpty(common) ? common
                          : ngcId != null ? "NGC " + ngcId.Substring(3)
                          : icId != null ? "IC " + icId.Substring(2) : name;
-            list.Add(new Dso { dir = SkyData.EquatorialToGame(eq), radArcmin = radArcmin, mag = mag,
+            // NB: nel campo 'mag' del blob salviamo la luminosità di SUPERFICIE (driver di visibilità realistico)
+            list.Add(new Dso { dir = SkyData.EquatorialToGame(eq), radArcmin = radArcmin, mag = surfBr,
                                type = (byte)cat, flags = flags, tile = (ushort)Mathf.Max(0, tile), name = label });
         }
 
         // Oggetti famosi ASSENTI da OpenNGC (non sono NGC/IC): aggiunti a mano se c'è la loro immagine. Il caso chiave è
         // M45 (Pleiadi = Melotte 22) → senza questo la nebulosità non verrebbe MAI renderizzata (si vedono solo le stelle).
         if (useImages && tiles.TryGetValue("M45", out int t45))
-            list.Add(new Dso { dir = SkyData.EquatorialToGame(EqUnit(56.871f, 24.105f)), radArcmin = 55f, mag = 1.6f,
-                               type = 1, flags = 1, tile = (ushort)t45, name = "M 45" });
+            list.Add(new Dso { dir = SkyData.EquatorialToGame(EqUnit(56.871f, 24.105f)), radArcmin = 55f, mag = 24f,
+                               type = 1, flags = 1, tile = (ushort)t45, name = "M 45" });   // surfBr 24 = nebulosità fioca
 
         list.Sort((a, b) => a.mag.CompareTo(b.mag));
         return list;
