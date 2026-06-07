@@ -45,17 +45,27 @@ Shader "Wanderer/DeepSkyBillboard"
             v2f vert(appdata v)
             {
                 v2f o;
-                // skybox all'infinito: solo rotazione camera, coordinate oggetto piccole (niente tremolio lontano dall'origine)
-                float3 wd = mul((float3x3)unity_ObjectToWorld, v.vertex.xyz);
-                o.pos = mul(UNITY_MATRIX_P, float4(mul((float3x3)UNITY_MATRIX_V, wd), 1.0));
-
                 float radArcmin = v.uv.z, mag = v.uv.w, tile = v.uv1.x;
                 float zoom = max(_SkyZoom, 1.0);
 
-                // dimensione ANGOLARE (già indipendente dalla risoluzione: NON moltiplicare per _SkyPxScale, o pulsa col
-                // RenderScaler). ×_SizeScale perché nelle foto l'oggetto riempie solo una frazione dell'inquadratura.
-                float radRad = radArcmin / 60.0 * 0.0174533 * _SizeScale;
-                float px = clamp(radRad * (_ScreenParams.y * 0.5) / max(_SkyTanHalfFov, 1e-4), _MinPx, _MaxPx);
+                // I 4 angoli del quad sono DIREZIONI VERE in spazio-oggetto (centro ± tangenti × raggio angolare), così
+                // ogni angolo si proietta da solo: robusto anche per oggetti PIÙ GRANDI del campo visivo (es. Nubi di
+                // Magellano a 10°) → niente più scatti/disallineamenti quando il centro esce dall'inquadratura. Prima
+                // l'espansione era in spazio-schermo attorno al centro (× o.pos.w) e si rompeva col centro fuori vista.
+                float3 d = normalize(v.vertex.xyz);
+                float3 up = abs(d.y) < 0.99 ? float3(0, 1, 0) : float3(1, 0, 0);
+                float3 t1 = normalize(cross(up, d));
+                float3 t2 = cross(d, t1);
+
+                // raggio ANGOLARE (×_SizeScale: nelle foto l'oggetto riempie solo una frazione), con minimo/massimo in
+                // PIXEL convertiti in angolo (oggetti minuscoli non sub-pixel; nessun pulsare col RenderScaler).
+                float k = max(_SkyTanHalfFov, 1e-4) / (_ScreenParams.y * 0.5);
+                float ang = clamp(radArcmin / 60.0 * 0.0174533 * _SizeScale, _MinPx * k, _MaxPx * k);
+                float3 corner = normalize(d + (v.uv.x * t1 + v.uv.y * t2) * tan(min(ang, 1.4)));
+
+                // skybox all'infinito: solo rotazione camera, coordinate oggetto piccole (niente tremolio lontano dall'origine)
+                float3 wd = mul((float3x3)unity_ObjectToWorld, corner * length(v.vertex.xyz));
+                o.pos = mul(UNITY_MATRIX_P, float4(mul((float3x3)UNITY_MATRIX_V, wd), 1.0));
 
                 float I = pow(10.0, 0.4 * (_DsoM0 - mag)) * _DsoExposure * pow(zoom, _DsoZoomPow);
                 o.lum = 1.0 - exp(-I * _DsoGain);
@@ -66,8 +76,6 @@ Shader "Wanderer/DeepSkyBillboard"
                 float ty = (ATLAS_DIM - 1.0) - floor(tile / ATLAS_DIM);
                 float2 local = (v.uv.xy * 0.5 + 0.5) * 0.98 + 0.01;
                 o.auv = (float2(tx, ty) + local) / ATLAS_DIM;
-
-                o.pos.xy += v.uv.xy * px * (2.0 / _ScreenParams.xy) * o.pos.w;
                 return o;
             }
 
