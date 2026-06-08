@@ -25,8 +25,8 @@ Shader "Wanderer/StarHalo"
         _SpikeShort ("Quanto è corta la croce a 45° (0..1)", Float) = 0.55
         // NUCLEO NITIDO: un cerchietto a bordo definito che compare COI raggi (sopra l'alone morbido) → la stella ha un
         // centro netto + il bagliore intorno. _CoreR = raggio (frazione del quad), _CoreEdge = quanto è netto il bordo.
-        _CoreR    ("Raggio nucleo nitido", Float) = 0.085
-        _CoreEdge ("Morbidezza bordo nucleo", Float) = 0.03
+        _CoreR    ("Raggio nucleo nitido", Float) = 0.04
+        _CoreEdge ("Morbidezza bordo nucleo", Float) = 0.08
         _CoreStr  ("Forza nucleo nitido", Float) = 0.9
     }
     SubShader
