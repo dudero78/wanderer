@@ -124,7 +124,8 @@ public class RouteIndicator : MonoBehaviour
             float dot = r < 0.05f ? 1f : 0f;                                       // puntino centrale
             float tick = (r > 0.13f && r < 0.34f &&                                 // 4 tacche oltre il gap
                           (Mathf.Abs(dx) < 0.018f || Mathf.Abs(dy) < 0.018f)) ? 1f : 0f;
-            return Mathf.Max(dot, tick);
+            // alfa = forza d'inversione (InvertGUI) → 0.8 = mirino del giocatore appena più tenue, ma ben presente.
+            return Mathf.Max(dot, tick) * 0.8f;
         }, mip: true, ss: 4);
     }
 
