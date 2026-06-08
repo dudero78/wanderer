@@ -163,16 +163,20 @@ public class OpticalInstrument : MonoBehaviour
         GUI.color = prev;
         GUI.DrawTexture(new Rect(x0, 0, side, side), eyepieceTex);   // vignettatura circolare (nero ai bordi, trasparente al centro)
 
-        // etichetta del livello — ingrandimento EFFETTIVO (con la rotella), font scalato alla risoluzione
-        int fs = Mathf.Max(14, Mathf.RoundToInt(h / 52f));
-        if (hudStyle == null || hudStyle.fontSize != fs)
-            hudStyle = new GUIStyle(GUI.skin.label) { fontSize = fs, alignment = TextAnchor.MiddleCenter };
-        GUI.color = new Color(0.82f, 0.88f, 1f, 0.85f);
-        string nome = level == 1 ? "BINOCOLO" : "TELESCOPIO";
-        string extra = level == Mag.Length - 1 ? "   ROTELLA = zoom" : "";
-        GUI.Label(new Rect(w * 0.5f - fs * 12f, h - fs * 2.2f, fs * 24f, fs * 1.5f),
-                  $"{nome}  {EffectiveMag:0}×     G = foto{extra}", hudStyle);
-        GUI.color = prev;
+        // etichetta del livello — ingrandimento EFFETTIVO (con la rotella), font scalato alla risoluzione. Nascosta
+        // nelle foto pulite (l'oculare resta: è l'inquadratura del cannocchiale, non "HUD").
+        if (!GameSettings.HudHiddenForPhoto)
+        {
+            int fs = Mathf.Max(14, Mathf.RoundToInt(h / 52f));
+            if (hudStyle == null || hudStyle.fontSize != fs)
+                hudStyle = new GUIStyle(GUI.skin.label) { fontSize = fs, alignment = TextAnchor.MiddleCenter };
+            GUI.color = new Color(0.82f, 0.88f, 1f, 0.85f);
+            string nome = level == 1 ? "BINOCOLO" : "TELESCOPIO";
+            string extra = level == Mag.Length - 1 ? "   ROTELLA = zoom" : "";
+            GUI.Label(new Rect(w * 0.5f - fs * 12f, h - fs * 2.2f, fs * 24f, fs * 1.5f),
+                      $"{nome}  {EffectiveMag:0}×     G = foto{extra}", hudStyle);
+            GUI.color = prev;
+        }
 
         // flash dello scatto (parte il frame DOPO la foto → non finisce nell'immagine)
         if (photoFlash > 0f)
@@ -186,6 +190,7 @@ public class OpticalInstrument : MonoBehaviour
     void TakePhoto()
     {
         string path = System.IO.Path.Combine(PhotoDir(), $"cielo_{Time.frameCount}.png");
+        GameSettings.SuppressHudForPhoto();   // foto pulite: nasconde l'etichetta dello strumento su questo frame
         ScreenCapture.CaptureScreenshot(path);
         Debug.Log($"[telescopio] foto salvata: {path}");
         flashQueued = true;   // il flash parte il frame DOPO → non finisce nella foto

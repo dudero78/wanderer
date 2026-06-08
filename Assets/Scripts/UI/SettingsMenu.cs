@@ -107,6 +107,9 @@ public class SettingsMenu : MonoBehaviour
         gfx.knobs.Add(C("Risoluzione Via Lattea", new[] { "4k", "8k", "16k" },
             () => GameSettings.SkyTextureRes,
             v => { GameSettings.SkyTextureRes = v; GameSettings.Save(); FindObjectOfType<MilkyWayBand>()?.ApplyResolution(); }));
+        // HUD nelle foto: OFF (default) = foto pulite (mirino/scritte nascosti sullo scatto); ON = cattura anche l'HUD.
+        gfx.knobs.Add(B("HUD nelle foto", false,
+            () => GameSettings.HudInPhotos, v => { GameSettings.HudInPhotos = v; GameSettings.Save(); }));
         tabs.Add(gfx);
 
         // DIAGNOSI: colorazioni di debug del terreno, live. Slider 0-5 (snappa a interi). key=null → non persiste

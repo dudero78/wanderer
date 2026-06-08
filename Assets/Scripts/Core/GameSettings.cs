@@ -19,15 +19,21 @@ public static class GameSettings
     // chi ha una macchina meno potente può scendere (meno VRAM). MilkyWayBand carica la variante corrispondente.
     public static int SkyTextureRes = 2;
 
+    // FOTO — tieni l'HUD (mirino, scritte d'aiuto, etichette dello strumento) nelle foto. Di default OFF → foto PULITE
+    // (l'HUD si nasconde sul frame dello scatto). Accendilo se vuoi catturare anche l'interfaccia.
+    public static bool HudInPhotos;
+
     const string KStation = "wanderer.autopilot.stationKeeping";
     const string KSoftStop = "wanderer.autopilot.softStop";
     const string KSkyRes = "wanderer.graphics.skyTextureRes";
+    const string KHudPhotos = "wanderer.photo.hudInPhotos";
 
     public static void Load()
     {
         AutopilotStationKeeping = PlayerPrefs.GetInt(KStation, 0) != 0;   // default 0 = OFF
         AutopilotSoftStop = PlayerPrefs.GetInt(KSoftStop, 1) != 0;        // default 1 = ON
         SkyTextureRes = Mathf.Clamp(PlayerPrefs.GetInt(KSkyRes, 2), 0, 2);
+        HudInPhotos = PlayerPrefs.GetInt(KHudPhotos, 0) != 0;             // default 0 = OFF (foto pulite)
     }
 
     public static void Save()
@@ -35,6 +41,14 @@ public static class GameSettings
         PlayerPrefs.SetInt(KStation, AutopilotStationKeeping ? 1 : 0);
         PlayerPrefs.SetInt(KSoftStop, AutopilotSoftStop ? 1 : 0);
         PlayerPrefs.SetInt(KSkyRes, SkyTextureRes);
+        PlayerPrefs.SetInt(KHudPhotos, HudInPhotos ? 1 : 0);
         PlayerPrefs.Save();
     }
+
+    // Soppressione dell'HUD per uno scatto (runtime, non persistito): chi scatta chiama SuppressHudForPhoto() nel frame
+    // della cattura; gli OnGUI dell'HUD controllano HudHiddenForPhoto e saltano il disegno SOLO in quel frame (così
+    // l'immagine catturata a fine frame è pulita), a meno che HudInPhotos sia ON.
+    static int hudSuppressFrame = -1;
+    public static bool HudHiddenForPhoto => !HudInPhotos && Time.frameCount == hudSuppressFrame;
+    public static void SuppressHudForPhoto() => hudSuppressFrame = Time.frameCount;
 }

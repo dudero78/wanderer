@@ -20,6 +20,8 @@ public class ProbeController : MonoBehaviour
     string lastPhoto; float photoFlash; bool flashQueued;
     GUIStyle center;
     Texture2D dot;
+    Texture2D reticle;   // mirino della vista sonda: anello sottile + puntino centrale (generato una volta)
+    Material invertMat;  // materiale Wanderer/InvertGUI: il mirino inverte il colore di sfondo (sempre visibile, come quello del giocatore)
 
     public Probe Probe => probe;   // il tracker HUD (RouteIndicator) la segue
     public bool Viewing => viewing;   // true mentre guardi ATTRAVERSO la sonda (lo legge lo strumento ottico/telescopio)
@@ -29,6 +31,8 @@ public class ProbeController : MonoBehaviour
         playerCam = cam; camT = camTransform; walker = w; solar = s;
         playerScaler = cam != null ? cam.GetComponent<RenderScaler>() : null;
         probe = Probe.Spawn(s);
+        var invSh = Shader.Find("Wanderer/InvertGUI");   // mirino a inversione del colore di sfondo (come il giocatore)
+        if (invSh != null) invertMat = new Material(invSh);
     }
 
     void Update()
@@ -129,6 +133,7 @@ public class ProbeController : MonoBehaviour
     void TakePhoto()
     {
         lastPhoto = System.IO.Path.Combine(PhotoDir(), $"sonda_{Time.frameCount}.png");
+        GameSettings.SuppressHudForPhoto();   // foto pulite: l'HUD si nasconde su questo frame (se il flag non è ON)
         ScreenCapture.CaptureScreenshot(lastPhoto);
         Debug.Log($"[sonda] foto salvata: {lastPhoto}");   // path completo in console
         flashQueued = true;   // il flash parte il frame DOPO → non finisce nella foto
@@ -143,6 +148,20 @@ public class ProbeController : MonoBehaviour
         if (center == null) center = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
         center.fontSize = Mathf.RoundToInt(22f * ui);
         if (dot == null) { dot = new Texture2D(1, 1); dot.SetPixel(0, 0, Color.white); dot.Apply(); }
+        if (reticle == null) reticle = BuildReticle(64);
+
+        // HUD nascosto sul frame dello scatto (foto pulite) a meno che il flag "HUD nelle foto" sia ON.
+        bool hideHud = GameSettings.HudHiddenForPhoto;
+
+        // MIRINO al centro: anello sottile (trasparente) + puntino (non una croce). INVERTE il colore di sfondo come il
+        // mirino del giocatore (Wanderer/InvertGUI) → sempre visibile su chiaro e scuro; l'alfa della texture = forza.
+        if (!hideHud)
+        {
+            float rs = 16f * ui;   // mezza dimensione a schermo
+            var cr = new Rect(Screen.width * 0.5f - rs, Screen.height * 0.5f - rs, rs * 2f, rs * 2f);
+            if (invertMat != null) Graphics.DrawTexture(cr, reticle, invertMat);
+            else { GUI.color = new Color(0.85f, 0.95f, 1f, 0.8f); GUI.DrawTexture(cr, reticle); GUI.color = Color.white; }
+        }
 
         // FLASH bianco + conferma foto AL CENTRO (non si sovrappone all'HUD in alto a sinistra)
         if (photoFlash > 0f)
@@ -152,8 +171,41 @@ public class ProbeController : MonoBehaviour
             GUI.color = Color.white;
             GUI.Label(new Rect(0, Screen.height * 0.5f - 20f * ui, Screen.width, 40f * ui), "📸 FOTO SALVATA", center);
         }
-        // suggerimenti in BASSO al centro (lontano dall'HUD)
-        GUI.Label(new Rect(0, Screen.height - 40f * ui, Screen.width, 24f * ui),
-            "VISTA SONDA   ·   mouse = guarda   ·   G = foto   ·   V = esci   ·   K = richiama", center);
+        // suggerimenti in BASSO al centro (lontano dall'HUD) — nascosti anch'essi nelle foto pulite
+        if (!hideHud)
+            GUI.Label(new Rect(0, Screen.height - 40f * ui, Screen.width, 24f * ui),
+                "VISTA SONDA   ·   mouse = guarda   ·   G = foto   ·   V = esci   ·   K = richiama", center);
+    }
+
+    /// <summary>Texture quadrata del mirino: trasparente, con un ANELLO sottile + un PUNTINO al centro (bianco,
+    /// anti-aliased). Disegnata centrata a schermo in vista sonda. Costruita una volta.</summary>
+    static Texture2D BuildReticle(int size)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+        var px = new Color32[size * size];
+        float c = (size - 1) * 0.5f;
+        const float ringR = 0.78f, ringHalf = 0.055f, dotR = 0.11f;   // raggi/spessori in frazione del mezzo-lato
+        float aa = 2f / size;                                         // ammorbidimento ~2 px
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float dx = (x - c) / c, dy = (y - c) / c;
+                float r = Mathf.Sqrt(dx * dx + dy * dy);              // 0 al centro, 1 sul bordo inscritto
+                float ring = 1f - Smooth01(ringHalf - aa, ringHalf + aa, Mathf.Abs(r - ringR));   // banda attorno a ringR
+                float ptn = 1f - Smooth01(dotR - aa, dotR + aa, r);                               // disco centrale
+                // l'alfa = forza d'inversione: ANELLO esterno più trasparente (0.4), PUNTINO pieno (1).
+                float a = Mathf.Clamp01(Mathf.Max(ring * 0.4f, ptn));
+                px[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+            }
+        tex.SetPixels32(px);
+        tex.Apply(false);
+        return tex;
+    }
+
+    // smoothstep "vera" (alla GLSL): 0 per x≤e0, 1 per x≥e1. NON Mathf.SmoothStep (che è un lerp e non arriva a 0/1).
+    static float Smooth01(float e0, float e1, float x)
+    {
+        float t = Mathf.Clamp01((x - e0) / (e1 - e0));
+        return t * t * (3f - 2f * t);
     }
 }
