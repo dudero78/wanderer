@@ -29,7 +29,8 @@ public static class StarCatalogBakeTool
     const string Magic = "WSKY";          // firma del blob
     const int Version = 1;
     const float NakedEyeMag = 6.5f;       // soglia occhio nudo (tier A): più luminose di così = sempre visibili
-    const float BrightHaloMag = 2.2f;     // sotto questa magnitudine = stella "showpiece" → flag alone (Sirio≈−1.4, Vega≈0.0)
+    const float BrightHaloMag = 3.5f;     // sotto questa magnitudine = stella con ALONE (le brillanti spiccano); l'intensità
+                                          // poi scala col flusso (le mag~3.5 un velo, Sirio/Vega piene) → niente "tutte uguali"
 
     [MenuItem("Wanderer/Bake star catalog")]
     public static void BakeStarCatalog()

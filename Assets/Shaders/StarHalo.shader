@@ -14,7 +14,7 @@ Shader "Wanderer/StarHalo"
         _HaloMaxPx ("Raggio massimo (px)", Float) = 90.0
         _HaloFall  ("Durezza caduta", Float) = 2.5
         _HaloStr   ("Intensità", Float) = 0.42
-        _HaloFluxRef ("Flusso di riferimento (forza alone)", Float) = 250.0
+        _HaloFluxRef ("Flusso di riferimento (forza alone)", Float) = 55.0
         // raggi di diffrazione: prima una croce a 4 punte (assi), poi — più in alto — una seconda croce ruotata di 45°
         // (8 punte in tutto). Appaiono e CRESCONO salendo d'ingrandimento (telescopio), come nelle foto vere.
         _SpikeSharp ("Finezza dei raggi", Float) = 320.0
