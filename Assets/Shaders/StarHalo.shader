@@ -25,8 +25,8 @@ Shader "Wanderer/StarHalo"
         _SpikeShort ("Quanto è corta la croce a 45° (0..1)", Float) = 0.55
         // SCIA MORBIDA dietro i raggi: stessi assi ma gaussiana LARGA e tenue → fa da alone sotto al filo nitido (come
         // nelle astrofoto vere). Dà corpo, così il raggio nitido sopra può essere sottilissimo senza sembrare laser.
-        _SpikeSoft   ("Larghezza scia morbida (basso = larga)", Float) = 70.0
-        _SpikeSoftStr("Intensità scia morbida", Float) = 0.22
+        _SpikeSoft   ("Larghezza scia morbida (basso = larga)", Float) = 40.0
+        _SpikeSoftStr("Intensità scia morbida", Float) = 0.18
         // NUCLEO NITIDO: un cerchietto a bordo definito che compare COI raggi (sopra l'alone morbido) → la stella ha un
         // centro netto + il bagliore intorno. _CoreR = raggio (frazione del quad), _CoreEdge = quanto è netto il bordo.
         _CoreR    ("Raggio nucleo nitido", Float) = 0.025
