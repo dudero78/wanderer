@@ -16,6 +16,7 @@ public class SettingsMenu : MonoBehaviour
     {
         public string label, key;
         public bool isToggle;
+        public string[] choices;      // se != null: scelta a bottoni (get/set = indice)
         public float min, max, def;   // def = valore ORIGINALE (catturato al primo avvio, prima dei PlayerPrefs)
         public System.Func<float> get;
         public System.Action<float> set;
@@ -56,6 +57,10 @@ public class SettingsMenu : MonoBehaviour
     Knob B(string label, bool def, System.Func<bool> get, System.Action<bool> set)
         => new Knob { label = label, isToggle = true, def = def ? 1f : 0f, get = () => get() ? 1f : 0f, set = v => set(v > 0.5f) };
 
+    // scelta a BOTTONI (es. risoluzioni): get/set lavorano sull'indice
+    Knob C(string label, string[] choices, System.Func<int> get, System.Action<int> set)
+        => new Knob { label = label, choices = choices, get = () => get(), set = v => set(Mathf.RoundToInt(v)) };
+
     void Build()
     {
         var w = walker;
@@ -95,6 +100,14 @@ public class SettingsMenu : MonoBehaviour
         if (cam != null)
             camTab.knobs.Add(F("Campo visivo (FOV)", "fov", 35f, 80f, () => cam.fieldOfView, v => cam.fieldOfView = v));
         tabs.Add(camTab);
+
+        // GRAFICA: risoluzione della texture della Via Lattea (chi ha una macchina meno potente può scendere → meno VRAM).
+        // Cambio IMMEDIATO: ricarica la variante senza ricostruire la sfera (FindObjectOfType, è un'azione rara).
+        var gfx = new Tab { name = "Grafica" };
+        gfx.knobs.Add(C("Risoluzione Via Lattea", new[] { "4k", "8k", "16k" },
+            () => GameSettings.SkyTextureRes,
+            v => { GameSettings.SkyTextureRes = v; GameSettings.Save(); FindObjectOfType<MilkyWayBand>()?.ApplyResolution(); }));
+        tabs.Add(gfx);
 
         // DIAGNOSI: colorazioni di debug del terreno, live. Slider 0-5 (snappa a interi). key=null → non persiste
         // tra le sessioni (è uno strumento, non una taratura): al riavvio riparte da 0 (off).
@@ -179,7 +192,20 @@ public class SettingsMenu : MonoBehaviour
         GUILayout.BeginHorizontal(GUILayout.Height(40f * ui));
         GUILayout.Label(k.label, head, GUILayout.Width(300f * ui));
 
-        if (k.isToggle)
+        if (k.choices != null)
+        {
+            // scelta a bottoni: quello attivo è verde
+            int cur = Mathf.RoundToInt(k.get());
+            Color prevBg = GUI.backgroundColor;
+            for (int i = 0; i < k.choices.Length; i++)
+            {
+                GUI.backgroundColor = i == cur ? new Color(0.3f, 0.7f, 0.4f) : new Color(0.35f, 0.35f, 0.4f);
+                if (GUILayout.Button(k.choices[i], toggleBtn, GUILayout.Width(90f * ui), GUILayout.Height(34f * ui)))
+                    k.set(i);
+            }
+            GUI.backgroundColor = prevBg;
+        }
+        else if (k.isToggle)
         {
             // toggle come BOTTONE grande e leggibile (non la casellina minuscola): verde = attivo, grigio = spento.
             bool b = k.get() > 0.5f;

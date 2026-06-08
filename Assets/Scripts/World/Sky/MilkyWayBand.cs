@@ -13,9 +13,29 @@ public class MilkyWayBand : MonoBehaviour
 {
     public const float Radius = 95f;
 
+    MeshRenderer mr;   // per ricaricare la texture quando si cambia la risoluzione dalle opzioni
+
+    // Risorsa della Via Lattea secondo l'impostazione grafica: 0=4k, 1=8k, 2=16k. Ripiego sulla 16k se la variante manca.
+    static Texture2D LoadTex()
+    {
+        string name = GameSettings.SkyTextureRes == 0 ? "Sky/MilkyWay_4k"
+                    : GameSettings.SkyTextureRes == 1 ? "Sky/MilkyWay_8k" : "Sky/MilkyWay";
+        var t = Resources.Load<Texture2D>(name) ?? Resources.Load<Texture2D>("Sky/MilkyWay");
+        if (t != null) { t.wrapModeU = TextureWrapMode.Repeat; t.wrapModeV = TextureWrapMode.Clamp; t.filterMode = FilterMode.Trilinear; }
+        return t;
+    }
+
+    /// <summary>Cambia al volo la risoluzione della Via Lattea (dalle opzioni grafiche) senza ricostruire la sfera.</summary>
+    public void ApplyResolution()
+    {
+        if (mr == null) return;
+        var t = LoadTex();
+        if (t != null) mr.sharedMaterial.mainTexture = t;
+    }
+
     public bool Build(Transform root, int layer)
     {
-        var tex = Resources.Load<Texture2D>("Sky/MilkyWay");
+        var tex = LoadTex();
         if (tex == null) { Debug.LogWarning("[sky] Resources/Sky/MilkyWay non trovata: niente Via Lattea."); return false; }
         tex.wrapModeU = TextureWrapMode.Repeat;   // cucitura in Ascensione Retta
         tex.wrapModeV = TextureWrapMode.Clamp;
@@ -30,7 +50,7 @@ public class MilkyWayBand : MonoBehaviour
         go.transform.SetParent(root, false);
         if (layer >= 0) go.layer = layer;
         go.AddComponent<MeshFilter>().sharedMesh = mesh;
-        var mr = go.AddComponent<MeshRenderer>();
+        mr = go.AddComponent<MeshRenderer>();
         mr.sharedMaterial = new Material(sh) { mainTexture = tex };
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         mr.receiveShadows = false;
