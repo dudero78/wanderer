@@ -31,7 +31,7 @@ Shader "Wanderer/StarHalo"
         // LENS FLARE: un anello circolare a poca distanza dal nucleo (come i "fantasmi" dell'obiettivo), compare coi raggi.
         _FlareR   ("Raggio anello lens flare", Float) = 0.26
         _FlareW   ("Spessore anello (più piccolo = sottile)", Float) = 0.0004
-        _FlareStr ("Forza anello", Float) = 0.35
+        _FlareStr ("Forza anello", Float) = 0.18
     }
     SubShader
     {
