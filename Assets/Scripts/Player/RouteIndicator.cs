@@ -288,6 +288,14 @@ public class RouteIndicator : MonoBehaviour
                     Vector3 toT = (tp - camPos).normalized;
                     float closing = Vector3.Dot(relVel, toT);
                     Shadowed(new Rect(tx, ty + 18f * ui, 170f * ui, 22f * ui), closing.ToString("+0;-0;0") + " m/s", White, fade, TextAnchor.UpperLeft);
+                    // ETA = distanza dalla SUPERFICIE / velocità di avvicinamento (solo se ti stai avvicinando).
+                    // Font un po' più piccolo del resto (è un dato secondario): riduco label.fontSize solo per questa riga.
+                    float stop = Mathf.Max(dist - tgt.radius, 0f);
+                    string eta = closing > 0.5f ? "ETA ~" + FmtEta(stop / closing) : "ETA —";
+                    int prevFs = label.fontSize;
+                    label.fontSize = Mathf.RoundToInt(11f * ui);
+                    Shadowed(new Rect(tx, ty + 34f * ui, 170f * ui, 18f * ui), eta, new Color(0.7f, 0.95f, 1f), fade, TextAnchor.UpperLeft);
+                    label.fontSize = prevFs;
                 }
             }
         }
@@ -378,6 +386,15 @@ public class RouteIndicator : MonoBehaviour
     }
 
     static string FmtDist(float d) => d > 1000f ? (d / 1000f).ToString("F1") + " km" : d.ToString("F0") + " m";
+
+    // Tempo d'arrivo STIMATO in formato compatto (s / min / h). Stima ingenua distanza/velocità: ignora
+    // accelerazione e frenata (autopilota), quindi è indicativa — più onesta a velocità di crociera costante.
+    static string FmtEta(float seconds)
+    {
+        if (seconds >= 3600f) return (seconds / 3600f).ToString("F1") + " h";
+        if (seconds >= 60f) return (seconds / 60f).ToString("F1") + " min";
+        return seconds.ToString("F0") + " s";
+    }
 
     // interseca il raggio (c + dir·t) col bordo interno del rettangolo: punto sul bordo nella direzione data.
     static Vector2 ClampToRect(Vector2 c, Vector2 dir, Rect r)
