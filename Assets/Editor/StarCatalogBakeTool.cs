@@ -377,13 +377,14 @@ public static class StarCatalogBakeTool
         if (useImages && tiles.TryGetValue("M45", out int t45))
             list.Add(new Dso { dir = SkyData.EquatorialToGame(EqUnit(56.871f, 24.105f)), radArcmin = 55f, mag = 24f,
                                type = 1, flags = 1, tile = (ushort)t45, name = "M 45" });   // surfBr 24 = nebulosità fioca
-        // Nubi di Magellano: galassie satelliti ENORMI (~10°/5°), non in OpenNGC. surfBr bassa → fioche a basso zoom,
-        // emergono ingrandendo (non più "luminosissime" a 7×). radArcmin tarato per la resa angolare (×_SizeScale 2.2).
+        // Nubi di Magellano: galassie satelliti ENORMI (~10°/5°), non in OpenNGC. La posizione è AGGANCIATA al centroide
+        // LUMINOSO con cui la texture 16k le mostra (= dove punti l'occhio), non al "centro" catalogo: per la LMC la parte
+        // brillante (30 Doradus) è ~7° a est del centro, e mettere il billboard sul centro la faceva sembrare spostata.
         if (useImages && tiles.TryGetValue("LMC", out int tLmc))
-            list.Add(new Dso { dir = SkyData.EquatorialToGame(EqUnit(80.894f, -69.756f)), radArcmin = 140f, mag = 22.5f,
+            list.Add(new Dso { dir = SkyData.EquatorialToGame(EqUnit(87.9f, -69.15f)), radArcmin = 140f, mag = 22.5f,
                                type = 0, flags = 2, tile = (ushort)tLmc, name = "Grande Nube di Magellano" });
         if (useImages && tiles.TryGetValue("SMC", out int tSmc))
-            list.Add(new Dso { dir = SkyData.EquatorialToGame(EqUnit(13.187f, -72.829f)), radArcmin = 75f, mag = 23f,
+            list.Add(new Dso { dir = SkyData.EquatorialToGame(EqUnit(13.33f, -72.30f)), radArcmin = 75f, mag = 22f,
                                type = 0, flags = 2, tile = (ushort)tSmc, name = "Piccola Nube di Magellano" });
 
         list.Sort((a, b) => a.mag.CompareTo(b.mag));
