@@ -371,3 +371,19 @@ Sessione lunga e iterativa, soprattutto su mappa e caricamenti. Tutto verificato
   spariscono quando il sistema si sveglia (stella vera). **Alone di luce** (`StarGlow` + shader additivo) attorno a ogni stella.
 - **Speed lines**: niente più "terza" animazione girandosi — una passata che sfuma a zero attraversando il perpendicolare.
 - **Warp di DEBUG ⌘+W / Ctrl+W**: balzi fin quasi al bersaglio selezionato (alla sua velocità) per testare i viaggi lunghi.
+
+## 2026-06-07/08 — Cielo stellato reale: maturazione completa (mergiato su `main`)
+
+Il cielo stellato (vedi memoria [[wanderer-cielo-stellato]]) è passato da prototipo a feature rifinita, in una lunga
+sessione interattiva con Dario.
+- **Precisione — skybox all'infinito.** Il tremolio delle stelle lontano dall'origine era cancellazione in virgola
+  mobile: i 5 shader del cielo ora trasformano con la SOLA rotazione della camera (coord-oggetto piccole); le etichette
+  si proiettano camera-relative. Niente più "ballo" a qualsiasi distanza.
+- **Campo profondo Gaia con culling.** Da 754k a **2.37M stelle** (ATHYG v3.2 completo) rese efficienti con **frustum-
+  culling a celle cube-face** (al telescopio si disegna ~1 cella, non i milioni). Acceso solo zoomando.
+- **Deep-sky = foto vere** con luminosità per **superficie** (surfBr); sfondo nero adattivo (tecnica Stellarium); +17
+  oggetti famosi. **Via Lattea 16k DIFFUSA** (layer "milkyway" NASA, senza stelle → niente doppioni), con opzioni
+  grafiche **4k/8k/16k** (à → Grafica). Nubi di Magellano mostrate solo dalla texture (no billboard).
+- **Effetto stelle brillanti** tarato a vista: alone esteso + nucleo netto + raggi di diffrazione a doppio strato (filo
+  nitido + scia morbida) + lens flare, tutto gated sullo zoom. **Zoom telescopio smussato** (ease esponenziale).
+  **ESC = pausa** del gioco.

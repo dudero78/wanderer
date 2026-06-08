@@ -15,19 +15,21 @@ nell'editor. Per questo si usa Unity (tutto autorabile da testo) e non UE5.
 
 ## Stato attuale (vedi git log per il dettaglio)
 
-> **AGGIORNAMENTO 7 giu 2026 (sera) — CIELO STELLATO REALE (PREVALE; memoria [[wanderer-cielo-stellato]], dettaglio `TODO.md §🌌` + `AUDIT4_ARCHITETTURA.md`/`AUDIT4_CODICE.md`):**
-> - Addio fondo nero: **catalogo HYG ~119k stelle reali** (posizione/colore B−V/magnitudine) + **OpenNGC** deep-sky +
->   **Via Lattea NASA** (equirettangolare equatoriale). Architettura: **bolla cielo camera-following in Background**
->   (NO seconda camera, per RenderScaler) + compensazione `_SkyPxScale` (fix pulsare). Allineato all'**ECLITTICA**
->   (`SkyData.EquatorialToGame` → zodiaco sul piano orbitale); **Vega/Antares** (ex Helios) nella direzione REALE.
->   Tasti **B** (binocolo/telescopio) e **C** (costellazioni). Dati grezzi in `/StarData` (gitignored) →
->   `Wanderer → Bake star catalog` → `Resources/Sky/`. Branch `cielo-stellato` (commit `43c2c20`→`718ac28`).
-> - **🔴 4 punti PARCHEGGIATI (debug INSIEME a Dario):** blob deep-sky (= trap **Mathf.SmoothStep≠GLSL**, root cause
->   trovata); telescopio (etichetta mente 10×/50× vs `{1,8,25}`); Via Lattea che "nuota" (sospetto reimport shader);
->   poche costellazioni (dato). **Prima regola domani: reimport shader pulito + ri-test, poi i fix (in TODO §🌌).**
-> - **AUDIT #4** (3 tavoli: architettura/filosofia, codice/bug, + il gran consiglio dei game designer): vedi i
->   `AUDIT4_*.md` e `CONSIGLIO_*.md`. Sintesi architettura: fondamenta principal-grade, perf con largo margine su M3
->   Pro Max; rischi nei pezzi non-costruiti (volumi gas/stelle, **il VERBO**) e in `MapMode` (1186 righe, prossimo god-object).
+> **AGGIORNAMENTO 8 giu 2026 — CIELO STELLATO REALE, MATURO E SU `main` (memoria [[wanderer-cielo-stellato]]):**
+> - Addio fondo nero: **HYG ~119k stelle** + **campo profondo 2.37M stelle (ATHYG/Gaia)** reso con **frustum-culling a
+>   celle cube-face** (al telescopio disegna ~1 cella, non i milioni) + **OpenNGC** deep-sky con FOTO vere (luminosità per
+>   LUMINOSITÀ DI SUPERFICIE) + **Via Lattea NASA 16k DIFFUSA** (layer "milkyway", senza stelle → niente doppioni;
+>   risoluzione 4k/8k/16k scegliibile da à → Grafica).
+> - Architettura: **bolla cielo camera-following in Background** (no seconda camera, per RenderScaler). **Skybox
+>   all'infinito** (i 5 shader del cielo trasformano con la SOLA rotazione camera → niente più tremolio lontano
+>   dall'origine; etichette camera-relative). Allineato all'**ECLITTICA** (`SkyData.EquatorialToGame`); Vega/Antares
+>   nella direzione reale.
+> - **Effetto stelle brillanti** tarato a vista (alone esteso + nucleo netto + raggi di diffrazione a doppio strato +
+>   lens flare, gated sullo zoom). **Zoom telescopio smussato** (ease esponenziale), **ESC = pausa**.
+> - Dati grezzi in `/StarData` (gitignored) → `Wanderer → Bake star catalog`. Tasti **B**/**C**/**L**.
+> - **AUDIT #4** (architettura/codice + consiglio game designer): vedi `AUDIT4_*.md` e `CONSIGLIO_*.md`. Fondamenta
+>   principal-grade, perf con largo margine su M3 Pro Max; rischi nei pezzi non-costruiti (volumi gas/stelle, **il VERBO**)
+>   e in `MapMode` (prossimo god-object).
 >
 > **AGGIORNAMENTO 7 giu 2026 — MAPPA RISCRITTA + CARICAMENTI GRADUALI (dettaglio in `CHANGELOG.md` e memoria [[wanderer-hud-navigazione]]):**
 > - **`MapMode` rifatto da zero** con **spazio-mappa LOCALE** (tutto in coordinate-universo `Vector3d`, `ToMap(uni)=uni−mapOrigin`,
