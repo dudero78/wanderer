@@ -263,9 +263,15 @@ public class RouteIndicator : MonoBehaviour
                     DrawDots(gui - d * (ringEdge + 4f * ui), rpos + d * 12f * ui, A(Blue, 0.5f), fade, ui);  // verso retrograde
                 }
                 DrawTex(retroTex, rpos, 18f * ui, 18f * ui, 0f, A(Blue, 0.55f), fade);    // retrograde: cerchietto vuoto
-                DrawTex(progradeTex, mpos, 24f * ui, 24f * ui, 0f, pc, fade);            // prograde: ⊕ pieno
+                DrawTex(progradeTex, mpos, 24f * ui, 24f * ui, 0f, A(pc, 0.5f), fade);   // prograde: ⊕ pieno (semitrasparente)
                 if (aligned && !synced)
                     Shadowed(new Rect(gui.x - 70f * ui, gui.y + ringEdge + 6f * ui, 140f * ui, 20f * ui), "ALLINEATO", Green, fade, TextAnchor.UpperCenter);
+            }
+            else if (!mapActive && synced)
+            {
+                // SINCRONIZZATO: la velocità relativa è ~0 (niente prograde/retrograde da mostrare), ma teniamo il ⊕
+                // CENTRATO sul corpo, verde e TENUE → il reticolo non sparisce, segna l'aggancio senza coprire il pianeta.
+                DrawTex(progradeTex, gui, 24f * ui, 24f * ui, 0f, A(Green, 0.4f), fade);
             }
 
             // testo accanto al corpo: appena FUORI dall'anello, clampato al bordo schermo SOLO quando serve
@@ -288,14 +294,16 @@ public class RouteIndicator : MonoBehaviour
                     Vector3 toT = (tp - camPos).normalized;
                     float closing = Vector3.Dot(relVel, toT);
                     Shadowed(new Rect(tx, ty + 18f * ui, 170f * ui, 22f * ui), closing.ToString("+0;-0;0") + " m/s", White, fade, TextAnchor.UpperLeft);
-                    // ETA = distanza dalla SUPERFICIE / velocità di avvicinamento (solo se ti stai avvicinando).
-                    // Font un po' più piccolo del resto (è un dato secondario): riduco label.fontSize solo per questa riga.
-                    float stop = Mathf.Max(dist - tgt.radius, 0f);
-                    string eta = closing > 0.5f ? "ETA ~" + FmtEta(stop / closing) : "ETA —";
-                    int prevFs = label.fontSize;
-                    label.fontSize = Mathf.RoundToInt(11f * ui);
-                    Shadowed(new Rect(tx, ty + 34f * ui, 170f * ui, 18f * ui), eta, new Color(0.7f, 0.95f, 1f), fade, TextAnchor.UpperLeft);
-                    label.fontSize = prevFs;
+                    // ETA = distanza dalla SUPERFICIE / velocità di avvicinamento. Mostrata SOLO se ti stai avvicinando
+                    // (altrimenti non è definita → niente riga). Font un po' più piccolo del resto (dato secondario).
+                    if (closing > 0.5f)
+                    {
+                        float stop = Mathf.Max(dist - tgt.radius, 0f);
+                        int prevFs = label.fontSize;
+                        label.fontSize = Mathf.RoundToInt(11f * ui);
+                        Shadowed(new Rect(tx, ty + 34f * ui, 170f * ui, 18f * ui), "ETA ~" + FmtEta(stop / closing), new Color(0.7f, 0.95f, 1f), fade, TextAnchor.UpperLeft);
+                        label.fontSize = prevFs;
+                    }
                 }
             }
         }
