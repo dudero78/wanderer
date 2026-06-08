@@ -25,6 +25,8 @@ public class Probe : MonoBehaviour
     CelestialBody landedOn;
     Vector3 landedLocal;   // posizione di posa in coordinate LOCALI del corpo → resta incollata alla superficie anche
                            // mentre il corpo orbita / la floating origin ri-centra (era la causa del lento sprofondamento)
+    Quaternion landedLocalRot = Quaternion.identity;   // ORIENTAMENTO di posa nel frame del corpo → i piedi restano
+                                                       // poggiati alla stessa pendenza anche se il pianeta ruota/orbita
 
     public static Probe Instance { get; private set; }   // l'unica sonda (per la mappa: marker "SONDA")
 
@@ -37,6 +39,9 @@ public class Probe : MonoBehaviour
     public bool FreezeOrient;
 
     const float ProbeRadius = 0.6f;   // mezza taglia della sonda (per la collisione e la mesh visiva)
+    const float LegSpread = ProbeRadius * 1.7f;   // raggio orizzontale dei piedi (le zampe si allargano oltre il corpo, come il LM)
+    const float LegDrop   = ProbeRadius * 1.2f;   // quanto i piedi scendono sotto il centro del corpo
+    const float LandClearance = LegDrop;          // a riposo il centro corpo sta LegDrop sopra il punto di contatto del piede
 
     public static Probe Spawn(SolarSystem s)
     {
@@ -88,6 +93,10 @@ public class Probe : MonoBehaviour
         // Scivola lungo il guscio puntando dove guardi (lo guida ProbeController via SetGaze, dalla direzione di sguardo).
         // Figlia di Visual → visibile da fuori (terza persona / mappa / volo), sparisce in prima persona col resto della sfera.
         p.camGadget = BuildCameraGadget(vis.transform, ProbeRadius, std, unlit).transform;
+
+        // ZAMPE D'ATTERRAGGIO stile modulo lunare Apollo (figlie di Visual). Fisse nel frame della sonda: è il CORPO che
+        // si orienta alla normale della superficie all'atterraggio → i piedi poggiano a qualunque pendenza.
+        BuildLegs(vis.transform, ProbeRadius, std);
 
         // LUCE EMESSA: point light. Illumina gli oggetti Standard vicini E il TERRENO GPU (registrata come luce
         // ausiliaria in GpuPlanetRenderer.AuxPointLight da Launch → il terreno la calcola, come la torcia).
@@ -185,6 +194,49 @@ public class Probe : MonoBehaviour
         return node;
     }
 
+    /// <summary>Zampe d'atterraggio stile modulo lunare Apollo: una basetta/hub sul fondo + 4 gambe a raggiera con
+    /// controvento ("A-frame" del LM) e piede a disco dorato. Sono FISSE nel frame della sonda (a differenza della
+    /// telecamera che scivola): all'atterraggio è il CORPO a orientarsi alla normale della superficie, così i piedi
+    /// poggiano sempre. Figlie di Visual → visibili da fuori, via in prima persona.</summary>
+    static void BuildLegs(Transform parent, float R, Shader std)
+    {
+        Material strut = null, pad = null;
+        if (std != null)
+        {
+            strut = new Material(std) { color = new Color(0.20f, 0.21f, 0.24f) };   // struttura scura
+            strut.SetFloat("_Metallic", 0.7f); strut.SetFloat("_Glossiness", 0.45f);
+            pad = new Material(std) { color = new Color(0.80f, 0.62f, 0.26f) };     // piede dorato (foglio Apollo)
+            pad.SetFloat("_Metallic", 0.85f); pad.SetFloat("_Glossiness", 0.55f);
+        }
+
+        // basetta/hub sul fondo del corpo (disco basso = "la basetta con le zampette")
+        Prim(PrimitiveType.Cylinder, parent, new Vector3(0f, -R * 0.92f, 0f), Quaternion.identity,
+             new Vector3(R * 0.5f, R * 0.12f, R * 0.5f), strut);
+
+        for (int i = 0; i < 4; i++)
+        {
+            float a = (45f + 90f * i) * Mathf.Deg2Rad;
+            Vector3 d = new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a));      // direzione orizzontale della gamba
+            Vector3 top  = d * (R * 0.50f) + Vector3.up * (-R * 0.35f);   // attacco al corpo (basso, sul fianco)
+            Vector3 foot = d * LegSpread   + Vector3.up * (-LegDrop);     // piede (largo e in basso)
+
+            Strut(parent, top, foot, R * 0.07f, strut);                  // gamba principale inclinata
+            Vector3 brace = d * (R * 0.18f) + Vector3.up * (R * 0.05f);   // controvento secondario (look a "A" del LM)
+            Strut(parent, brace, Vector3.Lerp(top, foot, 0.55f), R * 0.045f, strut);
+            Prim(PrimitiveType.Cylinder, parent, foot, Quaternion.identity,   // piede a disco, piatto (asse Y → giace orizzontale)
+                 new Vector3(R * 0.50f, R * 0.05f, R * 0.50f), pad);
+        }
+    }
+
+    /// <summary>Un puntone cilindrico fra due punti A e B (lunghezza lungo l'asse Y del cilindro), spessore dato.</summary>
+    static void Strut(Transform parent, Vector3 a, Vector3 b, float thick, Material mat)
+    {
+        Vector3 axis = b - a; float len = axis.magnitude;
+        if (len < 1e-5f) return;
+        Quaternion rot = Quaternion.FromToRotation(Vector3.up, axis / len);
+        Prim(PrimitiveType.Cylinder, parent, (a + b) * 0.5f, rot, new Vector3(thick, len * 0.5f, thick), mat);
+    }
+
     /// <summary>Crea una primitiva figlia senza collider, con trasform e materiale dati (helper per il modellino).</summary>
     static void Prim(PrimitiveType t, Transform parent, Vector3 pos, Quaternion rot, Vector3 scale, Material mat)
     {
@@ -260,6 +312,8 @@ public class Probe : MonoBehaviour
             {
                 Vector3 p = landedOn.transform.TransformPoint(landedLocal);
                 rb.position = p; transform.position = p;
+                Quaternion q = landedOn.transform.rotation * landedLocalRot;   // ri-applico anche l'orientamento di posa
+                rb.rotation = q; transform.rotation = q;
             }
             return;
         }
@@ -292,26 +346,39 @@ public class Probe : MonoBehaviour
         // sapere SE ha toccato, non per camminarci). Campiono il rilievo solo vicino alla superficie (altrove i bump
         // sono irrilevanti e la pipeline crateri girerebbe per niente).
         float surface = (float)planet.Radius;
+        Vector3 normal = up;   // normale della superficie: radiale di default (corpo liscio / fuori dalla banda di rilievo)
         double band = System.Math.Max(60.0, planet.Radius * 0.5);
         if (r < planet.Radius + band && planet.TryGetComponent<PlanetTerrain>(out var terr))
         {
             float s = terr.SampleHeight(up);
             if (!float.IsNaN(s) && !float.IsInfinity(s)) surface = s;
+            // NORMALE locale dalla pendenza: l'eps angolare campiona il rilievo a ~1.5 m laterali (taglia del lander),
+            // così l'orientamento segue la PENDENZA reale e non i sassolini. Stesso frame di SampleHeight(up).
+            float eps = Mathf.Max(1e-4f, 1.5f / (float)planet.Radius);
+            Vector3 sn = terr.SurfaceNormal(up, eps);
+            if (sn.sqrMagnitude > 1e-6f && !float.IsNaN(sn.x)) normal = sn.normalized;
         }
-        if (r <= surface + ProbeRadius)
+        if (r <= surface + LandClearance)
         {
-            // impatto/aggancio: posa la sonda sul suolo e ferma il moto (stilizzato: si pianta dove tocca).
-            Vector3 rest = planet.transform.position + up * (surface + ProbeRadius);
+            // impatto/aggancio: i PIEDI poggiano sul suolo e il moto si ferma. Il corpo si solleva di LandClearance
+            // LUNGO LA NORMALE (non lungo il raggio) → su una pendenza il lander è inclinato come la superficie, su uno
+            // strapiombo/soffitto si rovescia: la basetta con le zampe guarda sempre verso la superficie.
+            Vector3 contact = planet.transform.position + up * surface;
+            Vector3 rest = contact + normal * LandClearance;
             rb.position = rest; transform.position = rest;
             rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero;
             if (!FreezeOrient)   // mentre la guardi, non scattare l'orientamento di atterraggio (il free-look resta stabile)
             {
-                Vector3 flat = Vector3.ProjectOnPlane(transform.forward, up);
-                if (flat.sqrMagnitude > 1e-6f) transform.rotation = Quaternion.LookRotation(flat.normalized, up);
+                // +Y del corpo = normale (zampe verso il suolo); il muso = forward proiettato sul piano della superficie.
+                Vector3 fwd = Vector3.ProjectOnPlane(transform.forward, normal);
+                if (fwd.sqrMagnitude < 1e-6f) fwd = Vector3.ProjectOnPlane(transform.right, normal);
+                if (fwd.sqrMagnitude < 1e-6f) fwd = Vector3.ProjectOnPlane(Vector3.forward, normal);
+                transform.rotation = Quaternion.LookRotation(fwd.normalized, normal);
             }
             landed = true; landedOn = planet;
-            landedLocal = planet.transform.InverseTransformPoint(rest);   // memorizza la posa NEL frame del corpo (vi resta incollata)
-            rb.isKinematic = true;   // niente più simulazione fisica: la posizione la guida l'aggancio al corpo
+            landedLocal = planet.transform.InverseTransformPoint(rest);                       // posa NEL frame del corpo (vi resta incollata)
+            landedLocalRot = Quaternion.Inverse(planet.transform.rotation) * transform.rotation;   // anche l'orientamento, nel frame del corpo
+            rb.isKinematic = true;   // niente più simulazione fisica: posizione+orientamento li guida l'aggancio al corpo
         }
     }
 
