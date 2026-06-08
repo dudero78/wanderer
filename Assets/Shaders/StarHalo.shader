@@ -29,7 +29,7 @@ Shader "Wanderer/StarHalo"
         _SpikeSoftStr("Intensità scia morbida", Float) = 0.22
         // NUCLEO NITIDO: un cerchietto a bordo definito che compare COI raggi (sopra l'alone morbido) → la stella ha un
         // centro netto + il bagliore intorno. _CoreR = raggio (frazione del quad), _CoreEdge = quanto è netto il bordo.
-        _CoreR    ("Raggio nucleo nitido", Float) = 0.04
+        _CoreR    ("Raggio nucleo nitido", Float) = 0.025
         _CoreEdge ("Morbidezza bordo nucleo", Float) = 0.08
         _CoreStr  ("Forza nucleo nitido", Float) = 0.9
         // LENS FLARE: un anello circolare a poca distanza dal nucleo (come i "fantasmi" dell'obiettivo), compare coi raggi.
