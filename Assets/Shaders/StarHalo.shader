@@ -108,8 +108,8 @@ Shader "Wanderer/StarHalo"
                 float zr = saturate((zhz - 275.0) / 600.0);   // 0 a ~75×, 1 a max zoom
                 float hz = 1.0 + zr * 4.5;                     // raggi: fino a ~5× a max zoom
                 // LENS FLARE: anello gaussiano a raggio _FlareR (poca distanza dal nucleo). Compare da ~75×, salita graduale.
-                // Boost a max zoom PIÙ BASSO dei raggi (×2.5 vs ×4.5) → l'anello resta più tenue in cima.
-                float hzFlare = 1.0 + zr * 2.5;
+                // Boost a max zoom MOLTO più basso dei raggi (×0.8 vs ×4.5) → l'anello resta tenue in cima.
+                float hzFlare = 1.0 + zr * 0.8;
                 float flareGate = saturate((zhz - 275.0) / 350.0);
                 float dr = r - _FlareR;
                 float ring = exp(-dr * dr / _FlareW) * flareGate * _FlareStr * hzFlare;
