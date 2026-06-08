@@ -102,10 +102,15 @@ Shader "Wanderer/StarHalo"
                 // NUCLEO NITIDO: cerchietto a bordo definito, che compare insieme ai raggi (gate su i.spikes.x). L'alone
                 // morbido (a) resta sotto/intorno → centro netto + bagliore. Sotto la soglia dei raggi: niente nucleo.
                 float core = (1.0 - smoothstep(_CoreR, _CoreR + _CoreEdge, r)) * saturate(i.spikes.x) * _CoreStr;
-                // LENS FLARE: anello gaussiano a raggio _FlareR (poca distanza dal nucleo), compare coi raggi
+                // luminosità EXTRA di raggi+anello SOLO ad alto ingrandimento: 1 fino a ~80×, fino a ~5× a max zoom →
+                // a massimo ingrandimento sparano. (Il nucleo e l'alone restano com'erano.) _SkyZoom: 80×≈300, 160×≈800.
+                float zhz = max(_SkyZoom, 1.0);
+                float hz = 1.0 + saturate((zhz - 300.0) / 500.0) * 4.0;
+                // LENS FLARE: anello gaussiano a raggio _FlareR (poca distanza dal nucleo). Compare PIÙ TARDI (da ~80×).
+                float flareGate = saturate((zhz - 300.0) / 200.0);
                 float dr = r - _FlareR;
-                float ring = exp(-dr * dr / _FlareW) * saturate(i.spikes.x) * _FlareStr;
-                return fixed4(i.col * (a + core + ring + cross * _SpikeStr), 1.0);
+                float ring = exp(-dr * dr / _FlareW) * flareGate * _FlareStr * hz;
+                return fixed4(i.col * (a + core + ring + cross * _SpikeStr * hz), 1.0);
             }
             ENDCG
         }
