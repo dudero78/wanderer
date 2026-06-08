@@ -32,17 +32,22 @@ Sedute (in PARALLELO):
 - **Igiene dati & git**: cosa NON deve essere committato (i 4 file vietati + blob pesanti gitignored), coerenza `.gitignore`.
 Verifica avversariale di OGNI bug "trovato": è reale e raggiungibile in gioco, o teorico?
 
+## Seduta RED TEAM (trasversale, anti-bias-di-conferma)
+Oltre ai due tavoli, spawna **un esperto "red team"** il cui unico compito è **dimostrare che il progetto è FRAGILE**: parte dall'ipotesi che ci sia una crepa grave e va a cercarla (lo scenario che fa crollare le performance, il caso che rompe la fisica/precisione, l'assunzione architetturale che non scala, il pezzo non-costruito che farà saltare il piano). Serve a rompere il bias di conferma dei tavoli. Le sue tesi passano comunque per la verifica avversariale (se non regge, si scarta), ma vanno PRESE SUL SERIO.
+
 ## Verifica degli audit precedenti
 Leggi `AUDIT3.md`, `AUDIT4_*.md`, `CONSIGLIO_*.md`, `TODO.md` e le memorie. Per ogni punto rilevante stabilisci: **RISOLTO / APERTO / REGREDITO**. Riporta al tavolo i task mancanti o le raccomandazioni ancora valide (specie quelle "rimandate con motivo").
 
 ## Report finale
-Scrivi **`AUDIT_<data>.md`** (data da `currentDate`) nella radice del repo, con:
+Scrivi **`AUDIT_<data>.md`** (data da `currentDate`) nella radice del repo. **In cima annota l'hash del commit analizzato** (`git rev-parse --short HEAD`) e il branch → l'audit è riproducibile e confrontabile col prossimo. Struttura:
 1. **Sintesi esecutiva** — lo stato in poche righe + il verdetto: *roccia* o *dove sono le crepe*.
 2. **Tavolo 1** — rilievi ordinati per severità (prove + fix + sforzo), e il giudizio "regge l'ambizione / l'M3 se lo mangia a colazione?".
 3. **Tavolo 2** — idem.
-4. **Stato audit precedenti** — risolti / aperti / nuovi.
-5. **Lista d'azione PRIORITIZZATA** — cosa fare prima, cosa rimandare e perché.
-Scrivi PULITO (stile delle istruzioni globali: niente note difensive). Alla fine, riassumi a Dario il verdetto in 5 righe e chiedi se vuole che apra subito i fix prioritari.
+4. **Red team** — le tesi di fragilità sopravvissute alla verifica (anche se BASSA severità: sono i campanelli d'allarme).
+5. **Stato audit precedenti** — risolti / aperti / nuovi.
+6. **Lista d'azione PRIORITIZZATA** — cosa fare prima, cosa rimandare e perché.
+7. **Follow-up MISURATO** — elenca i punti marcati "DA MISURARE" e proponi una sessione mirata col Profiler / build standalone (NON l'editor) per chiuderli con dati veri, non a intuizione.
+Scrivi PULITO (stile delle istruzioni globali: niente note difensive). Alla fine, riassumi a Dario il verdetto in 5 righe e chiedi se vuole che apra subito i fix prioritari o la sessione di misura.
 
 ## Orchestrazione & scala
 Spawna le sedute IN PARALLELO con il tool **Agent** (lettura/ricerca read-only) per coprire molto in fretta, poi fai la verifica avversariale e sintetizza tu. Tieni un numero ragionevole di agenti (≈5–6 per tavolo). **Per un audit ancora più esaustivo e avversariale** l'utente può aggiungere **"ultracode"** alla richiesta → allora usa un **Workflow** (fan-out per dimensione → verifica avversariale a più voti → sintesi con critico di completezza). Non spawnare decine di agenti se l'utente non ha chiesto quella scala.
