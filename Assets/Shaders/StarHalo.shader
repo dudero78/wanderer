@@ -17,7 +17,7 @@ Shader "Wanderer/StarHalo"
         _HaloFluxRef ("Flusso di riferimento (forza alone)", Float) = 55.0
         // raggi di diffrazione: prima una croce a 4 punte (assi), poi — più in alto — una seconda croce ruotata di 45°
         // (8 punte in tutto). Appaiono e CRESCONO salendo d'ingrandimento (telescopio), come nelle foto vere.
-        _SpikeSharp ("Finezza dei raggi", Float) = 320.0
+        _SpikeSharp ("Finezza dei raggi", Float) = 450.0
         _SpikeStr   ("Intensità dei raggi", Float) = 0.55
         _SpikeOn    ("Zoom inizio croce dritta", Float) = 20.0
         _SpikeOn2   ("Zoom inizio croce a 45°", Float) = 70.0
@@ -28,6 +28,10 @@ Shader "Wanderer/StarHalo"
         _CoreR    ("Raggio nucleo nitido", Float) = 0.04
         _CoreEdge ("Morbidezza bordo nucleo", Float) = 0.08
         _CoreStr  ("Forza nucleo nitido", Float) = 0.9
+        // LENS FLARE: un anello circolare a poca distanza dal nucleo (come i "fantasmi" dell'obiettivo), compare coi raggi.
+        _FlareR   ("Raggio anello lens flare", Float) = 0.26
+        _FlareW   ("Spessore anello (più piccolo = sottile)", Float) = 0.0015
+        _FlareStr ("Forza anello", Float) = 0.35
     }
     SubShader
     {
@@ -49,6 +53,7 @@ Shader "Wanderer/StarHalo"
             float _M0, _HaloBasePx, _HaloPow, _HaloMinPx, _HaloMaxPx, _HaloFall, _HaloStr, _HaloFluxRef;
             float _SpikeSharp, _SpikeStr, _SpikeOn, _SpikeOn2, _SpikeRamp, _SpikeShort;
             float _CoreR, _CoreEdge, _CoreStr;
+            float _FlareR, _FlareW, _FlareStr;
             float _SkyZoom, _SkyPxScale;
 
             v2f vert(appdata v)
@@ -97,7 +102,10 @@ Shader "Wanderer/StarHalo"
                 // NUCLEO NITIDO: cerchietto a bordo definito, che compare insieme ai raggi (gate su i.spikes.x). L'alone
                 // morbido (a) resta sotto/intorno → centro netto + bagliore. Sotto la soglia dei raggi: niente nucleo.
                 float core = (1.0 - smoothstep(_CoreR, _CoreR + _CoreEdge, r)) * saturate(i.spikes.x) * _CoreStr;
-                return fixed4(i.col * (a + core + cross * _SpikeStr), 1.0);
+                // LENS FLARE: anello gaussiano a raggio _FlareR (poca distanza dal nucleo), compare coi raggi
+                float dr = r - _FlareR;
+                float ring = exp(-dr * dr / _FlareW) * saturate(i.spikes.x) * _FlareStr;
+                return fixed4(i.col * (a + core + ring + cross * _SpikeStr), 1.0);
             }
             ENDCG
         }
