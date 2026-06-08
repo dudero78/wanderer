@@ -23,6 +23,11 @@ Shader "Wanderer/StarHalo"
         _SpikeOn2   ("Zoom inizio croce a 45°", Float) = 70.0
         _SpikeRamp  ("Velocità comparsa raggi", Float) = 0.016
         _SpikeShort ("Quanto è corta la croce a 45° (0..1)", Float) = 0.55
+        // NUCLEO NITIDO: un cerchietto a bordo definito che compare COI raggi (sopra l'alone morbido) → la stella ha un
+        // centro netto + il bagliore intorno. _CoreR = raggio (frazione del quad), _CoreEdge = quanto è netto il bordo.
+        _CoreR    ("Raggio nucleo nitido", Float) = 0.085
+        _CoreEdge ("Morbidezza bordo nucleo", Float) = 0.03
+        _CoreStr  ("Forza nucleo nitido", Float) = 0.9
     }
     SubShader
     {
@@ -43,6 +48,7 @@ Shader "Wanderer/StarHalo"
 
             float _M0, _HaloBasePx, _HaloPow, _HaloMinPx, _HaloMaxPx, _HaloFall, _HaloStr, _HaloFluxRef;
             float _SpikeSharp, _SpikeStr, _SpikeOn, _SpikeOn2, _SpikeRamp, _SpikeShort;
+            float _CoreR, _CoreEdge, _CoreStr;
             float _SkyZoom, _SkyPxScale;
 
             v2f vert(appdata v)
@@ -88,7 +94,10 @@ Shader "Wanderer/StarHalo"
                 float crossA = (exp(-i.uv.x * i.uv.x * _SpikeSharp) + exp(-i.uv.y * i.uv.y * _SpikeSharp)) * fA;
                 float crossB = (exp(-rot.x  * rot.x  * _SpikeSharp) + exp(-rot.y  * rot.y  * _SpikeSharp)) * fB;
                 float cross = crossA * i.spikes.x + crossB * i.spikes.y;
-                return fixed4(i.col * (a + cross * _SpikeStr), 1.0);
+                // NUCLEO NITIDO: cerchietto a bordo definito, che compare insieme ai raggi (gate su i.spikes.x). L'alone
+                // morbido (a) resta sotto/intorno → centro netto + bagliore. Sotto la soglia dei raggi: niente nucleo.
+                float core = (1.0 - smoothstep(_CoreR, _CoreR + _CoreEdge, r)) * saturate(i.spikes.x) * _CoreStr;
+                return fixed4(i.col * (a + core + cross * _SpikeStr), 1.0);
             }
             ENDCG
         }
