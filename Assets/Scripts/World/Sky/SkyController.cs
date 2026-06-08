@@ -15,6 +15,11 @@ public class SkyController : MonoBehaviour
 {
     public const string SkyLayerName = "Sky";
 
+    /// <summary>La camera che sta disegnando il cielo ADESSO (giocatore o sonda), o null in mappa. È la "verità"
+    /// dell'osservatore in prima persona: la leggono lo strumento ottico (telescopio) e le costellazioni per seguire
+    /// la vista attiva — così funzionano sia dal giocatore sia dalla sonda. Aggiornata ogni LateUpdate.</summary>
+    public static Camera ActiveCamera { get; private set; }
+
     Transform skyRoot;
     Camera playerCam;
     RenderScaler playerScaler;
@@ -27,6 +32,7 @@ public class SkyController : MonoBehaviour
     public void Init(Camera playerCamera)
     {
         playerCam = playerCamera;
+        ActiveCamera = playerCamera;   // finché non parte il primo LateUpdate
         playerScaler = playerCamera != null ? playerCamera.GetComponent<RenderScaler>() : null;
         if (playerCamera != null) baseFov = playerCamera.fieldOfView;
         skyLayer = LayerMask.NameToLayer(SkyLayerName);   // -1 se il layer non esiste: il cielo resta su Default (la mappa lo esclude comunque)
@@ -58,6 +64,7 @@ public class SkyController : MonoBehaviour
     void LateUpdate()
     {
         var cam = ActiveSkyCamera();
+        ActiveCamera = cam;   // pubblicata per telescopio/costellazioni (null in mappa → si nascondono)
         if (cam == null || skyRoot == null) return;
         skyRoot.SetPositionAndRotation(cam.transform.position, Quaternion.identity);
 

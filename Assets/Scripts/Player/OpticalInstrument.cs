@@ -20,37 +20,51 @@ public class OpticalInstrument : MonoBehaviour
     static readonly float[] Mag = { 1f, 7f, 20f };
     const float WheelMax = 8f;   // moltiplicatore max della rotella sul telescopio (20× → 160×, per oggetti piccoli/deboli)
 
-    Camera cam;
+    Camera playerCam;
     PlanetWalker walker;
+    ProbeController probe;      // l'altro osservatore: in vista-sonda il telescopio zooma la SUA camera
+    Camera boundCam;           // la camera attualmente agganciata (giocatore o sonda)
+    bool boundIsProbe;         // l'aggancio corrente è la sonda? (decide quale sensibilità mouse smorzare)
     int level;                 // 0 = occhio nudo
     float wheelZoom = 1f;      // moltiplicatore extra della rotella, attivo solo sul telescopio (livello 2)
     bool animating;            // true mentre la FOV sta transitando (solo allora lo strumento la guida)
     float nakedFov = 52f;      // FOV a riposo (catturata all'aggancio)
     float targetFov = 52f;
-    float baseSensitivity;     // sensibilità mouse del giocatore (catturata all'aggancio)
+    float baseSensitivity;     // sensibilità mouse dell'osservatore agganciato (catturata all'aggancio)
     GUIStyle hudStyle;
     Texture2D eyepieceTex;     // vignettatura circolare dell'oculare
 
     float EffectiveMag => Mag[level] * (level == Mag.Length - 1 ? wheelZoom : 1f);
 
-    public void Init(Camera camera, PlanetWalker w)
+    // OSSERVATORE attivo: in vista-sonda è la camera della sonda, altrimenti quella del giocatore. Deciso qui (non da
+    // SkyController) così non dipende dall'ordine di update: appena entri/esci dalla sonda lo strumento si ri-aggancia.
+    bool ProbeView => probe != null && probe.Viewing && probe.Probe != null && probe.Probe.Cam != null;
+    Camera ActiveCam => ProbeView ? probe.Probe.Cam : playerCam;
+
+    public void Init(Camera camera, PlanetWalker w, ProbeController p)
     {
-        cam = camera; walker = w;
-        nakedFov = targetFov = cam != null ? cam.fieldOfView : 52f;
+        playerCam = camera; walker = w; probe = p;
+        nakedFov = targetFov = camera != null ? camera.fieldOfView : 52f;
         eyepieceTex = BuildEyepiece(512);
     }
 
     void Update()
     {
-        if (cam == null) return;
+        Camera ac = ActiveCam;
+        // la camera attiva è cambiata (giocatore ⇄ sonda)? RIPRISTINA la vecchia (FOV+sensibilità) e ri-aggancia a
+        // occhio nudo sulla nuova → nessuna camera resta "incastrata" zoomata, e la sonda riparte dal suo grandangolo.
+        if (ac != boundCam) BindTo(ac);
+        if (boundCam == null) return;
 
-        // in mappa (camere diverse, comandi congelati) torna a occhio nudo
+        // in mappa torna a occhio nudo; altrimenti l'osservatore è "interattivo" se i comandi del giocatore sono attivi
+        // OPPURE se stai guardando attraverso la sonda (lì i comandi del giocatore sono congelati apposta).
         if (MapMode.IsOpen) { if (level != 0) SetLevel(0); }
-        else if (walker == null || walker.ControlsActive)
+        else if (ProbeView || walker == null || walker.ControlsActive)
         {
             if (Input.GetKeyDown(ToggleKey)) SetLevel((level + 1) % Mag.Length);
-            // foto col telescopio (G): solo quando sei all'oculare (la sonda usa G solo in vista-sonda → niente conflitto)
-            if (level > 0 && Input.GetKeyDown(PhotoKey)) TakePhoto();
+            // foto col telescopio (G): solo dal GIOCATORE. In vista-sonda G è già la foto della sonda (ProbeController) →
+            // non lo gestisco qui per non scattare due volte.
+            if (!ProbeView && level > 0 && Input.GetKeyDown(PhotoKey)) TakePhoto();
             // ROTELLA sul telescopio (ultimo livello): alza/abbassa l'ingrandimento oltre il fisso
             if (level == Mag.Length - 1)
             {
@@ -75,24 +89,45 @@ public class OpticalInstrument : MonoBehaviour
             // passi piccoli della rotella ad alto ingrandimento si ANIMANO (prima un "pavimento" di velocità li snappava
             // → sembravano scatti). La FOV insegue il target anche mentre scrolli di continuo → zoom fluido.
             float k = 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime);
-            cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, targetFov, k);
-            if (Mathf.Abs(cam.fieldOfView - targetFov) < 0.0008f * targetFov) { cam.fieldOfView = targetFov; animating = false; }
+            boundCam.fieldOfView = Mathf.Lerp(boundCam.fieldOfView, targetFov, k);
+            if (Mathf.Abs(boundCam.fieldOfView - targetFov) < 0.0008f * targetFov) { boundCam.fieldOfView = targetFov; animating = false; }
         }
         else if (level == 0)
         {
-            nakedFov = cam.fieldOfView;   // a occhio nudo segui lo slider FOV, non combatterlo
+            nakedFov = boundCam.fieldOfView;   // a occhio nudo segui lo slider FOV / il grandangolo della sonda, non combatterlo
         }
+    }
+
+    /// <summary>Aggancia lo strumento a una camera (giocatore o sonda): RIPRISTINA prima quella vecchia (riporta FOV e
+    /// sensibilità ai valori a riposo), poi cattura il nuovo osservatore a occhio nudo. Robusto: nessuno stato zoomato
+    /// resta appeso quando passi da una vista all'altra.</summary>
+    void BindTo(Camera c)
+    {
+        if (boundCam != null) { boundCam.fieldOfView = nakedFov; SetSensitivity(baseSensitivity); }
+        boundCam = c;
+        boundIsProbe = ProbeView;
+        level = 0; wheelZoom = 1f; animating = false;
+        nakedFov = targetFov = c != null ? c.fieldOfView : 52f;
+        baseSensitivity = GetSensitivity();
+    }
+
+    float GetSensitivity() => boundIsProbe ? (probe != null ? probe.lookSensitivity : 1f)
+                                           : (walker != null ? walker.mouseSensitivity : 1f);
+    void SetSensitivity(float v)
+    {
+        if (boundIsProbe) { if (probe != null) probe.lookSensitivity = v; }
+        else if (walker != null) walker.mouseSensitivity = v;
     }
 
     void SetLevel(int lv)
     {
         if (lv == level) return;
 
-        // entrando dall'occhio nudo: cattura FOV e sensibilità correnti (rispetta le tarature del giocatore)
+        // entrando dall'occhio nudo: cattura FOV e sensibilità correnti (rispetta le tarature dell'osservatore)
         if (level == 0 && lv != 0)
         {
-            nakedFov = cam.fieldOfView;
-            if (walker != null) baseSensitivity = walker.mouseSensitivity;
+            if (boundCam != null) nakedFov = boundCam.fieldOfView;
+            baseSensitivity = GetSensitivity();
         }
 
         level = lv;
@@ -109,8 +144,7 @@ public class OpticalInstrument : MonoBehaviour
                   : 2f * Mathf.Atan(Mathf.Tan(nakedFov * 0.5f * Mathf.Deg2Rad) / mag) * Mathf.Rad2Deg;
 
         // smorza la vista ∝ 1/√mag per un'inquadratura ferma; ripristina a occhio nudo
-        if (walker != null)
-            walker.mouseSensitivity = level == 0 ? baseSensitivity : baseSensitivity / Mathf.Sqrt(mag);
+        SetSensitivity(level == 0 ? baseSensitivity : baseSensitivity / Mathf.Sqrt(mag));
     }
 
     void OnGUI()

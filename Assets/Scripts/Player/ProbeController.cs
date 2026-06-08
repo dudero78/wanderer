@@ -22,6 +22,7 @@ public class ProbeController : MonoBehaviour
     Texture2D dot;
 
     public Probe Probe => probe;   // il tracker HUD (RouteIndicator) la segue
+    public bool Viewing => viewing;   // true mentre guardi ATTRAVERSO la sonda (lo legge lo strumento ottico/telescopio)
 
     public void Init(Camera cam, Transform camTransform, PlanetWalker w, SolarSystem s)
     {

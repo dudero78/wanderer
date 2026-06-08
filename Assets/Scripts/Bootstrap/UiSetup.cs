@@ -45,6 +45,7 @@ public static class UiSetup
         route.ProbeTarget = probe.Probe;   // il reticolo segue la sonda con un triangolo ambra (tracker HUD)
 
         // Strumento ottico (B): binocolo → telescopio per osservare il cielo (le stelle deboli/deep-sky emergono).
-        host.AddComponent<OpticalInstrument>().Init(rig.Cam, rig.Walker);
+        // Riceve anche la sonda: in vista-sonda il telescopio zooma la camera della sonda (con la sua sensibilità).
+        host.AddComponent<OpticalInstrument>().Init(rig.Cam, rig.Walker, probe);
     }
 }

@@ -19,6 +19,9 @@ public class ConstellationLines : MonoBehaviour
 
     Transform skyRoot;
     Camera playerCam;
+    // La camera dell'OSSERVATORE attivo (giocatore o sonda): le etichette si proiettano e il toggle si attiva su quella
+    // che disegna davvero il cielo → costellazioni e nomi deep-sky funzionano anche guardando attraverso la sonda.
+    Camera Cam => SkyController.ActiveCamera != null ? SkyController.ActiveCamera : playerCam;
     Material mat;
     Mesh mesh;
     GameObject go;
@@ -134,7 +137,8 @@ public class ConstellationLines : MonoBehaviour
 
     void Update()
     {
-        bool can = !MapMode.IsOpen && playerCam != null && playerCam.isActiveAndEnabled;
+        var cam = Cam;
+        bool can = !MapMode.IsOpen && cam != null && cam.isActiveAndEnabled;
         if (can && Input.GetKeyDown(ToggleKey))
         {
             mode = (Mode)(((int)mode + 1) % ModeCount);
@@ -155,7 +159,7 @@ public class ConstellationLines : MonoBehaviour
     void OnGUI()
     {
         bool showCon = alpha >= 0.05f, showD = dsoAlpha >= 0.05f;
-        if ((!showCon && !showD) || playerCam == null || !playerCam.isActiveAndEnabled || MapMode.IsOpen) return;
+        if ((!showCon && !showD) || Cam == null || !Cam.isActiveAndEnabled || MapMode.IsOpen) return;
         if (Event.current.type != EventType.Repaint) return;
 
         int fs = Mathf.Max(13, Mathf.RoundToInt(Screen.height / 58f));   // font scalato (leggibile in build, anche Retina)
@@ -196,9 +200,11 @@ public class ConstellationLines : MonoBehaviour
     bool DirToScreen(Vector3 dir, out float x, out float y)
     {
         x = y = 0f;
-        Vector3 vp = playerCam.worldToCameraMatrix.MultiplyVector(dir);   // direzione in spazio camera (ignora la traslazione)
-        if (vp.z >= 0f) return false;                                     // dietro la camera (avanti = -z)
-        Vector4 clip = playerCam.projectionMatrix * new Vector4(vp.x, vp.y, vp.z, 1f);
+        var cam = Cam;
+        if (cam == null) return false;
+        Vector3 vp = cam.worldToCameraMatrix.MultiplyVector(dir);   // direzione in spazio camera (ignora la traslazione)
+        if (vp.z >= 0f) return false;                              // dietro la camera (avanti = -z)
+        Vector4 clip = cam.projectionMatrix * new Vector4(vp.x, vp.y, vp.z, 1f);
         if (clip.w <= 1e-6f) return false;
         x = (clip.x / clip.w * 0.5f + 0.5f) * Screen.width;
         y = (1f - (clip.y / clip.w * 0.5f + 0.5f)) * Screen.height;       // flip Y per la GUI
