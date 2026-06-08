@@ -62,6 +62,9 @@ public class MapMode : MonoBehaviour
     const float MapPitchDefault = 33.5f, MapRotSpeed = 0.25f, MapPanRate = 0.7f;
 
     GUIStyle mapStyle, hereStyle, nameStyle, probeStyle;
+    GUIStyle panelTitle, panelSub, panelKey, panelVal, panelMock, panelFoot;   // pannello info del corpo selezionato
+    Texture2D panelBg;
+    CelestialBody fauxFor; FauxData faux;   // cache dei dati SEGNAPOSTO (rigenerati solo al cambio di selezione)
     GameObject playerMarker;   // "tu sei qui": dove sta il giocatore (su un corpo o in volo), in universo
     GameObject probeMarker;    // la SONDA, quando dispiegata (Probe.Instance attiva): pallino ambra + etichetta
 
@@ -1097,6 +1100,9 @@ public class MapMode : MonoBehaviour
             + "   ·   Destro = ruota   ·   WASD = sposta   ·   Rotella = zoom   ·   G = galassia   ·   N = nomi"
             + (showBodyNames ? " (ON)" : " (OFF)") + "   ·   M / Esc", mapStyle);
 
+        // PANNELLO INFO del corpo selezionato (lato destro): scheda con i dati del corpo.
+        if (selected != null) DrawBodyPanel(selected, ui);
+
         // ── ETICHETTE (TU SEI QUI · nomi sistemi · nomi corpi): RACCOLTE e poi DE-CONFLITTATE in verticale prima di
         // disegnarle. A grande distanza io/target/pianeti proiettano quasi nello stesso punto → senza questo si
         // sovrappongono (illeggibili). Greedy: ordina per y, spingi giù chi si sovrappone a una già piazzata.
@@ -1158,6 +1164,167 @@ public class MapMode : MonoBehaviour
             GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), fadeTex);
             GUI.color = prev;
         }
+    }
+
+    // ───────────────────────────────── Pannello info del corpo ─────────────────────────────────
+    //
+    // ⚠️ DA ESTENDERE A SISTEMA — NON LASCIARE COME MOCKUP (vedi TODO.md, sezione "Pannello info corpo").
+    // I campi marcati MOCK qui sotto (temperatura, atmosfera, pressione, durata del giorno, acqua, risorse,
+    // abitabilità, stato d'esplorazione, "Tipo") sono SEGNAPOSTO generati in modo DETERMINISTICO dal nome del corpo
+    // (FauxData/MakeFaux) → stabili e plausibili, ma NON simulati. Vanno promossi a dati VERI: proprietà su
+    // CelestialBody / PlanetRecipe (composizione → temperatura/atmosfera/risorse; rotazione → durata del giorno;
+    // flag di esplorazione persistito; ecc.), così il pannello legge il modello invece di inventarlo. Finché sono
+    // segnaposto, restano marcati a schermo (colore ambra + nota "✷ dati segnaposto") perché si veda che non sono reali.
+
+    struct FauxData
+    {
+        public string type, atmo, water, resources, status;
+        public int tempC, dayHours, habitability;
+        public float pressureAtm;
+    }
+
+    static readonly string[] FauxTypes = { "Mondo roccioso", "Mondo desertico", "Mondo vulcanico", "Luna ghiacciata", "Pianeta oceanico", "Mondo arido", "Luna craterizzata", "Gigante roccioso" };
+    static readonly string[] FauxAtmo = { "Assente", "Tenue (CO₂)", "Densa (N₂/O₂)", "Tossica (SO₂)", "Sottile (Ar)" };
+    static readonly string[] FauxWater = { "Assente", "Tracce", "Ghiaccio sotterraneo", "Oceani liquidi" };
+    static readonly string[] FauxRes = { "Ferro", "Silicati", "Titanio", "Ghiaccio d'acqua", "Elio-3", "Zolfo", "Terre rare" };
+
+    // hash FNV-1a stabile (NON string.GetHashCode, che può variare per processo) → stessi segnaposto a ogni sessione.
+    static uint FnvHash(string s)
+    {
+        uint h = 2166136261u;
+        for (int i = 0; i < s.Length; i++) { h ^= s[i]; h *= 16777619u; }
+        return h;
+    }
+
+    static FauxData MakeFaux(CelestialBody b)
+    {
+        uint r = FnvHash(b.gameObject.name);
+        uint Next() { r = r * 1664525u + 1013904223u; return r; }   // LCG: passi successivi deterministici
+
+        var f = new FauxData();
+        f.type = b.Orbit == null ? "Stella" : FauxTypes[Next() % (uint)FauxTypes.Length];   // la stella ha un tipo VERO
+        f.tempC = -180 + (int)(Next() % 300);            // −180…+119 °C
+        int ai = (int)(Next() % (uint)FauxAtmo.Length);
+        f.atmo = FauxAtmo[ai];
+        f.pressureAtm = ai == 0 ? 0f : (Next() % 320) / 100f;   // 0…3.2 atm (0 se senz'atmosfera)
+        f.dayHours = 6 + (int)(Next() % 67);             // 6…72 h
+        f.water = FauxWater[Next() % (uint)FauxWater.Length];
+        int a = (int)(Next() % (uint)FauxRes.Length), c = (int)(Next() % (uint)FauxRes.Length);
+        if (c == a) c = (c + 1) % FauxRes.Length;
+        f.resources = FauxRes[a] + ", " + FauxRes[c];
+        f.habitability = (int)(Next() % 101);            // 0…100
+        f.status = "Non esplorato";
+        return f;
+    }
+
+    void DrawBodyPanel(CelestialBody b, float ui)
+    {
+        EnsurePanelStyles(ui);
+        if (fauxFor != b) { faux = MakeFaux(b); fauxFor = b; }
+
+        // ── DATI REALI dal modello ──
+        CelestialBody starB = b; while (starB.Parent != null) starB = starB.Parent;   // risali alla stella (Orbit==null in cima)
+        bool isStar = b.Orbit == null;
+        double distStarKm = isStar ? 0.0 : Vector3d.Distance(b.UniversePosition, starB.UniversePosition) / 1000.0;
+        double diamKm = 2.0 * b.Radius / 1000.0;
+        int moons = 0;
+        for (int i = 0; i < solar.Bodies.Count; i++) { var bb = solar.Bodies[i]; if (bb != null && !bb.Massless && bb.Parent == b) moons++; }
+
+        // righe: (chiave, valore, è-segnaposto). I reali in bianco, i segnaposto in ambra (✷).
+        rows.Clear();
+        rows.Add(("Tipo", faux.type, !isStar));
+        if (!isStar) rows.Add(("Stella", starB.gameObject.name, false));
+        if (!isStar) rows.Add(("Distanza dalla stella", FmtDistKm(distStarKm), false));
+        rows.Add(("Diametro", diamKm >= 1.0 ? $"{diamKm:0.0} km" : $"{diamKm * 1000.0:0} m", false));
+        rows.Add(("Gravità superficie", $"{b.SurfaceGravity:0.00} m/s²  ({b.SurfaceGravity / 9.81:0.00} g)", false));
+        if (!isStar && b.Orbit != null)
+        {
+            rows.Add(("Periodo orbitale", FmtTime(b.Orbit.Period), false));
+            rows.Add(("Eccentricità", $"{b.Orbit.Eccentricity:0.000}", false));
+        }
+        rows.Add(("Satelliti naturali", moons.ToString(), false));
+        rows.Add(("Temperatura media", $"{faux.tempC} °C", true));
+        rows.Add(("Atmosfera", faux.atmo, true));
+        rows.Add(("Pressione superf.", faux.pressureAtm <= 0f ? "—" : $"{faux.pressureAtm:0.0} atm", true));
+        rows.Add(("Durata del giorno", $"{faux.dayHours} h", true));
+        rows.Add(("Acqua", faux.water, true));
+        rows.Add(("Risorse", faux.resources, true));
+        rows.Add(("Abitabilità", $"{faux.habitability}/100", true));
+        rows.Add(("Stato", faux.status, true));
+
+        // ── geometria del riquadro (in alto a destra). Ogni riga ha ALTEZZA VARIABILE = altezza misurata del suo
+        // contenuto (chiave o valore, col word-wrap): un valore lungo (es. le risorse) va a capo e la riga si allarga
+        // di conseguenza → niente sovrapposizioni e box dimensionato esatto. ──
+        float pad = 14f * ui, w = 320f * ui;
+        float titleH = 30f * ui, subH = 20f * ui, footH = 18f * ui;
+        float cw = w - pad * 2f, keyW = cw * 0.52f, valW = cw * 0.48f;
+
+        rowHeights.Clear();
+        float rowsTotal = 0f;
+        foreach (var (k, v, mock) in rows)
+        {
+            var vs = mock ? panelMock : panelVal;
+            float hk = panelKey.CalcHeight(new GUIContent(k), keyW);
+            float hv = vs.CalcHeight(new GUIContent((mock ? "✷ " : "") + v), valW);
+            float rh = Mathf.Max(hk, hv) + 3f * ui;
+            rowHeights.Add(rh); rowsTotal += rh;
+        }
+
+        float h = pad + titleH + subH + 6f * ui + rowsTotal + 8f * ui + footH + pad;
+        float x = Screen.width - w - 20f * ui, y = 80f * ui;
+
+        if (panelBg == null) { panelBg = new Texture2D(1, 1); panelBg.SetPixel(0, 0, Color.white); panelBg.Apply(); }
+        var prev = GUI.color;
+        GUI.color = new Color(0.03f, 0.05f, 0.09f, 0.82f);
+        GUI.DrawTexture(new Rect(x, y, w, h), panelBg);
+        GUI.color = new Color(0.4f, 0.6f, 0.9f, 0.5f);   // bordo superiore d'accento
+        GUI.DrawTexture(new Rect(x, y, w, 2f * ui), panelBg);
+        GUI.color = prev;
+
+        float cx = x + pad, cy = y + pad;
+        GUI.Label(new Rect(cx, cy, cw, titleH), b.gameObject.name, panelTitle); cy += titleH;
+        GUI.Label(new Rect(cx, cy, cw, subH), isStar ? "★ Stella del sistema" : "orbita ★ " + starB.gameObject.name, panelSub); cy += subH + 6f * ui;
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var (k, v, mock) = rows[i];
+            float rh = rowHeights[i];
+            GUI.Label(new Rect(cx, cy, keyW, rh), k, panelKey);
+            GUI.Label(new Rect(cx + keyW, cy, valW, rh), (mock ? "✷ " : "") + v, mock ? panelMock : panelVal);
+            cy += rh;
+        }
+        cy += 8f * ui;
+        GUI.Label(new Rect(cx, cy, cw, footH), "✷ dati segnaposto — non ancora simulati", panelFoot);
+    }
+
+    readonly List<(string, string, bool)> rows = new List<(string, string, bool)>();
+    readonly List<float> rowHeights = new List<float>();   // altezza misurata per riga (valori che vanno a capo)
+
+    static string FmtDistKm(double km)
+        => km >= 1000.0 ? $"{km / 1000.0:0.00} Mm" : km >= 1.0 ? $"{km:0.0} km" : $"{km * 1000.0:0} m";
+
+    static string FmtTime(double seconds)
+    {
+        if (seconds >= 3600.0) return $"{seconds / 3600.0:0.0} h";
+        if (seconds >= 60.0) return $"{seconds / 60.0:0.0} min";
+        return $"{seconds:0} s";
+    }
+
+    void EnsurePanelStyles(float ui)
+    {
+        if (panelTitle == null)
+        {
+            panelTitle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.85f, 0.93f, 1f) } };
+            panelSub = new GUIStyle(GUI.skin.label) { normal = { textColor = new Color(0.6f, 0.72f, 0.9f) } };
+            panelKey = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperLeft, wordWrap = true, normal = { textColor = new Color(0.62f, 0.68f, 0.78f) } };
+            panelVal = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperLeft, wordWrap = true, normal = { textColor = new Color(0.92f, 0.96f, 1f) } };
+            panelMock = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperLeft, wordWrap = true, normal = { textColor = new Color(1f, 0.78f, 0.38f) } };   // ambra = segnaposto
+            panelFoot = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Italic, normal = { textColor = new Color(0.85f, 0.66f, 0.35f) } };
+        }
+        panelTitle.fontSize = Mathf.RoundToInt(20f * ui);
+        panelSub.fontSize = Mathf.RoundToInt(12f * ui);
+        panelKey.fontSize = panelVal.fontSize = panelMock.fontSize = Mathf.RoundToInt(13f * ui);
+        panelFoot.fontSize = Mathf.RoundToInt(11f * ui);
     }
 
     struct LabelItem { public Rect rect; public string text; public GUIStyle style; }

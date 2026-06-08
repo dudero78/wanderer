@@ -3,6 +3,17 @@
 Lista di lavoro che sopravvive tra le sessioni. Aggiornata al **7 giugno 2026** (sessione CIELO STELLATO).
 Dettaglio tecnico nel `CLAUDE.md`.
 
+> ## ⚠️ DA ESTENDERE A SISTEMA — Pannello info corpo (mappa): i campi non-veri sono MOCKUP (8 giu 2026)
+> Cliccando un corpo sulla mappa compare una scheda (lato destro, `MapMode.DrawBodyPanel`) con i suoi dati. Alcuni sono
+> **VERI** (diametro, gravità di superficie, distanza dalla stella, periodo orbitale, eccentricità, n. satelliti — letti
+> dal modello). Gli altri sono **SEGNAPOSTO deterministici** generati dal nome del corpo (`MakeFaux`): **Tipo,
+> temperatura media, atmosfera, pressione, durata del giorno, acqua, risorse, abitabilità, stato d'esplorazione**. Sono
+> marcati a schermo (ambra + ✷ + nota "dati segnaposto").
+> **DA FARE: promuoverli a DATI REALI**, non lasciarli mockup. Cioè: aggiungere le proprietà al modello — su
+> `CelestialBody` e/o `PlanetRecipe` (composizione → temperatura/atmosfera/risorse; periodo di rotazione → durata del
+> giorno; flag di esplorazione persistito; presenza d'acqua già deducibile dai "Mari" della ricetta) — e far leggere al
+> pannello il modello invece di inventare. Quando un campo diventa vero, togliergli il marchio ✷.
+
 > ## ✅ 🌌 CIELO STELLATO REALE — MATURO E SU `main` (8 giu 2026)
 >
 > Feature completata e rifinita con Dario. Stato pieno nella memoria [[wanderer-cielo-stellato]]. In sintesi:
