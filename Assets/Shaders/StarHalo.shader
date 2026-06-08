@@ -17,7 +17,7 @@ Shader "Wanderer/StarHalo"
         _HaloFluxRef ("Flusso di riferimento (forza alone)", Float) = 55.0
         // raggi di diffrazione: prima una croce a 4 punte (assi), poi — più in alto — una seconda croce ruotata di 45°
         // (8 punte in tutto). Appaiono e CRESCONO salendo d'ingrandimento (telescopio), come nelle foto vere.
-        _SpikeSharp ("Finezza dei raggi", Float) = 1300.0
+        _SpikeSharp ("Finezza dei raggi", Float) = 1700.0
         _SpikeStr   ("Intensità dei raggi", Float) = 0.55
         _SpikeOn    ("Zoom inizio croce dritta", Float) = 20.0
         _SpikeOn2   ("Zoom inizio croce a 45°", Float) = 70.0
@@ -82,7 +82,7 @@ Shader "Wanderer/StarHalo"
                 // i raggi compaiono e crescono salendo d'ingrandimento (0 a occhio nudo/binocolo). La croce dritta parte
                 // prima (~telescopio), quella a 45° più in alto; entrambe continuano a intensificarsi (clamp generoso).
                 o.spikes.x = clamp((zoom - _SpikeOn)  * _SpikeRamp, 0.0, 1.8);
-                o.spikes.y = clamp((zoom - _SpikeOn2) * _SpikeRamp, 0.0, 1.4);
+                o.spikes.y = clamp((zoom - _SpikeOn2) * _SpikeRamp, 0.0, 0.7);   // croce a 45° (raggi corti) PIÙ TENUE dei 4 principali
                 o.pos.xy += v.uv.xy * px * (2.0 / _ScreenParams.xy) * o.pos.w;
                 return o;
             }
