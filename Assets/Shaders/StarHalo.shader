@@ -17,12 +17,16 @@ Shader "Wanderer/StarHalo"
         _HaloFluxRef ("Flusso di riferimento (forza alone)", Float) = 55.0
         // raggi di diffrazione: prima una croce a 4 punte (assi), poi — più in alto — una seconda croce ruotata di 45°
         // (8 punte in tutto). Appaiono e CRESCONO salendo d'ingrandimento (telescopio), come nelle foto vere.
-        _SpikeSharp ("Finezza dei raggi", Float) = 1700.0
+        _SpikeSharp ("Finezza dei raggi", Float) = 2600.0
         _SpikeStr   ("Intensità dei raggi", Float) = 0.55
         _SpikeOn    ("Zoom inizio croce dritta", Float) = 20.0
         _SpikeOn2   ("Zoom inizio croce a 45°", Float) = 70.0
         _SpikeRamp  ("Velocità comparsa raggi", Float) = 0.016
         _SpikeShort ("Quanto è corta la croce a 45° (0..1)", Float) = 0.55
+        // SCIA MORBIDA dietro i raggi: stessi assi ma gaussiana LARGA e tenue → fa da alone sotto al filo nitido (come
+        // nelle astrofoto vere). Dà corpo, così il raggio nitido sopra può essere sottilissimo senza sembrare laser.
+        _SpikeSoft   ("Larghezza scia morbida (basso = larga)", Float) = 70.0
+        _SpikeSoftStr("Intensità scia morbida", Float) = 0.22
         // NUCLEO NITIDO: un cerchietto a bordo definito che compare COI raggi (sopra l'alone morbido) → la stella ha un
         // centro netto + il bagliore intorno. _CoreR = raggio (frazione del quad), _CoreEdge = quanto è netto il bordo.
         _CoreR    ("Raggio nucleo nitido", Float) = 0.04
@@ -51,7 +55,7 @@ Shader "Wanderer/StarHalo"
             struct v2f     { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; fixed3 col:TEXCOORD1; float2 spikes:TEXCOORD2; };
 
             float _M0, _HaloBasePx, _HaloPow, _HaloMinPx, _HaloMaxPx, _HaloFall, _HaloStr, _HaloFluxRef;
-            float _SpikeSharp, _SpikeStr, _SpikeOn, _SpikeOn2, _SpikeRamp, _SpikeShort;
+            float _SpikeSharp, _SpikeStr, _SpikeOn, _SpikeOn2, _SpikeRamp, _SpikeShort, _SpikeSoft, _SpikeSoftStr;
             float _CoreR, _CoreEdge, _CoreStr;
             float _FlareR, _FlareW, _FlareStr;
             float _SkyZoom, _SkyPxScale;
@@ -99,6 +103,10 @@ Shader "Wanderer/StarHalo"
                 float crossA = (exp(-i.uv.x * i.uv.x * _SpikeSharp) + exp(-i.uv.y * i.uv.y * _SpikeSharp)) * fA;
                 float crossB = (exp(-rot.x  * rot.x  * _SpikeSharp) + exp(-rot.y  * rot.y  * _SpikeSharp)) * fB;
                 float cross = crossA * i.spikes.x + crossB * i.spikes.y;
+                // SCIA MORBIDA: stessi assi, gaussiana LARGA (_SpikeSoft basso) → alone sotto al filo nitido
+                float softA = (exp(-i.uv.x * i.uv.x * _SpikeSoft) + exp(-i.uv.y * i.uv.y * _SpikeSoft)) * fA;
+                float softB = (exp(-rot.x  * rot.x  * _SpikeSoft) + exp(-rot.y  * rot.y  * _SpikeSoft)) * fB;
+                float crossSoft = softA * i.spikes.x + softB * i.spikes.y;
                 // NUCLEO NITIDO: cerchietto a bordo definito, che compare insieme ai raggi (gate su i.spikes.x). L'alone
                 // morbido (a) resta sotto/intorno → centro netto + bagliore. Sotto la soglia dei raggi: niente nucleo.
                 float core = (1.0 - smoothstep(_CoreR, _CoreR + _CoreEdge, r)) * saturate(i.spikes.x) * _CoreStr;
@@ -113,7 +121,7 @@ Shader "Wanderer/StarHalo"
                 float flareGate = saturate((zhz - 275.0) / 350.0);
                 float dr = r - _FlareR;
                 float ring = exp(-dr * dr / _FlareW) * flareGate * _FlareStr * hzFlare;
-                return fixed4(i.col * (a + core + ring + cross * _SpikeStr * hz), 1.0);
+                return fixed4(i.col * (a + core + ring + (crossSoft * _SpikeSoftStr + cross * _SpikeStr) * hz), 1.0);
             }
             ENDCG
         }
