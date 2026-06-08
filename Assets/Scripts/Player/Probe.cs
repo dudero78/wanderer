@@ -19,6 +19,7 @@ public class Probe : MonoBehaviour
     SolarSystem solar;
     Camera cam;
     GameObject visual;   // corpo metallico + scanalatura luminosa + luce: spento mentre guardi in prima persona
+    Transform camGadget; // piccola telecamera sul guscio: scivola sulla sfera puntando dove guardi (solo COSMETICA, vista da fuori)
     Light lamp;          // la lampada della sonda: registrata come luce ausiliaria del terreno mentre è in volo/posata
     bool landed;
     CelestialBody landedOn;
@@ -83,6 +84,11 @@ public class Probe : MonoBehaviour
         MakeGroove(vis.transform, unlit, ProbeRadius, 23.4f, 0.90f, 0.03f, glow);  // tropico nord
         MakeGroove(vis.transform, unlit, ProbeRadius, -23.4f, 0.90f, 0.03f, glow); // tropico sud
 
+        // TELECAMERA sul guscio (COSMETICA): un modellino di macchina fotografica montato sulla superficie della sfera.
+        // Scivola lungo il guscio puntando dove guardi (lo guida ProbeController via SetGaze, dalla direzione di sguardo).
+        // Figlia di Visual → visibile da fuori (terza persona / mappa / volo), sparisce in prima persona col resto della sfera.
+        p.camGadget = BuildCameraGadget(vis.transform, ProbeRadius, std, unlit).transform;
+
         // LUCE EMESSA: point light. Illumina gli oggetti Standard vicini E il TERRENO GPU (registrata come luce
         // ausiliaria in GpuPlanetRenderer.AuxPointLight da Launch → il terreno la calcola, come la torcia).
         // Figlia di GO (NON di Visual) → resta accesa anche in VISTA SONDA (Visual si spegne, ma la luce no) →
@@ -145,6 +151,64 @@ public class Probe : MonoBehaviour
         g.transform.localPosition = new Vector3(0f, Mathf.Sin(lat) * R, 0f);
         g.transform.localScale = new Vector3(R * 2f * ringR * widthFactor, R * thick, R * 2f * ringR * widthFactor);
         if (unlit != null) g.GetComponent<Renderer>().material = new Material(unlit) { color = col };
+    }
+
+    /// <summary>Costruisce il modellino di telecamera (corpo scuro + barile + lente luminosa ciano) assemblato da
+    /// primitive, orientato a guardare lungo il +Z LOCALE (= direzione di sguardo). Il nodo restituito si MONTA poi sul
+    /// guscio via <see cref="SetGaze"/>: localPosition = dir·R (sulla superficie), localRotation = LookRotation(dir).
+    /// `cs` = taglia base della telecamera (frazione del raggio sonda → "piccola" ma leggibile).</summary>
+    static GameObject BuildCameraGadget(Transform parent, float R, Shader std, Shader unlit)
+    {
+        var node = new GameObject("Telecamera");
+        node.transform.SetParent(parent, false);
+        node.transform.localPosition = Vector3.forward * R;   // default: sul muso (sovrascritto da SetGaze)
+        float cs = R * 0.15f;   // taglia della telecamerina = 15% del raggio sonda
+
+        Material body = null;
+        if (std != null)
+        {
+            body = new Material(std) { color = new Color(0.12f, 0.13f, 0.16f) };   // corpo scuro tipo macchina fotografica
+            body.SetFloat("_Metallic", 0.6f);
+            body.SetFloat("_Glossiness", 0.5f);
+        }
+        Material lens = unlit != null ? new Material(unlit) { color = new Color(1f, 0.12f, 0.06f) } : null;   // vetro lente: glow ROSSO (effetto HAL 9000)
+
+        var fwd = Quaternion.identity;
+        var axisZ = Quaternion.Euler(90f, 0f, 0f);   // i Cylinder hanno l'asse su Y → ruoto perché vada lungo Z (uscente)
+
+        // base/torretta appoggiata al guscio · corpo macchina · mirino in cima · barile della lente · vetro luminoso davanti
+        Prim(PrimitiveType.Cylinder, node.transform, new Vector3(0f, 0f, cs * 0.15f), axisZ, new Vector3(cs * 0.95f, cs * 0.12f, cs * 0.95f), body);
+        Prim(PrimitiveType.Cube,     node.transform, new Vector3(0f, 0f, cs * 0.75f), fwd,   new Vector3(cs * 1.10f, cs * 0.95f, cs * 1.25f), body);
+        Prim(PrimitiveType.Cube,     node.transform, new Vector3(0f, cs * 0.62f, cs * 0.55f), fwd, new Vector3(cs * 0.50f, cs * 0.35f, cs * 0.55f), body);
+        Prim(PrimitiveType.Cylinder, node.transform, new Vector3(0f, 0f, cs * 1.50f), axisZ, new Vector3(cs * 0.60f, cs * 0.50f, cs * 0.60f), body);
+        Prim(PrimitiveType.Sphere,   node.transform, new Vector3(0f, 0f, cs * 1.95f), fwd,   new Vector3(cs * 0.42f, cs * 0.42f, cs * 0.25f), lens);
+        return node;
+    }
+
+    /// <summary>Crea una primitiva figlia senza collider, con trasform e materiale dati (helper per il modellino).</summary>
+    static void Prim(PrimitiveType t, Transform parent, Vector3 pos, Quaternion rot, Vector3 scale, Material mat)
+    {
+        var g = GameObject.CreatePrimitive(t);
+        var c = g.GetComponent<Collider>(); if (c != null) Destroy(c);
+        g.transform.SetParent(parent, false);
+        g.transform.localPosition = pos;
+        g.transform.localRotation = rot;
+        g.transform.localScale = scale;
+        if (mat != null) g.GetComponent<Renderer>().sharedMaterial = mat;
+    }
+
+    /// <summary>Posiziona/orienta la telecamera cosmetica sul guscio data la direzione di sguardo in coordinate LOCALI
+    /// della sonda (= forward della camera in prima persona). Scivola sulla superficie (localPos = dir·ProbeRadius) e
+    /// punta in fuori lungo dir. La chiama <see cref="ProbeController"/> quando muovi la visuale.</summary>
+    public void SetGaze(Vector3 localDir)
+    {
+        if (camGadget == null) return;
+        if (localDir.sqrMagnitude < 1e-6f) localDir = Vector3.forward;
+        localDir.Normalize();
+        camGadget.localPosition = localDir * ProbeRadius;
+        // up di riferimento stabile: 'su' locale, tranne quando guardi quasi a picco (dir ∥ up) → uso 'destra' per non degenerare
+        Vector3 up = Mathf.Abs(Vector3.Dot(localDir, Vector3.up)) > 0.95f ? Vector3.right : Vector3.up;
+        camGadget.localRotation = Quaternion.LookRotation(localDir, up);
     }
 
     /// <summary>Lancia la sonda da una posizione con una velocità iniziale (di solito = velocità del giocatore +

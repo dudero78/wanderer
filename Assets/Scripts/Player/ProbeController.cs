@@ -57,6 +57,7 @@ public class ProbeController : MonoBehaviour
         Vector3 baseVel = walker != null ? walker.Velocity : Vector3.zero;   // eredita lo slancio del giocatore
         probe.Launch(pos, baseVel + camT.forward * launchSpeed, camT.forward);
         camYaw = 0f; camPitch = 0f;   // nuova sonda → visuale ri-centrata (la persistenza vale tra i toggle, non tra i lanci)
+        probe.SetGaze(Vector3.forward);   // telecamera cosmetica ri-puntata sul muso
     }
 
     void ToggleView()
@@ -97,7 +98,9 @@ public class ProbeController : MonoBehaviour
         if (probe == null || probe.Cam == null) return;
         camYaw += Input.GetAxisRaw("Mouse X") * lookSensitivity;
         camPitch = Mathf.Clamp(camPitch - Input.GetAxisRaw("Mouse Y") * lookSensitivity, -85f, 85f);
-        probe.Cam.transform.localRotation = Quaternion.Euler(camPitch, camYaw, 0f);   // relativo al frame (fermo) della sonda
+        var look = Quaternion.Euler(camPitch, camYaw, 0f);
+        probe.Cam.transform.localRotation = look;                 // relativo al frame (fermo) della sonda
+        probe.SetGaze(look * Vector3.forward);                    // la telecamera cosmetica scivola sul guscio dove guardi
     }
 
     void RecallProbe()
