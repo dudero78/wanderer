@@ -57,7 +57,9 @@ public class OpticalInstrument : MonoBehaviour
                 float w = Input.mouseScrollDelta.y;
                 if (Mathf.Abs(w) > 0.01f)
                 {
-                    wheelZoom = Mathf.Clamp(wheelZoom + w * 0.35f, 1f, WheelMax);
+                    // clampo il delta per-evento: su Mac la rotella manda "momentum" con valori grandi e irregolari →
+                    // limitarlo rende i passi più uniformi (e lo smorzamento li anima dolcemente).
+                    wheelZoom = Mathf.Clamp(wheelZoom + Mathf.Clamp(w, -2f, 2f) * 0.3f, 1f, WheelMax);
                     RecomputeTarget();
                 }
             }
@@ -69,9 +71,12 @@ public class OpticalInstrument : MonoBehaviour
         // slider FOV delle opzioni funziona (prima la riportava indietro ogni frame). Seguo il valore scelto dal giocatore.
         if (animating)
         {
-            cam.fieldOfView = Mathf.MoveTowards(cam.fieldOfView, targetFov,
-                Mathf.Max(2f, Mathf.Abs(cam.fieldOfView - targetFov)) * 8f * Time.unscaledDeltaTime);
-            if (Mathf.Abs(cam.fieldOfView - targetFov) < 0.01f) { cam.fieldOfView = targetFov; animating = false; }
+            // smorzamento ESPONENZIALE (frame-rate independent): la FOV ease verso il target con costante ~0.08s. Anche i
+            // passi piccoli della rotella ad alto ingrandimento si ANIMANO (prima un "pavimento" di velocità li snappava
+            // → sembravano scatti). La FOV insegue il target anche mentre scrolli di continuo → zoom fluido.
+            float k = 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime);
+            cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, targetFov, k);
+            if (Mathf.Abs(cam.fieldOfView - targetFov) < 0.0008f * targetFov) { cam.fieldOfView = targetFov; animating = false; }
         }
         else if (level == 0)
         {

@@ -17,7 +17,7 @@ Shader "Wanderer/StarHalo"
         _HaloFluxRef ("Flusso di riferimento (forza alone)", Float) = 55.0
         // raggi di diffrazione: prima una croce a 4 punte (assi), poi — più in alto — una seconda croce ruotata di 45°
         // (8 punte in tutto). Appaiono e CRESCONO salendo d'ingrandimento (telescopio), come nelle foto vere.
-        _SpikeSharp ("Finezza dei raggi", Float) = 650.0
+        _SpikeSharp ("Finezza dei raggi", Float) = 950.0
         _SpikeStr   ("Intensità dei raggi", Float) = 0.55
         _SpikeOn    ("Zoom inizio croce dritta", Float) = 20.0
         _SpikeOn2   ("Zoom inizio croce a 45°", Float) = 70.0
@@ -30,7 +30,7 @@ Shader "Wanderer/StarHalo"
         _CoreStr  ("Forza nucleo nitido", Float) = 0.9
         // LENS FLARE: un anello circolare a poca distanza dal nucleo (come i "fantasmi" dell'obiettivo), compare coi raggi.
         _FlareR   ("Raggio anello lens flare", Float) = 0.26
-        _FlareW   ("Spessore anello (più piccolo = sottile)", Float) = 0.0007
+        _FlareW   ("Spessore anello (più piccolo = sottile)", Float) = 0.0004
         _FlareStr ("Forza anello", Float) = 0.35
     }
     SubShader
@@ -105,7 +105,7 @@ Shader "Wanderer/StarHalo"
                 // luminosità EXTRA di raggi+anello SOLO ad alto ingrandimento: 1 fino a ~80×, fino a ~5× a max zoom →
                 // a massimo ingrandimento sparano. (Il nucleo e l'alone restano com'erano.) _SkyZoom: 80×≈300, 160×≈800.
                 float zhz = max(_SkyZoom, 1.0);
-                float hz = 1.0 + saturate((zhz - 275.0) / 600.0) * 2.5;   // 75×≈275 → 1, max zoom → ~3.2× (rampa larga = graduale)
+                float hz = 1.0 + saturate((zhz - 275.0) / 600.0) * 4.5;   // 75×≈275 → 1, max zoom → ~5× (rampa larga = graduale)
                 // LENS FLARE: anello gaussiano a raggio _FlareR (poca distanza dal nucleo). Compare da ~75×, salita graduale.
                 float flareGate = saturate((zhz - 275.0) / 350.0);
                 float dr = r - _FlareR;
